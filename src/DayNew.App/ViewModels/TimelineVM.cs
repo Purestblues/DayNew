@@ -125,18 +125,21 @@ public sealed class TimelineBlockVM : ObservableObject
     public override string ToString() => $"{Title} {TimeText}".Trim();
 }
 
-/// <summary>左侧刻度。</summary>
+/// <summary>左侧刻度（整点或细分刻度）。</summary>
 public sealed class TimelineHourVM : ObservableObject
 {
     private double _height;
 
-    public TimelineHourVM(string text, double height)
+    public TimelineHourVM(string text, double height, bool isHour = true)
     {
         Text = text;
         _height = height;
+        IsHour = isHour;
     }
 
     public string Text { get; }
+
+    public bool IsHour { get; }
 
     public double Height
     {

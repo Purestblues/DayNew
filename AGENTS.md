@@ -197,7 +197,7 @@ dotnet publish src\DayNew.App\DayNew.App.csproj -c Release -r win-x64 `
 
 # 运行（进程在跑会锁住 bin 输出，先杀进程再 build）
 Get-Process DayNew -ErrorAction SilentlyContinue | Stop-Process -Force
-.\src\DayNew.App\bin\Debug\net10.0-windows\DayNew.exe
+.\src\DayNew.App\bin\Debug\net10.0-windows10.0.19041.0\DayNew.exe
 ```
 
 安装版说明：

@@ -18,6 +18,11 @@ namespace DayNew.Views;
 public partial class MainWindow : Window
 {
     private readonly MainViewModel _vm = new();
+    private readonly TrayService _tray;
+    private readonly NotificationService _notifications;
+    private bool _allowExit;
+    private bool _hasCentered;
+    private bool _cleanedUp;
 
     private Point _pressPoint;
     private TaskVM? _pressedTask;
@@ -31,11 +36,13 @@ public partial class MainWindow : Window
     private int _blockMinutes;
     private bool _timelineScrolled;
 
-    // 在时间轴空白处拖一段 = 新建日程
+    // 在时间轴空白处拖一段（或单击红线附近） = 新建日程
     private bool _creating;
     private int _createDay;
     private int _createAnchorMinutes;
+    private bool _createAnchorSnappedToNow;
     private Border? _createGhost;
+    private const double RedLineSnapPx = 10.0;
     private bool _dragging;
     private Border? _ghost;
     private LaneVM? _hoverLane;
@@ -50,6 +57,7 @@ public partial class MainWindow : Window
     private TaskVM? _pendingOpen;
 
     private readonly DispatcherTimer _toastTimer = new() { Interval = TimeSpan.FromMilliseconds(1800) };
+    private readonly DispatcherTimer _nowLineTimer = new() { Interval = TimeSpan.FromSeconds(5) };
     private int _toastSeq;
     private bool _blockGhostPlaced;
 
@@ -91,6 +99,27 @@ public partial class MainWindow : Window
         ApplyThemeIcon();
         UpdateMaxIcon();
 
+        _tray = new TrayService(
+            onOpen: ShowFromTray,
+            onToggleWindow: ToggleTrayWindow,
+            getNotifyEnabled: () => _vm.NotifyEnabled,
+            setNotifyEnabled: v => _vm.NotifyEnabled = v,
+            getAutoStartEnabled: () => _vm.AutoStartEnabled,
+            setAutoStartEnabled: v => _vm.AutoStartEnabled = v,
+            onExit: ExitApplication);
+
+        _notifications = new NotificationService(
+            _vm.Settings,
+            () => _vm.AllSchedules,
+            onOpenWindow: ShowFromTray,
+            onCompleteTask: id =>
+            {
+                if (_vm.CompleteTaskById(id)) _vm.FlushSave();
+            });
+
+        var (todayPending, overdueCount) = _vm.GetSummaryCounts();
+        _tray.UpdateTooltip(todayPending, overdueCount);
+
         PreviewMouseLeftButtonDown += OnPreviewDown;
         PreviewMouseMove += OnPreviewMove;
         PreviewMouseLeftButtonUp += OnPreviewUp;
@@ -104,16 +133,28 @@ public partial class MainWindow : Window
             if (_dragging || _draggingBlock || _panning || _resizingBlock) CancelActiveInteractions();
         };
         StateChanged += (_, _) => UpdateMaxIcon();
-        Closing += (_, _) => _vm.FlushSave();
+        Closing += OnWindowClosing;
+        Closed += (_, _) =>
+        {
+            if (_allowExit) Application.Current.Shutdown();
+        };
 
-        // 不依赖 WindowStartupLocation：在多屏 / 高 DPI 下它会把窗口丢到屏幕外
-        Loaded += (_, _) => CenterOnScreen();
+        // 不依赖 WindowStartupLocation：在多屏 / 高 DPI 下它会把窗口丢到屏幕外；只首开时居中一次
+        Loaded += (_, _) =>
+        {
+            if (_hasCentered) return;
+            _hasCentered = true;
+            CenterOnScreen();
+        };
 
         _vm.PropertyChanged += OnViewModelPropertyChanged;
         _vm.ToastRequested += ShowToast;
         _vm.TaskTouched += OnTaskTouched;
+        _vm.SummaryChanged += _tray.UpdateTooltip;
         _toastTimer.Tick += (_, _) => HideToast();
         _expandTimer.Tick += (_, _) => CommitPendingExpand();
+        _nowLineTimer.Tick += (_, _) => _vm.RefreshCurrentTime();
+        _nowLineTimer.Start();
 
         NavHost.SelectionChanged += (_, _) =>
         {
@@ -129,7 +170,11 @@ public partial class MainWindow : Window
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(MainViewModel.IsEditorOpen))
-            SyncEditorVisibility(_vm.IsEditorOpen);
+            AnimateModalVisibility(EditorLayer, EditorScrim, EditorDialog, EditorScale, EditorShift,
+                _vm.IsEditorOpen, () => _vm.IsEditorOpen);
+        else if (e.PropertyName == nameof(MainViewModel.IsSettingsOpen))
+            AnimateModalVisibility(SettingsLayer, SettingsScrim, SettingsDialog, SettingsScale, SettingsShift,
+                _vm.IsSettingsOpen, () => _vm.IsSettingsOpen);
     }
 
     // ==================== 标题栏 ====================
@@ -148,6 +193,13 @@ public partial class MainWindow : Window
 
     private IntPtr WindowHook(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
+        if (msg == App.WmShowMainWindow)
+        {
+            ShowFromTray();
+            handled = true;
+            return IntPtr.Zero;
+        }
+
         if (msg == WmMouseHWheel)
         {
             var delta = unchecked((short)((wParam.ToInt64() >> 16) & 0xFFFF));
@@ -183,7 +235,7 @@ public partial class MainWindow : Window
 
     private bool HandleHorizontalWheel(int delta)
     {
-        if (_vm.IsEditorOpen) return false;
+        if (_vm.IsEditorOpen || _vm.IsSettingsOpen) return false;
 
         var pos = Mouse.GetPosition(this);
         ScrollViewer? target = null;
@@ -280,6 +332,78 @@ public partial class MainWindow : Window
         => WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
 
     private void Close_Click(object sender, RoutedEventArgs e) => Close();
+
+    // ==================== 托盘 / 窗口显隐 / 设置 ====================
+
+    private void OnWindowClosing(object? sender, CancelEventArgs e)
+    {
+        _vm.FlushSave();
+
+        if (!_allowExit && _vm.CloseToTray)
+        {
+            e.Cancel = true;
+            HideToTray();
+            return;
+        }
+
+        _allowExit = true;
+    }
+
+    public void ShowFromTray()
+    {
+        if (!IsVisible) Show();
+        if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
+
+        Activate();
+        if (!IsActive)
+        {
+            Topmost = true;
+            Topmost = false;
+            Focus();
+        }
+    }
+
+    private void HideToTray()
+    {
+        CancelActiveInteractions();
+        _vm.CloseSettings();
+        _vm.FlushSave();
+        Hide();
+    }
+
+    private void ToggleTrayWindow()
+    {
+        if (IsVisible && WindowState != WindowState.Minimized && IsActive)
+            HideToTray();
+        else
+            ShowFromTray();
+    }
+
+    private void ExitApplication()
+    {
+        _allowExit = true;
+        Application.Current.Shutdown();
+    }
+
+    public void CleanupOnExit()
+    {
+        if (_cleanedUp) return;
+        _cleanedUp = true;
+        _nowLineTimer.Stop();
+        _vm.FlushSave();
+        _notifications.Dispose();
+        _tray.Dispose();
+    }
+
+    private void SettingsOpen_Click(object sender, RoutedEventArgs e) => _vm.OpenSettings();
+
+    private void SettingsClose_Click(object sender, RoutedEventArgs e) => _vm.CloseSettings();
+
+    private void SettingsScrim_Click(object sender, MouseButtonEventArgs e) => _vm.CloseSettings();
+
+    private void OpenDataFolder_Click(object sender, RoutedEventArgs e) => _vm.OpenDataFolder();
+
+    private void TestNotify_Click(object sender, RoutedEventArgs e) => _notifications.SendTestNotification();
 
     // ==================== 卡片内操作 ====================
 
@@ -499,12 +623,22 @@ public partial class MainWindow : Window
 
     private void Today_Click(object sender, RoutedEventArgs e) => SmoothScrollToToday();
 
+    private (double Horizontal, double Vertical) GetTodayNowScrollOffset()
+    {
+        _vm.RefreshCurrentTime();
+        var h = Math.Max(0, (_vm.TodayIndex - 1) * MainViewModel.DayWidth);
+        var maxV = Math.Max(0, _vm.GridHeight - BodyScroll.ViewportHeight);
+        var v = Math.Clamp(_vm.NowLineTop - 44, 0, maxV);
+        return (h, v);
+    }
+
     private void ScrollToToday()
     {
         StopZoomAnimation();
         StopScrollAnimation();
-        BodyScroll.ScrollToHorizontalOffset((_vm.TodayIndex - 1) * MainViewModel.DayWidth);
-        BodyScroll.ScrollToVerticalOffset(_vm.PxPerHourValue * 7);
+        var (h, v) = GetTodayNowScrollOffset();
+        BodyScroll.ScrollToHorizontalOffset(h);
+        BodyScroll.ScrollToVerticalOffset(v);
     }
 
     private void SmoothScrollToToday()
@@ -512,10 +646,11 @@ public partial class MainWindow : Window
         StopZoomAnimation();
         StopScrollAnimation();
 
+        var (h, v) = GetTodayNowScrollOffset();
         _scrollFromH = BodyScroll.HorizontalOffset;
-        _scrollToH = (_vm.TodayIndex - 1) * MainViewModel.DayWidth;
+        _scrollToH = h;
         _scrollFromV = BodyScroll.VerticalOffset;
-        _scrollToV = _vm.PxPerHourValue * 7;
+        _scrollToV = v;
 
         if (Math.Abs(_scrollToH - _scrollFromH) < 1 && Math.Abs(_scrollToV - _scrollFromV) < 1) return;
 
@@ -624,6 +759,13 @@ public partial class MainWindow : Window
     {
         if (e.Key == Key.Escape)
         {
+            if (_vm.IsSettingsOpen)
+            {
+                _vm.CloseSettings();
+                e.Handled = true;
+                return;
+            }
+
             if (_vm.IsEditorOpen)
             {
                 _vm.CloseEditor();
@@ -643,7 +785,7 @@ public partial class MainWindow : Window
         }
 
         // 弹窗开着就别再响应全局快捷键
-        if (_vm.IsEditorOpen) return;
+        if (_vm.IsEditorOpen || _vm.IsSettingsOpen) return;
 
         if (e.Key == Key.Space && _vm.IsTimeline && Keyboard.FocusedElement is not TextBoxBase)
         {
@@ -817,7 +959,10 @@ public partial class MainWindow : Window
                 {
                     _creating = true;
                     _createDay = day;
-                    _createAnchorMinutes = MinutesAt(_pressPoint, floor: true);
+                    _createAnchorSnappedToNow = IsNearRedLine(_pressPoint);
+                    _createAnchorMinutes = _createAnchorSnappedToNow
+                        ? Math.Clamp(_vm.CurrentMinutes, 0, 24 * 60)
+                        : MinutesAt(_pressPoint, floor: true);
                 }
                 else if (IsInsideElement(_pressPoint, PageHost))
                 {
@@ -905,7 +1050,11 @@ public partial class MainWindow : Window
                 return;
             }
 
-            UpdateCreateGhost(e.GetPosition(this));
+            var cp = e.GetPosition(this);
+            if (_createGhost is null && Math.Abs(cp.Y - _pressPoint.Y) < 4 && Math.Abs(cp.X - _pressPoint.X) < 4)
+                return;
+
+            UpdateCreateGhost(cp);
             return;
         }
 
@@ -1097,7 +1246,7 @@ public partial class MainWindow : Window
                 Text = _pressedTask.Title,
                 Foreground = (Brush)FindResource("TextPrimary"),
                 FontFamily = (FontFamily)FindResource("AppFont"),
-                FontSize = 15,
+                FontSize = 13.5,
                 FontWeight = FontWeights.SemiBold,
                 TextWrapping = TextWrapping.Wrap
             }
@@ -1219,6 +1368,19 @@ public partial class MainWindow : Window
         return -1;
     }
 
+    private bool IsNearRedLine(Point p)
+    {
+        if (!IsInsideBody(p)) return false;
+        var origin = BodyScroll.TranslatePoint(new Point(0, 0), this);
+        var contentY = p.Y - origin.Y + BodyScroll.VerticalOffset;
+        return Math.Abs(contentY - _vm.NowLineTop) <= RedLineSnapPx;
+    }
+
+    private int SnapMinutesToGridOrRedLine(Point p, bool floor)
+        => IsNearRedLine(p)
+            ? Math.Clamp(_vm.CurrentMinutes, 0, 24 * 60)
+            : MinutesAt(p, floor);
+
     /// <summary>把窗口坐标换算成「第几分钟」，按当前缩放间隔取整。</summary>
     private int MinutesAt(Point p, bool floor)
     {
@@ -1236,13 +1398,31 @@ public partial class MainWindow : Window
     private (int Start, int End) CreateRange(Point p)
     {
         var interval = Math.Max(1, _vm.IntervalMinutes);
+        var minStep = interval == 1 ? 1 : 5;
         var a = _createAnchorMinutes;
-        var b = MinutesAt(p, floor: false);
-        var start = Math.Min(a, b - interval);
-        var end = Math.Max(a + interval, b);
+        var b = SnapMinutesToGridOrRedLine(p, floor: false);
 
-        start = Math.Clamp(start, 0, 24 * 60 - interval);
-        end = Math.Clamp(end, start + interval, 24 * 60);
+        int start;
+        int end;
+        if (b > a)
+        {
+            start = a;
+            end = Math.Max(a + minStep, b);
+        }
+        else if (b < a)
+        {
+            start = b;
+            end = Math.Max(b + minStep, a);
+        }
+        else
+        {
+            var fallback = _createAnchorSnappedToNow ? Math.Min(interval, 30) : interval;
+            start = Math.Clamp(a, 0, 24 * 60 - minStep);
+            end = start + fallback;
+        }
+
+        start = Math.Clamp(start, 0, 24 * 60 - minStep);
+        end = Math.Clamp(end, start + minStep, 24 * 60);
 
         return (start, end);
     }
@@ -1268,7 +1448,7 @@ public partial class MainWindow : Window
                 Child = new TextBlock
                 {
                     FontFamily = (FontFamily)FindResource("AppFont"),
-                    FontSize = 12.5,
+                    FontSize = 11.5,
                     FontWeight = FontWeights.SemiBold,
                     Foreground = (Brush)FindResource("Accent")
                 }
@@ -1294,10 +1474,21 @@ public partial class MainWindow : Window
         }
 
         var day = _createDay;
+        var snappedNow = _createAnchorSnappedToNow;
         _creating = false;
+        _createAnchorSnappedToNow = false;
 
-        // 只是点了一下空白，没有拖：什么也不做
-        if (!hadGhost || day < 0 || day >= _vm.TimelineDays.Count) return;
+        if (day < 0 || day >= _vm.TimelineDays.Count) return;
+
+        // 仅在红线附近单击时直接从当前时刻起新建（默认 30 分钟）；其余空白单击不误触
+        if (!hadGhost)
+        {
+            if (!snappedNow) return;
+            var nowStart = Math.Clamp(_vm.CurrentMinutes, 0, 24 * 60 - 5);
+            var nowEnd = Math.Min(24 * 60, nowStart + 30);
+            OpenNewEditor(_vm.TimelineDays[day].Date, nowStart, nowEnd);
+            return;
+        }
 
         var (start, end) = CreateRange(p);
         OpenNewEditor(_vm.TimelineDays[day].Date, start, end);
@@ -1400,7 +1591,7 @@ public partial class MainWindow : Window
                 Text = _pressedBlock.Title,
                 Foreground = (Brush)FindResource("TextPrimary"),
                 FontFamily = (FontFamily)FindResource("AppFont"),
-                FontSize = 13,
+                FontSize = 12,
                 FontWeight = FontWeights.SemiBold,
                 TextTrimming = TextTrimming.CharacterEllipsis
             }
@@ -1426,7 +1617,9 @@ public partial class MainWindow : Window
         day = Math.Clamp(day, 0, Math.Max(0, _vm.TimelineDays.Count - 1));
 
         var interval = Math.Max(1, _vm.IntervalMinutes);
-        var minutes = (int)Math.Round(contentY / _vm.PxPerHourValue * 60.0 / interval) * interval;
+        var minutes = IsNearRedLine(p)
+            ? _vm.CurrentMinutes
+            : (int)Math.Round(contentY / _vm.PxPerHourValue * 60.0 / interval) * interval;
 
         var duration = MainViewModel.DurationMinutes(_pressedBlock.Task);
         minutes = Math.Clamp(minutes, 0, Math.Max(0, 24 * 60 - duration));
@@ -1515,7 +1708,7 @@ public partial class MainWindow : Window
             Child = new TextBlock
             {
                 FontFamily = (FontFamily)FindResource("AppFont"),
-                FontSize = 12.5,
+                FontSize = 11.5,
                 FontWeight = FontWeights.SemiBold,
                 Foreground = (Brush)FindResource("TextPrimary")
             }
@@ -1532,7 +1725,9 @@ public partial class MainWindow : Window
         if (_resizeCandidateBlock is null) return;
 
         var rawMinutes = RawMinutesAt(p);
-        var snapped = (int)Math.Round(rawMinutes / 5.0) * 5;
+        var snapped = IsNearRedLine(p)
+            ? _vm.CurrentMinutes
+            : (int)Math.Round(rawMinutes / 5.0) * 5;
 
         int newStart;
         int newEnd;
@@ -1862,6 +2057,7 @@ public partial class MainWindow : Window
                 _createGhost = null;
             }
             _creating = false;
+            _createAnchorSnappedToNow = false;
         }
 
         ResetPressedVisuals();
@@ -1903,42 +2099,49 @@ public partial class MainWindow : Window
         Motion.AnimateOpacity(page, 1, Motion.M);
     }
 
-    private void SyncEditorVisibility(bool open)
+    private static void AnimateModalVisibility(
+        Grid layer,
+        Border scrim,
+        Border dialog,
+        ScaleTransform scale,
+        TranslateTransform shift,
+        bool open,
+        Func<bool> isStillOpen)
     {
         if (open)
         {
-            EditorLayer.Visibility = Visibility.Visible;
-            EditorLayer.IsHitTestVisible = true;
+            layer.Visibility = Visibility.Visible;
+            layer.IsHitTestVisible = true;
 
-            EditorScrim.BeginAnimation(OpacityProperty, null);
-            EditorDialog.BeginAnimation(OpacityProperty, null);
-            EditorScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
-            EditorScale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
-            EditorShift.BeginAnimation(TranslateTransform.YProperty, null);
+            scrim.BeginAnimation(OpacityProperty, null);
+            dialog.BeginAnimation(OpacityProperty, null);
+            scale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+            scale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+            shift.BeginAnimation(TranslateTransform.YProperty, null);
 
-            EditorScrim.Opacity = 0;
-            EditorDialog.Opacity = 0;
-            EditorScale.ScaleX = 0.97;
-            EditorScale.ScaleY = 0.97;
-            EditorShift.Y = 10;
+            scrim.Opacity = 0;
+            dialog.Opacity = 0;
+            scale.ScaleX = 0.97;
+            scale.ScaleY = 0.97;
+            shift.Y = 10;
 
-            Motion.AnimateOpacity(EditorScrim, 1, TimeSpan.FromMilliseconds(180));
-            Motion.AnimateOpacity(EditorDialog, 1, Motion.M);
-            EditorScale.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(1, Motion.M) { EasingFunction = Motion.EaseOut });
-            EditorScale.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(1, Motion.M) { EasingFunction = Motion.EaseOut });
-            Motion.AnimateOffsetY(EditorShift, 0, Motion.M);
+            Motion.AnimateOpacity(scrim, 1, TimeSpan.FromMilliseconds(180));
+            Motion.AnimateOpacity(dialog, 1, Motion.M);
+            scale.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(1, Motion.M) { EasingFunction = Motion.EaseOut });
+            scale.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(1, Motion.M) { EasingFunction = Motion.EaseOut });
+            Motion.AnimateOffsetY(shift, 0, Motion.M);
         }
         else
         {
-            EditorLayer.IsHitTestVisible = false;
+            layer.IsHitTestVisible = false;
 
-            Motion.AnimateOpacity(EditorScrim, 0, Motion.S, Motion.EaseIn);
-            EditorScale.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(0.98, Motion.S) { EasingFunction = Motion.EaseIn });
-            EditorScale.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(0.98, Motion.S) { EasingFunction = Motion.EaseIn });
-            Motion.AnimateOffsetY(EditorShift, 6, Motion.S, Motion.EaseIn);
-            Motion.AnimateOpacity(EditorDialog, 0, Motion.S, Motion.EaseIn, () =>
+            Motion.AnimateOpacity(scrim, 0, Motion.S, Motion.EaseIn);
+            scale.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(0.98, Motion.S) { EasingFunction = Motion.EaseIn });
+            scale.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(0.98, Motion.S) { EasingFunction = Motion.EaseIn });
+            Motion.AnimateOffsetY(shift, 6, Motion.S, Motion.EaseIn);
+            Motion.AnimateOpacity(dialog, 0, Motion.S, Motion.EaseIn, () =>
             {
-                if (!_vm.IsEditorOpen) EditorLayer.Visibility = Visibility.Collapsed;
+                if (!isStillOpen()) layer.Visibility = Visibility.Collapsed;
             });
         }
     }

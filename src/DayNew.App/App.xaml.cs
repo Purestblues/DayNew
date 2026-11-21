@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Windows;
+using System.Windows.Interop;
 using DayNew.Services;
 using DayNew.ViewModels;
 using DayNew.Views;
@@ -17,6 +18,10 @@ public partial class App : Application
     private const string MutexName = @"Local\DayNew.SingleInstance";
     private const string WindowTitle = "日新 DayNew";
 
+    public static bool StartupSilent { get; set; }
+
+    public static readonly uint WmShowMainWindow = RegisterWindowMessage("DayNew.ShowMainWindow");
+
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
@@ -25,7 +30,7 @@ public partial class App : Application
 
         if (!isFirstInstance)
         {
-            ActivateExistingWindow();
+            if (!StartupSilent) ActivateExistingWindow();
             Shutdown();
             return;
         }
@@ -33,13 +38,24 @@ public partial class App : Application
         ThemeService.ApplyInitial();
         var window = new MainWindow();
         MainWindow = window;
-        window.Show();
+
+        if (StartupSilent)
+        {
+            // 只建 HWND 并挂载消息钩子，不弹窗，确保后台静默常驻且可被单实例再次唤醒
+            new WindowInteropHelper(window).EnsureHandle();
+        }
+        else
+        {
+            window.Show();
+        }
     }
 
     protected override void OnExit(ExitEventArgs e)
     {
-        // 别把最后一次改动丢在内存里
-        (MainWindow?.DataContext as MainViewModel)?.FlushSave();
+        if (MainWindow is MainWindow mw)
+            mw.CleanupOnExit();
+        else
+            (MainWindow?.DataContext as MainViewModel)?.FlushSave();
 
         try
         {
@@ -54,27 +70,30 @@ public partial class App : Application
         base.OnExit(e);
     }
 
-    /// <summary>已经开着就把那个窗口拉到前面，而不是再开一个。</summary>
+    /// <summary>已经开着（含隐藏在托盘里）就把那个窗口拉到前面，而不是再开一个。</summary>
     private static void ActivateExistingWindow()
     {
         var handle = FindWindow(null, WindowTitle);
         if (handle == IntPtr.Zero) return;
 
-        if (IsIconic(handle)) ShowWindow(handle, SwRestore);
-        SetForegroundWindow(handle);
+        GetWindowThreadProcessId(handle, out var pid);
+        if (pid != 0) AllowSetForegroundWindow(pid);
+
+        PostMessage(handle, WmShowMainWindow, IntPtr.Zero, IntPtr.Zero);
     }
 
-    private const int SwRestore = 9;
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern uint RegisterWindowMessage(string lpString);
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern IntPtr FindWindow(string? className, string windowName);
 
     [DllImport("user32.dll")]
-    private static extern bool SetForegroundWindow(IntPtr handle);
+    private static extern bool PostMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
 
     [DllImport("user32.dll")]
-    private static extern bool ShowWindow(IntPtr handle, int command);
+    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
 
     [DllImport("user32.dll")]
-    private static extern bool IsIconic(IntPtr handle);
+    private static extern bool AllowSetForegroundWindow(uint dwProcessId);
 }

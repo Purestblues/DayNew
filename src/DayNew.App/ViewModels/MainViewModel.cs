@@ -1,4 +1,6 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
+using System.IO;
 using System.Windows;
 using System.Windows.Media;
 using DayNew.Core;
@@ -18,6 +20,11 @@ public sealed class MainViewModel : ObservableObject
 
     public event Action<string, bool>? ToastRequested;
     public event Action<TaskVM>? TaskTouched;
+    public event Action<int, int>? SummaryChanged;
+
+    public AppSettings Settings { get; } = AppSettings.Load();
+
+    public IReadOnlyList<TaskVM> AllSchedules => _all;
 
     private void Notify(string message, bool highlight = false) => ToastRequested?.Invoke(message, highlight);
 
@@ -31,11 +38,100 @@ public sealed class MainViewModel : ObservableObject
     public ScheduleEditorVM Editor { get; }
 
     private bool _isEditorOpen;
+    private bool _isSettingsOpen;
 
     public bool IsEditorOpen
     {
         get => _isEditorOpen;
         private set => Set(ref _isEditorOpen, value);
+    }
+
+    public bool IsSettingsOpen
+    {
+        get => _isSettingsOpen;
+        private set => Set(ref _isSettingsOpen, value);
+    }
+
+    public bool AutoStartEnabled
+    {
+        get => AutoStartService.IsEnabled;
+        set
+        {
+            if (AutoStartService.IsEnabled == value) return;
+            if (!AutoStartService.SetEnabled(value))
+            {
+                Notify("写入开机自启设置失败", highlight: true);
+                OnPropertyChanged();
+                return;
+            }
+            OnPropertyChanged();
+            Notify(value ? "已开启开机静默自启" : "已关闭开机自启");
+        }
+    }
+
+    public bool CloseToTray
+    {
+        get => Settings.CloseToTray;
+        set
+        {
+            if (Settings.CloseToTray == value) return;
+            Settings.CloseToTray = value;
+            Settings.Save();
+            OnPropertyChanged();
+        }
+    }
+
+    public bool NotifyEnabled
+    {
+        get => Settings.NotifyEnabled;
+        set
+        {
+            if (Settings.NotifyEnabled == value) return;
+            Settings.NotifyEnabled = value;
+            Settings.Save();
+            OnPropertyChanged();
+            Notify(value ? "已开启系统通知" : "已暂停系统通知");
+        }
+    }
+
+    public string DataFolderPath => StoreFile.Folder;
+
+    public string AppVersion => "v" + (typeof(MainViewModel).Assembly.GetName().Version?.ToString(3) ?? "0.1.0");
+
+    public void OpenSettings()
+    {
+        OnPropertyChanged(nameof(AutoStartEnabled));
+        IsSettingsOpen = true;
+    }
+
+    public void CloseSettings() => IsSettingsOpen = false;
+
+    public void OpenDataFolder()
+    {
+        try
+        {
+            Directory.CreateDirectory(StoreFile.Folder);
+            Process.Start(new ProcessStartInfo("explorer.exe", StoreFile.Folder) { UseShellExecute = true });
+        }
+        catch
+        {
+            Notify("无法打开数据目录", highlight: true);
+        }
+    }
+
+    public (int TodayPending, int OverdueCount) GetSummaryCounts()
+    {
+        var today = DateTime.Today;
+        var todayPending = _all.Count(t => !t.Done && t.Due?.Date == today);
+        return (todayPending, OverdueLane.Count);
+    }
+
+    public bool CompleteTaskById(string taskId)
+    {
+        var task = _all.FirstOrDefault(t => t.Id == taskId);
+        if (task is null || task.Done) return false;
+        ToggleDone(task);
+        return true;
     }
 
     /// <summary>左侧 dock 是否展开（折叠后只留图标）。</summary>
@@ -273,6 +369,9 @@ public sealed class MainViewModel : ObservableObject
         _file.MarkDirty(_store);
 
         RebuildTimeline();
+
+        var (todayPending, overdueCount) = GetSummaryCounts();
+        SummaryChanged?.Invoke(todayPending, overdueCount);
     }
 
     // ---------------- 操作 ----------------
@@ -472,6 +571,9 @@ public sealed class MainViewModel : ObservableObject
 
     private int _zoomIndex = 1;
     private double _pxPerHour = 88;
+    private int _tickStepMinutes = 30;
+    private int _currentMinutes = DateTime.Now.Hour * 60 + DateTime.Now.Minute;
+    private DateTime _timelineBuiltDate = DateTime.Today;
 
     public ObservableCollection<TimelineDayVM> TimelineDays { get; } = new();
 
@@ -487,9 +589,40 @@ public sealed class MainViewModel : ObservableObject
 
     public double GridHeight => 24 * PxPerHourValue;
 
-    public int TodayIndex => DaysBeforeToday;
+    public int TodayIndex => (DateTime.Today - TimelineStart()).Days;
+
+    public int CurrentMinutes => _currentMinutes;
+
+    public double NowLineTop => _currentMinutes / 60.0 * PxPerHourValue;
+
+    public string NowTimeText => Clock(_currentMinutes);
+
+    public double NowTodayLeft => TodayIndex * DayWidth;
 
     public Brush GridBrush { get; private set; } = Brushes.Transparent;
+
+    public void RefreshCurrentTime()
+    {
+        var now = DateTime.Now;
+        var mins = now.Hour * 60 + now.Minute;
+
+        if (now.Date != _timelineBuiltDate)
+        {
+            _currentMinutes = mins;
+            Rebuild();
+            OnPropertyChanged(nameof(CurrentMinutes));
+            OnPropertyChanged(nameof(NowLineTop));
+            OnPropertyChanged(nameof(NowTimeText));
+            return;
+        }
+
+        if (mins == _currentMinutes) return;
+
+        _currentMinutes = mins;
+        OnPropertyChanged(nameof(CurrentMinutes));
+        OnPropertyChanged(nameof(NowLineTop));
+        OnPropertyChanged(nameof(NowTimeText));
+    }
 
     /// <summary>时间轴的第一天：本周一往前推两周，保证今天左右都有地方可滚。</summary>
     private static DateTime TimelineStart()
@@ -536,14 +669,30 @@ public sealed class MainViewModel : ObservableObject
     /// <summary>主题切换后重画网格线（画刷里带颜色，不重建就还是旧主题）。</summary>
     public void RefreshTimelineBrushes() => RebuildTimeline();
 
+    private int TickStepMinutes()
+    {
+        var interval = IntervalMinutes;
+        if (interval == 1 && PxPerHourValue < 1140) return 5;
+        return Math.Max(1, interval);
+    }
+
+    private void RebuildTimelineHours(double pxPerHour, int step)
+    {
+        _tickStepMinutes = step;
+        var slotHeight = pxPerHour * step / 60.0;
+        TimelineHours.Clear();
+        for (var m = 0; m < 24 * 60; m += step)
+            TimelineHours.Add(new TimelineHourVM(Clock(m), slotHeight, isHour: m % 60 == 0));
+    }
+
     public void RebuildTimeline()
     {
+        _timelineBuiltDate = DateTime.Today;
         var pxPerHour = PxPerHourValue;
         var intervalPx = pxPerHour * IntervalMinutes / 60.0;
         GridBrush = CreateGridBrush(intervalPx);
 
-        TimelineHours.Clear();
-        for (var h = 0; h < 24; h++) TimelineHours.Add(new TimelineHourVM($"{h:00}:00", pxPerHour));
+        RebuildTimelineHours(pxPerHour, TickStepMinutes());
 
         foreach (var option in ZoomOptions) option.IsCurrent = option.Index == _zoomIndex;
 
@@ -577,6 +726,8 @@ public sealed class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(GridHeight));
         OnPropertyChanged(nameof(GridBrush));
         OnPropertyChanged(nameof(PxPerHourValue));
+        OnPropertyChanged(nameof(NowLineTop));
+        OnPropertyChanged(nameof(NowTodayLeft));
     }
 
     private void UpdateTimelineScale()
@@ -586,7 +737,17 @@ public sealed class MainViewModel : ObservableObject
         GridBrush = CreateGridBrush(intervalPx);
 
         foreach (var option in ZoomOptions) option.IsCurrent = option.Index == _zoomIndex;
-        foreach (var hour in TimelineHours) hour.Height = pxPerHour;
+
+        var step = TickStepMinutes();
+        if (step != _tickStepMinutes)
+        {
+            RebuildTimelineHours(pxPerHour, step);
+        }
+        else
+        {
+            var slotHeight = pxPerHour * step / 60.0;
+            foreach (var hour in TimelineHours) hour.Height = slotHeight;
+        }
 
         foreach (var day in TimelineDays)
         {
@@ -607,6 +768,7 @@ public sealed class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(GridHeight));
         OnPropertyChanged(nameof(GridBrush));
         OnPropertyChanged(nameof(PxPerHourValue));
+        OnPropertyChanged(nameof(NowLineTop));
     }
 
     private static DrawingBrush CreateGridBrush(double intervalPx)

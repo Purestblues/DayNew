@@ -34,7 +34,7 @@
 
         <Style x:Key="TitleEditor" TargetType="TextBox">
             <Setter Property="FontFamily" Value="{StaticResource AppFont}"/>
-            <Setter Property="FontSize" Value="15"/>
+            <Setter Property="FontSize" Value="13.5"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
             <Setter Property="Foreground" Value="{DynamicResource TextPrimary}"/>
             <Setter Property="CaretBrush" Value="{DynamicResource Accent}"/>
@@ -83,7 +83,7 @@
 
                     <ToggleButton Grid.Column="0" Style="{StaticResource CheckDot}"
                                   IsChecked="{Binding Done, Mode=OneWay}"
-                                  VerticalAlignment="Top" Margin="0,4,9,0"
+                                  VerticalAlignment="Top" Margin="0,2,9,0"
                                   Click="Check_Click"/>
 
                     <Grid Grid.Column="1">
@@ -93,7 +93,7 @@
                         </Grid.ColumnDefinitions>
 
                         <Ellipse Width="6" Height="6" Fill="{Binding Goal.Color}"
-                                 VerticalAlignment="Top" Margin="0,8,6,0"
+                                 VerticalAlignment="Top" Margin="0,7,6,0"
                                  Visibility="{Binding HasGoal, Converter={StaticResource BoolToVisible}}"/>
 
                         <StackPanel Grid.Column="1">
@@ -119,7 +119,7 @@
                                              MinHeight="46" MaxHeight="140"
                                              VerticalScrollBarVisibility="Auto"/>
                                     <TextBlock Text="备注（选填）" IsHitTestVisible="False"
-                                               FontSize="13.5" FontWeight="Medium" Margin="8,6,0,0"
+                                               FontSize="12.5" FontWeight="Medium" Margin="8,6,0,0"
                                                VerticalAlignment="Top"
                                                Foreground="{DynamicResource TextTertiary}"
                                                Visibility="{Binding Note, Converter={StaticResource EmptyToVisible}}"/>
@@ -156,7 +156,7 @@
                                              ToolTip="回车添加标签"
                                              KeyDown="TagInput_KeyDown"/>
                                     <TextBlock Text="+ 标签" IsHitTestVisible="False"
-                                               FontSize="13" FontWeight="Medium" Margin="8,0,0,0"
+                                               FontSize="12" FontWeight="Medium" Margin="8,0,0,0"
                                                VerticalAlignment="Center"
                                                Foreground="{DynamicResource TextTertiary}"
                                                Visibility="{Binding Text, ElementName=tagBox, UpdateSourceTrigger=PropertyChanged, Converter={StaticResource EmptyToVisible}}"/>
@@ -170,7 +170,7 @@
                                              KeyDown="TimeBox_KeyDown"
                                              LostFocus="TimeBox_LostFocus"/>
                                     <TextBlock Text="时间 9-10:30" IsHitTestVisible="False"
-                                               FontSize="12.5" FontWeight="Medium" Margin="8,0,0,0"
+                                               FontSize="11.5" FontWeight="Medium" Margin="8,0,0,0"
                                                VerticalAlignment="Center"
                                                Foreground="{DynamicResource TextTertiary}"
                                                Visibility="{Binding Text, ElementName=timeBox, UpdateSourceTrigger=PropertyChanged, Converter={StaticResource EmptyToVisible}}"/>
@@ -194,17 +194,17 @@
                                         <ColumnDefinition Width="*"/>
                                     </Grid.ColumnDefinitions>
                                     <Button Grid.Column="0" Style="{StaticResource GhostButton}"
-                                            HorizontalAlignment="Left" Padding="7,4" FontSize="12.5" Margin="0,0,4,0"
+                                            HorizontalAlignment="Left" Padding="7,4" FontSize="11.5" Margin="0,0,4,0"
                                             Content="{Binding RepeatLabel}"
                                             ToolTip="点击切换：不重复 / 每天 / 每周 / 每月"
                                             Click="Repeat_Click"/>
                                     <Button Grid.Column="1" Style="{StaticResource GhostButton}"
-                                            HorizontalAlignment="Left" Padding="7,4" FontSize="12.5"
+                                            HorizontalAlignment="Left" Padding="7,4" FontSize="11.5"
                                             Content="{Binding RemindLabel}"
                                             ToolTip="点击开关提醒"
                                             Click="Remind_Click"/>
                                     <Button Grid.Column="2" Style="{StaticResource GhostButton}"
-                                            HorizontalAlignment="Right" Padding="7,4" FontSize="12.5"
+                                            HorizontalAlignment="Right" Padding="7,4" FontSize="11.5"
                                             Foreground="{DynamicResource TextTertiary}"
                                             Content="删除" Click="Delete_Click"/>
                                 </Grid>
@@ -270,15 +270,15 @@
 
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,0,0">
                 <Border Width="22" Height="22" CornerRadius="5" Background="{DynamicResource AccentTint}">
-                    <TextBlock Text="日" FontSize="12.5" FontWeight="SemiBold"
+                    <TextBlock Text="日" FontSize="11.5" FontWeight="SemiBold"
                                Foreground="{DynamicResource Accent}"
                                HorizontalAlignment="Center" VerticalAlignment="Center"/>
                 </Border>
-                <TextBlock Text="日新" FontSize="14.5" FontWeight="SemiBold" Margin="9,0,0,0"
+                <TextBlock Text="日新" FontSize="13" FontWeight="SemiBold" Margin="9,0,0,0"
                            VerticalAlignment="Center" Foreground="{DynamicResource TextPrimary}"/>
                 <Border Background="{DynamicResource Surface3}" CornerRadius="4" Padding="6,1"
                         Margin="8,0,0,0" VerticalAlignment="Center">
-                    <TextBlock Text="原型" FontSize="12" FontWeight="Medium" Foreground="{DynamicResource TextTertiary}"/>
+                    <TextBlock Text="原型" FontSize="11" FontWeight="Medium" Foreground="{DynamicResource TextTertiary}"/>
                 </Border>
             </StackPanel>
 
@@ -337,10 +337,30 @@
                         </Button>
                     </Grid>
 
-                    <TextBlock DockPanel.Dock="Bottom" Text="v0.1 原型"
-                               Style="{StaticResource Caption}" Margin="18,0,0,14"
-                               Foreground="{DynamicResource TextDisabled}"
-                               Visibility="{Binding IsDockExpanded, Converter={StaticResource BoolToVisible}}"/>
+                    <StackPanel DockPanel.Dock="Bottom" Margin="8,4,8,12">
+                        <Button x:Name="SettingsButton" Style="{StaticResource GhostButton}"
+                                HorizontalContentAlignment="Stretch"
+                                Padding="10,8" Margin="0,0,0,8"
+                                ToolTip="设置"
+                                AutomationProperties.Name="设置"
+                                AutomationProperties.AutomationId="SettingsButton"
+                                Click="SettingsOpen_Click">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="&#xE713;" Style="{StaticResource NavIcon}" Width="24"
+                                           HorizontalAlignment="Center"/>
+                                <TextBlock Grid.Column="1" Text="设置" Style="{StaticResource NavLabel}"
+                                           Visibility="{Binding IsDockExpanded, Converter={StaticResource BoolToVisible}}"/>
+                            </Grid>
+                        </Button>
+                        <TextBlock Text="{Binding AppVersion, StringFormat={}{0} 原型}"
+                                   Style="{StaticResource Caption}" Margin="10,0,0,2"
+                                   Foreground="{DynamicResource TextDisabled}"
+                                   Visibility="{Binding IsDockExpanded, Converter={StaticResource BoolToVisible}}"/>
+                    </StackPanel>
 
                     <ListBox x:Name="NavHost" Style="{StaticResource NavList}"
                              Margin="0,2,0,8"
@@ -368,7 +388,7 @@
                                             MinWidth="20" Height="20" Padding="6,0"
                                             VerticalAlignment="Center" Margin="6,0,0,0"
                                             Visibility="Collapsed">
-                                        <TextBlock Text="{Binding BadgeCount}" FontSize="12" FontWeight="SemiBold"
+                                        <TextBlock Text="{Binding BadgeCount}" FontSize="11" FontWeight="SemiBold"
                                                    Foreground="{DynamicResource OnAccent}"
                                                    HorizontalAlignment="Center" VerticalAlignment="Center"
                                                    Typography.NumeralAlignment="Tabular"/>
@@ -649,13 +669,14 @@
                             <RowDefinition Height="*"/>
                         </Grid.RowDefinitions>
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="60"/>
+                            <ColumnDefinition Width="66"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
 
                         <!-- 工具条 -->
                         <Grid Grid.Row="0" Grid.ColumnSpan="2" Margin="0,0,0,10">
-                            <Button Content="回到今天" Style="{StaticResource GhostButton}"
+                            <Button Content="回到今日今时" Style="{StaticResource GhostButton}"
+                                    AutomationProperties.Name="回到今日今时"
                                     HorizontalAlignment="Left" Padding="9,4" Click="Today_Click"/>
                             <ItemsControl ItemsSource="{Binding ZoomOptions}" HorizontalAlignment="Right"
                                           VerticalAlignment="Center">
@@ -688,15 +709,18 @@
                                     </ItemsPanelTemplate>
                                 </ItemsControl.ItemsPanel>
                                 <ItemsControl.ItemTemplate>
-                                    <DataTemplate DataType="{x:Type vm:TimelineDayVM}">
+                                        <DataTemplate DataType="{x:Type vm:TimelineDayVM}">
                                         <Border Width="160" Padding="10,0,0,7"
                                                 BorderBrush="{DynamicResource BorderSubtle}"
                                                 BorderThickness="0,0,1,1">
                                             <StackPanel Orientation="Horizontal">
                                                 <TextBlock x:Name="dayName" Text="{Binding DayName}"
-                                                           Style="{StaticResource Eyebrow}"/>
+                                                           Style="{StaticResource Eyebrow}"
+                                                           FontSize="13.5" VerticalAlignment="Center"/>
                                                 <TextBlock x:Name="dayNumber" Text="{Binding DayNumber}"
-                                                           Style="{StaticResource Caption}" Margin="7,0,0,0"/>
+                                                           Style="{StaticResource Caption}"
+                                                           FontSize="12.5" VerticalAlignment="Center"
+                                                           Margin="7,0,0,0"/>
                                             </StackPanel>
                                         </Border>
                                         <DataTemplate.Triggers>
@@ -715,17 +739,38 @@
                                       VerticalScrollBarVisibility="Hidden"
                                       HorizontalScrollBarVisibility="Disabled"
                                       IsHitTestVisible="False" Focusable="False">
-                            <ItemsControl ItemsSource="{Binding TimelineHours}" Width="60">
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate DataType="{x:Type vm:TimelineHourVM}">
-                                        <TextBlock Text="{Binding Text}" Height="{Binding Height}"
-                                                   FontSize="12" FontWeight="Medium" Margin="0,0,8,0"
-                                                   HorizontalAlignment="Right"
-                                                   Foreground="{DynamicResource TextTertiary}"
+                            <Grid Width="66" Height="{Binding GridHeight}">
+                                <ItemsControl ItemsSource="{Binding TimelineHours}" Width="66">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate DataType="{x:Type vm:TimelineHourVM}">
+                                            <TextBlock x:Name="tickText" Text="{Binding Text}" Height="{Binding Height}"
+                                                       FontSize="11.5" FontWeight="Medium" Margin="0,0,8,0"
+                                                       HorizontalAlignment="Right"
+                                                       Foreground="{DynamicResource TextTertiary}"
+                                                       Typography.NumeralAlignment="Tabular"/>
+                                            <DataTemplate.Triggers>
+                                                <DataTrigger Binding="{Binding IsHour}" Value="True">
+                                                    <Setter TargetName="tickText" Property="FontSize" Value="12.5"/>
+                                                    <Setter TargetName="tickText" Property="FontWeight" Value="SemiBold"/>
+                                                    <Setter TargetName="tickText" Property="Foreground" Value="{DynamicResource TextSecondary}"/>
+                                                </DataTrigger>
+                                            </DataTemplate.Triggers>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+
+                                <!-- 当前分钟徽标（跟随红线高度） -->
+                                <Canvas IsHitTestVisible="False">
+                                    <Border Canvas.Top="{Binding NowLineTop}" Canvas.Right="6"
+                                            Margin="0,-9,0,0" Padding="5,1" CornerRadius="4"
+                                            Background="{DynamicResource Danger}">
+                                        <TextBlock Text="{Binding NowTimeText}"
+                                                   FontSize="11" FontWeight="SemiBold"
+                                                   Foreground="{DynamicResource OnAccent}"
                                                    Typography.NumeralAlignment="Tabular"/>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
+                                    </Border>
+                                </Canvas>
+                            </Grid>
                         </ScrollViewer>
 
                         <!-- 网格 + 任务块 -->
@@ -783,21 +828,21 @@
                                                                                 <ColumnDefinition Width="Auto"/>
                                                                             </Grid.ColumnDefinitions>
                                                                             <TextBlock x:Name="blkSingleTitle" Text="{Binding Title}"
-                                                                                       FontSize="12.5" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
+                                                                                       FontSize="11.5" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
                                                                                        VerticalAlignment="Center"
                                                                                        Foreground="{DynamicResource TextPrimary}"/>
                                                                             <TextBlock Grid.Column="1" Text="{Binding TimeText}"
-                                                                                       FontSize="11.5" FontWeight="Medium" Margin="6,0,0,0"
+                                                                                       FontSize="10.5" FontWeight="Medium" Margin="6,0,0,0"
                                                                                        VerticalAlignment="Center"
                                                                                        Foreground="{DynamicResource TextTertiary}"
                                                                                        Typography.NumeralAlignment="Tabular"/>
                                                                         </Grid>
                                                                         <StackPanel x:Name="blkContent" Margin="6,3">
                                                                         <TextBlock x:Name="blkTitle" Text="{Binding Title}"
-                                                                                   FontSize="13" FontWeight="SemiBold"
+                                                                                   FontSize="12" FontWeight="SemiBold"
                                                                                    TextTrimming="CharacterEllipsis"
                                                                                    Foreground="{DynamicResource TextPrimary}"/>
-                                                                        <TextBlock x:Name="blkTime" Text="{Binding TimeText}" FontSize="11.5" FontWeight="Medium"
+                                                                        <TextBlock x:Name="blkTime" Text="{Binding TimeText}" FontSize="10.5" FontWeight="Medium"
                                                                                    Foreground="{DynamicResource TextTertiary}"
                                                                                    Typography.NumeralAlignment="Tabular"/>
 
@@ -814,7 +859,7 @@
                                                                                         <StackPanel Orientation="Horizontal" Margin="0,1,5,0">
                                                                                             <Ellipse Width="4" Height="4" Fill="{Binding Color}"
                                                                                                      VerticalAlignment="Center" Margin="0,0,3,0"/>
-                                                                                            <TextBlock Text="{Binding Name}" FontSize="11" FontWeight="Medium"
+                                                                                            <TextBlock Text="{Binding Name}" FontSize="10.5" FontWeight="Medium"
                                                                                                        Foreground="{DynamicResource TextTertiary}"/>
                                                                                         </StackPanel>
                                                                                     </DataTemplate>
@@ -825,7 +870,7 @@
                                                                                         Visibility="{Binding Task.HasGoal, Converter={StaticResource BoolToVisible}}">
                                                                                 <Ellipse Width="4" Height="4" Fill="{Binding Task.Goal.Color}"
                                                                                          VerticalAlignment="Center" Margin="0,0,3,0"/>
-                                                                                <TextBlock Text="{Binding Task.Goal.Title}" FontSize="11" FontWeight="Medium"
+                                                                                <TextBlock Text="{Binding Task.Goal.Title}" FontSize="10.5" FontWeight="Medium"
                                                                                            Foreground="{DynamicResource TextTertiary}"
                                                                                            TextTrimming="CharacterEllipsis"/>
                                                                             </StackPanel>
@@ -886,8 +931,8 @@
                                                                     </DataTrigger>
                                                                     <DataTrigger Binding="{Binding IsCompact}" Value="True">
                                                                         <Setter TargetName="blkContent" Property="Margin" Value="6,2"/>
-                                                                        <Setter TargetName="blkTitle" Property="FontSize" Value="12"/>
-                                                                        <Setter TargetName="blkTime" Property="FontSize" Value="11"/>
+                                                                        <Setter TargetName="blkTitle" Property="FontSize" Value="11"/>
+                                                                        <Setter TargetName="blkTime" Property="FontSize" Value="10"/>
                                                                     </DataTrigger>
                                                                     <DataTrigger Binding="{Binding IsSmallBlock}" Value="True">
                                                                         <Setter TargetName="topResize" Property="Height" Value="4"/>
@@ -902,6 +947,19 @@
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
+
+                                <!-- 当前时刻红线（分钟级：跨全宽淡红线 + 今日列高亮实线与圆点） -->
+                                <Canvas IsHitTestVisible="False">
+                                    <Border Canvas.Top="{Binding NowLineTop}" Canvas.Left="0"
+                                            Width="{Binding TimelineWidth}" Height="1"
+                                            Background="{DynamicResource Danger}" Opacity="0.45"/>
+                                    <Border Canvas.Top="{Binding NowLineTop}" Canvas.Left="{Binding NowTodayLeft}"
+                                            Width="160" Height="1.5" Margin="0,-0.25,0,0"
+                                            Background="{DynamicResource Danger}"/>
+                                    <Ellipse Canvas.Top="{Binding NowLineTop}" Canvas.Left="{Binding NowTodayLeft}"
+                                             Width="7" Height="7" Margin="-3.5,-3,0,0"
+                                             Fill="{DynamicResource Danger}"/>
+                                </Canvas>
                             </Grid>
                         </ScrollViewer>
                     </Grid>
@@ -920,7 +978,7 @@
                                          KeyDown="GoalInput_KeyDown"/>
                                 <TextBlock Text="新建目标，回车确认（比如「学 Python」）"
                                            IsHitTestVisible="False" VerticalAlignment="Center"
-                                           Margin="9,0,0,0" FontSize="14" FontWeight="Medium"
+                                           Margin="9,0,0,0" FontSize="13" FontWeight="Medium"
                                            Foreground="{DynamicResource TextDisabled}"
                                            Visibility="{Binding Text, ElementName=GoalInput, UpdateSourceTrigger=PropertyChanged, Converter={StaticResource EmptyToVisible}}"/>
                             </Grid>
@@ -1166,7 +1224,7 @@
                         <DockPanel>
                             <StackPanel DockPanel.Dock="Top" Margin="0,0,0,14">
                                 <StackPanel Orientation="Horizontal">
-                                    <TextBlock Text="逾期" FontSize="18" FontWeight="SemiBold"
+                                    <TextBlock Text="逾期" FontSize="16" FontWeight="SemiBold"
                                                Foreground="{DynamicResource Danger}" VerticalAlignment="Center"/>
                                     <TextBlock Text="{Binding OverdueLane.Count}" Style="{StaticResource Eyebrow}"
                                                Foreground="{DynamicResource TextTertiary}"
@@ -1198,7 +1256,7 @@
                                 <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center"
                                             IsHitTestVisible="False"
                                             Visibility="{Binding OverdueLane.Count, Converter={StaticResource ZeroToVisible}}">
-                                    <TextBlock Text="没有逾期的日程" FontSize="17" FontWeight="SemiBold"
+                                    <TextBlock Text="没有逾期的日程" FontSize="15" FontWeight="SemiBold"
                                                HorizontalAlignment="Center"
                                                Foreground="{DynamicResource TextSecondary}"/>
                                     <TextBlock Text="所有日程都在掌控之中" Style="{StaticResource Caption}"
@@ -1217,14 +1275,14 @@
                         <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="430">
                             <TextBlock Text="待做" Style="{StaticResource Eyebrow}"
                                        Foreground="{DynamicResource TextDisabled}"/>
-                            <TextBlock Text="{Binding CurrentTitle}" FontSize="22" FontWeight="SemiBold"
+                            <TextBlock Text="{Binding CurrentTitle}" FontSize="19" FontWeight="SemiBold"
                                        Margin="0,8,0,0"/>
-                            <TextBlock Text="{Binding CurrentBlurb}" TextWrapping="Wrap" LineHeight="24"
-                                       FontSize="14.5" FontWeight="Medium" Margin="0,12,0,0"
+                            <TextBlock Text="{Binding CurrentBlurb}" TextWrapping="Wrap" LineHeight="21"
+                                       FontSize="13" FontWeight="Medium" Margin="0,12,0,0"
                                        Foreground="{DynamicResource TextSecondary}"/>
                             <Border Background="{DynamicResource Surface3}" CornerRadius="6"
                                     Padding="10,5" HorizontalAlignment="Left" Margin="0,20,0,0">
-                                <TextBlock Text="先把结构定下来，功能随后补" FontSize="13" FontWeight="Medium"
+                                <TextBlock Text="先把结构定下来，功能随后补" FontSize="12" FontWeight="Medium"
                                            Foreground="{DynamicResource TextTertiary}"/>
                             </Border>
                         </StackPanel>
@@ -1268,10 +1326,10 @@
                 <DockPanel>
                     <!-- 顶部：标题 + 关闭 -->
                     <Grid DockPanel.Dock="Top" Margin="20,16,14,10">
-                        <TextBlock Text="{Binding Editor.Header}" FontSize="18" FontWeight="SemiBold"
+                        <TextBlock Text="{Binding Editor.Header}" FontSize="16" FontWeight="SemiBold"
                                    VerticalAlignment="Center"/>
                         <Button Style="{StaticResource GhostButton}" Content="&#xE711;"
-                                FontFamily="{StaticResource IconFont}" FontSize="12"
+                                FontFamily="{StaticResource IconFont}" FontSize="11"
                                 HorizontalAlignment="Right" ToolTip="取消（Esc）"
                                 AutomationProperties.Name="关闭"
                                 Click="EditorCancel_Click"/>
@@ -1308,7 +1366,7 @@
                                 </Grid.ColumnDefinitions>
                                 <TextBlock Text="名称" Style="{StaticResource EditorLabel}"/>
                                 <TextBox x:Name="EditorTitle" Grid.Column="1" Style="{StaticResource SubtleInput}"
-                                         Height="36" VerticalContentAlignment="Center" FontSize="15" FontWeight="SemiBold"
+                                         Height="34" VerticalContentAlignment="Center" FontSize="13.5" FontWeight="SemiBold"
                                          Text="{Binding Editor.Title, UpdateSourceTrigger=PropertyChanged}"/>
                             </Grid>
 
@@ -1321,13 +1379,13 @@
                                 <TextBlock Text="日期" Style="{StaticResource EditorLabel}"/>
                                 <StackPanel Grid.Column="1" Orientation="Horizontal">
                                     <Button Style="{StaticResource GhostButton}" Content="&#xE76B;"
-                                            FontFamily="{StaticResource IconFont}" FontSize="11"
+                                            FontFamily="{StaticResource IconFont}" FontSize="10.5"
                                             Padding="7,5" ToolTip="前一天" AutomationProperties.Name="前一天"
                                             Click="EditorPrevDay_Click"/>
-                                    <TextBlock Text="{Binding Editor.DateText}" FontSize="14.5" FontWeight="Medium"
+                                    <TextBlock Text="{Binding Editor.DateText}" FontSize="13" FontWeight="Medium"
                                                VerticalAlignment="Center" Margin="8,0"/>
                                     <Button Style="{StaticResource GhostButton}" Content="&#xE76C;"
-                                            FontFamily="{StaticResource IconFont}" FontSize="11"
+                                            FontFamily="{StaticResource IconFont}" FontSize="10.5"
                                             Padding="7,5" ToolTip="后一天" AutomationProperties.Name="后一天"
                                             Click="EditorNextDay_Click"/>
                                 </StackPanel>
@@ -1355,11 +1413,11 @@
 
                             <!-- 冲突提示：边打字边算 -->
                             <TextBlock Text="{Binding Editor.HintText}" Margin="58,6,0,0"
-                                       FontSize="13" FontWeight="Medium" TextWrapping="Wrap"
+                                       FontSize="12" FontWeight="Medium" TextWrapping="Wrap"
                                        Foreground="{DynamicResource Warning}"
                                        Visibility="{Binding Editor.HintText, Converter={StaticResource EmptyToCollapsed}}"/>
                             <TextBlock Text="{Binding Editor.ErrorText}" Margin="58,6,0,0"
-                                       FontSize="13" FontWeight="Medium" TextWrapping="Wrap"
+                                       FontSize="12" FontWeight="Medium" TextWrapping="Wrap"
                                        Foreground="{DynamicResource Danger}"
                                        Visibility="{Binding Editor.ErrorText, Converter={StaticResource EmptyToCollapsed}}"/>
 
@@ -1384,7 +1442,7 @@
                                                     <StackPanel Orientation="Horizontal">
                                                         <Ellipse Width="6" Height="6" Fill="{Binding Color}"
                                                                  VerticalAlignment="Center" Margin="0,0,5,0"/>
-                                                        <TextBlock Text="{Binding Name}" FontSize="12.5" FontWeight="Medium"
+                                                        <TextBlock Text="{Binding Name}" FontSize="12" FontWeight="Medium"
                                                                    VerticalAlignment="Center"/>
                                                     </StackPanel>
                                                 </ToggleButton>
@@ -1396,7 +1454,7 @@
                                         <TextBox x:Name="EditorNewTag" Style="{StaticResource SubtleInput}" Height="30"
                                                  Text="{Binding Editor.NewTagText, UpdateSourceTrigger=PropertyChanged}"
                                                  KeyDown="EditorNewTag_KeyDown" ToolTip="回车新建并勾上"/>
-                                        <TextBlock Text="+ 新标签" IsHitTestVisible="False" FontSize="13" FontWeight="Medium"
+                                        <TextBlock Text="+ 新标签" IsHitTestVisible="False" FontSize="12" FontWeight="Medium"
                                                    Margin="8,0,0,0" VerticalAlignment="Center"
                                                    Foreground="{DynamicResource TextTertiary}"
                                                    Visibility="{Binding Text, ElementName=EditorNewTag, UpdateSourceTrigger=PropertyChanged, Converter={StaticResource EmptyToVisible}}"/>
@@ -1426,7 +1484,7 @@
                                                     <Ellipse Width="6" Height="6" Fill="{Binding Color}"
                                                              VerticalAlignment="Center" Margin="0,0,5,0"
                                                              Visibility="{Binding HasGoal, Converter={StaticResource BoolToVisible}}"/>
-                                                    <TextBlock Text="{Binding Title}" FontSize="12.5" FontWeight="Medium"
+                                                    <TextBlock Text="{Binding Title}" FontSize="12" FontWeight="Medium"
                                                                VerticalAlignment="Center"/>
                                                 </StackPanel>
                                             </ToggleButton>
@@ -1499,6 +1557,123 @@
             </Border>
         </Grid>
 
+        <!-- ================= 设置浮层 ================= -->
+        <Grid x:Name="SettingsLayer" Grid.RowSpan="2" Visibility="Collapsed">
+            <Border x:Name="SettingsScrim" Background="{DynamicResource Scrim}" Opacity="0"
+                    MouseLeftButtonDown="SettingsScrim_Click"/>
+            <Border x:Name="SettingsDialog" Width="452" MaxHeight="560"
+                    VerticalAlignment="Center" HorizontalAlignment="Center"
+                    Background="{DynamicResource Surface4}"
+                    BorderBrush="{DynamicResource BorderStrong}" BorderThickness="1"
+                    CornerRadius="12" ClipToBounds="True"
+                    Opacity="0" RenderTransformOrigin="0.5,0.5">
+                <Border.RenderTransform>
+                    <TransformGroup>
+                        <ScaleTransform x:Name="SettingsScale" ScaleX="0.97" ScaleY="0.97"/>
+                        <TranslateTransform x:Name="SettingsShift" Y="10"/>
+                    </TransformGroup>
+                </Border.RenderTransform>
+                <Border.Effect>
+                    <DropShadowEffect Color="Black" BlurRadius="24" ShadowDepth="8" Direction="270" Opacity="0.28"/>
+                </Border.Effect>
+                <DockPanel>
+                    <Grid DockPanel.Dock="Top" Margin="20,16,14,12">
+                        <TextBlock Text="设置" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                        <Button Style="{StaticResource GhostButton}" Content="&#xE711;"
+                                FontFamily="{StaticResource IconFont}" FontSize="11"
+                                HorizontalAlignment="Right" ToolTip="关闭（Esc）"
+                                AutomationProperties.Name="关闭"
+                                AutomationProperties.AutomationId="SettingsCloseButton"
+                                Click="SettingsClose_Click"/>
+                    </Grid>
+
+                    <Border DockPanel.Dock="Bottom" BorderBrush="{DynamicResource BorderSubtle}"
+                            BorderThickness="0,1,0,0" Padding="20,10,16,12">
+                        <Grid>
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
+                                <Button Style="{StaticResource GhostButton}" Content="打开数据目录"
+                                        Padding="10,5" Margin="0,0,6,0"
+                                        AutomationProperties.Name="打开数据目录"
+                                        Click="OpenDataFolder_Click"/>
+                                <Button Style="{StaticResource GhostButton}" Content="发送测试通知"
+                                        Padding="10,5"
+                                        AutomationProperties.Name="发送测试通知"
+                                        Click="TestNotify_Click"/>
+                            </StackPanel>
+                            <TextBlock Text="{Binding AppVersion}" Style="{StaticResource Caption}"
+                                       HorizontalAlignment="Right" VerticalAlignment="Center"
+                                       Foreground="{DynamicResource TextDisabled}"/>
+                        </Grid>
+                    </Border>
+
+                    <StackPanel Margin="20,4,20,18">
+                        <Border Background="{DynamicResource Surface3}" CornerRadius="8"
+                                BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="1"
+                                Padding="14,12" Margin="0,0,0,10">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Margin="0,0,14,0">
+                                    <TextBlock Text="开机静默自启" FontSize="13.5" FontWeight="SemiBold"/>
+                                    <TextBlock Text="登录 Windows 时自动启动并隐藏到系统托盘"
+                                               Style="{StaticResource Caption}" Margin="0,3,0,0" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <ToggleButton Grid.Column="1" Style="{StaticResource SwitchToggle}"
+                                              VerticalAlignment="Center"
+                                              IsChecked="{Binding AutoStartEnabled, Mode=TwoWay}"
+                                              AutomationProperties.Name="开机静默自启"
+                                              AutomationProperties.AutomationId="AutoStartToggle"/>
+                            </Grid>
+                        </Border>
+
+                        <Border Background="{DynamicResource Surface3}" CornerRadius="8"
+                                BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="1"
+                                Padding="14,12" Margin="0,0,0,10">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Margin="0,0,14,0">
+                                    <TextBlock Text="关闭窗口时最小化到托盘" FontSize="13.5" FontWeight="SemiBold"/>
+                                    <TextBlock Text="点右上角关闭后常驻后台，从托盘右键可彻底退出"
+                                               Style="{StaticResource Caption}" Margin="0,3,0,0" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <ToggleButton Grid.Column="1" Style="{StaticResource SwitchToggle}"
+                                              VerticalAlignment="Center"
+                                              IsChecked="{Binding CloseToTray, Mode=TwoWay}"
+                                              AutomationProperties.Name="关闭窗口时最小化到托盘"
+                                              AutomationProperties.AutomationId="CloseToTrayToggle"/>
+                            </Grid>
+                        </Border>
+
+                        <Border Background="{DynamicResource Surface3}" CornerRadius="8"
+                                BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="1"
+                                Padding="14,12">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Margin="0,0,14,0">
+                                    <TextBlock Text="系统通知推送" FontSize="13.5" FontWeight="SemiBold"/>
+                                    <TextBlock Text="日程开始前 5 分钟、开始与结束时提醒；启动或睡眠唤醒每日推一次今日待办摘要"
+                                               Style="{StaticResource Caption}" Margin="0,3,0,0" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <ToggleButton Grid.Column="1" Style="{StaticResource SwitchToggle}"
+                                              VerticalAlignment="Center"
+                                              IsChecked="{Binding NotifyEnabled, Mode=TwoWay}"
+                                              AutomationProperties.Name="系统通知推送"
+                                              AutomationProperties.AutomationId="NotifyEnabledToggle"/>
+                            </Grid>
+                        </Border>
+                    </StackPanel>
+                </DockPanel>
+            </Border>
+        </Grid>
+
         <!-- 操作反馈胶囊提示 -->
         <Border x:Name="ToastPill" Grid.RowSpan="2"
                 HorizontalAlignment="Center" VerticalAlignment="Bottom"
@@ -1515,7 +1690,7 @@
             <StackPanel Orientation="Horizontal">
                 <Ellipse x:Name="ToastDot" Width="6" Height="6" Fill="{DynamicResource Accent}"
                          VerticalAlignment="Center" Margin="0,0,8,0"/>
-                <TextBlock x:Name="ToastText" FontSize="14" FontWeight="Medium" Foreground="{DynamicResource TextPrimary}"
+                <TextBlock x:Name="ToastText" FontSize="12.5" FontWeight="Medium" Foreground="{DynamicResource TextPrimary}"
                            VerticalAlignment="Center"/>
             </StackPanel>
         </Border>
