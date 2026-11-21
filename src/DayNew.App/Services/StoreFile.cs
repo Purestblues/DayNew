@@ -2,6 +2,7 @@ using System.IO;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Windows.Threading;
+using DayNew.Core;
 using DayNew.ViewModels;
 
 namespace DayNew.Services;
@@ -211,13 +212,26 @@ public sealed class StoreFile
             Start = s.StartTime is { } st ? $"{(int)st.TotalHours:00}:{st.Minutes:00}" : null,
             End = s.EndTime is { } et ? $"{(int)et.TotalHours:00}:{et.Minutes:00}" : null,
             Repeat = s.Repeat,
-            Remind = s.Remind,
+            Remind = RemindRules.Normalize(s.Remind),
             Done = s.Done,
             Urgent = s.IsUrgent,
             Important = s.IsImportant,
             GoalId = s.Goal?.Id,
             TagIds = s.Tags.Select(t => t.Id).ToList(),
             Order = s.Order
+        }).ToList(),
+
+        Presets = store.Presets.Select(p => new PresetDto
+        {
+            Id = p.Id,
+            Title = p.Title,
+            DurationMinutes = p.DurationMinutes,
+            Remind = RemindRules.Normalize(p.Remind),
+            Note = p.Note,
+            Urgent = p.IsUrgent,
+            Important = p.IsImportant,
+            GoalId = p.Goal?.Id,
+            TagIds = p.Tags.Select(t => t.Id).ToList()
         }).ToList()
     };
 
@@ -226,6 +240,8 @@ public sealed class StoreFile
         store.Goals.Clear();
         store.Tags.Clear();
         store.Schedules.Clear();
+        store.Presets.Clear();
+        store.HasLoadedPresets = dto.Presets is not null;
 
         foreach (var g in dto.Goals)
         {
@@ -275,7 +291,7 @@ public sealed class StoreFile
                 StartTime = ParseTime(d.Start),
                 EndTime = ParseTime(d.End),
                 Repeat = d.Repeat,
-                Remind = d.Remind,
+                Remind = RemindRules.Normalize(d.Remind),
                 Done = d.Done,
                 IsUrgent = d.Urgent,
                 IsImportant = d.Important,
@@ -290,6 +306,31 @@ public sealed class StoreFile
                     schedule.Tags.Add(tag);
 
             store.Schedules.Add(schedule);
+        }
+
+        if (dto.Presets is null) return;
+
+        foreach (var p in dto.Presets)
+        {
+            var preset = new SchedulePresetVM
+            {
+                Id = string.IsNullOrEmpty(p.Id) ? "" : p.Id,
+                Title = p.Title,
+                DurationMinutes = p.DurationMinutes,
+                Remind = p.Remind is null ? RemindRules.Default : RemindRules.Normalize(p.Remind),
+                Note = p.Note,
+                IsUrgent = p.Urgent,
+                IsImportant = p.Important
+            };
+
+            if (!string.IsNullOrEmpty(p.GoalId) && goalById.TryGetValue(p.GoalId, out var goal))
+                preset.Goal = goal;
+
+            foreach (var tagId in p.TagIds)
+                if (tagById.TryGetValue(tagId, out var tag) && !preset.Tags.Contains(tag))
+                    preset.Tags.Add(tag);
+
+            store.Presets.Add(preset);
         }
     }
 

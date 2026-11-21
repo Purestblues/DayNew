@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
@@ -27,6 +28,10 @@ public partial class MainWindow : Window
     private Point _pressPoint;
     private TaskVM? _pressedTask;
     private Border? _pressedCard;
+    private Border? _pressedTagCard;
+    private TagRowVM? _pressedTagRow;
+    private Border? _pressedGoalPageCard;
+    private GoalVM? _pressedGoalPageItem;
     private GoalVM? _pressedGoal;
     private TimelineBlockVM? _pressedBlock;
     private FrameworkElement? _pressedBlockElement;
@@ -35,6 +40,16 @@ public partial class MainWindow : Window
     private int _blockDay;
     private int _blockMinutes;
     private bool _timelineScrolled;
+
+    // 快捷日程预设卡片拖到时间轴直接落盘建日程
+    private SchedulePresetVM? _pressedPreset;
+    private FrameworkElement? _pressedPresetElement;
+    private bool _draggingPreset;
+    private Border? _presetGhost;
+    private bool _presetGhostPlaced;
+    private bool _presetGhostInBody;
+    private int _presetDay;
+    private int _presetMinutes;
 
     // 在时间轴空白处拖一段（或单击红线附近） = 新建日程
     private bool _creating;
@@ -68,6 +83,10 @@ public partial class MainWindow : Window
     private EventHandler? _scrollAnimHandler;
     private DateTime _scrollAnimStart;
     private double _scrollFromH, _scrollToH, _scrollFromV, _scrollToV;
+
+    private EventHandler? _tagDetailScrollAnimHandler;
+    private DateTime _tagDetailScrollAnimStart;
+    private double _tagDetailScrollFromH, _tagDetailScrollToH;
 
     // 视图平滑缩放（Alt+滚轮 / 档位按钮）
     private EventHandler? _zoomAnimHandler;
@@ -130,9 +149,9 @@ public partial class MainWindow : Window
         Deactivated += (_, _) => CancelActiveInteractions();
         LostMouseCapture += (_, _) =>
         {
-            if (_dragging || _draggingBlock || _panning || _resizingBlock) CancelActiveInteractions();
+            if (_dragging || _draggingBlock || _draggingPreset || _panning || _resizingBlock) CancelActiveInteractions();
         };
-        StateChanged += (_, _) => UpdateMaxIcon();
+        StateChanged += (_, _) => OnWindowStateChanged();
         Closing += OnWindowClosing;
         Closed += (_, _) =>
         {
@@ -175,6 +194,12 @@ public partial class MainWindow : Window
         else if (e.PropertyName == nameof(MainViewModel.IsSettingsOpen))
             AnimateModalVisibility(SettingsLayer, SettingsScrim, SettingsDialog, SettingsScale, SettingsShift,
                 _vm.IsSettingsOpen, () => _vm.IsSettingsOpen);
+        else if (e.PropertyName == nameof(MainViewModel.IsPresetManagerOpen))
+            AnimateModalVisibility(PresetManagerLayer, PresetManagerScrim, PresetManagerDialog, PresetManagerScale, PresetManagerShift,
+                _vm.IsPresetManagerOpen, () => _vm.IsPresetManagerOpen);
+        else if (e.PropertyName == nameof(MainViewModel.IsTagDetailOpen))
+            AnimateModalVisibility(TagDetailLayer, TagDetailScrim, TagDetailDialog, TagDetailScale, TagDetailShift,
+                _vm.IsTagDetailOpen, () => _vm.IsTagDetailOpen);
     }
 
     // ==================== 标题栏 ====================
@@ -182,6 +207,8 @@ public partial class MainWindow : Window
     // 最大化时 Windows 会把无边框窗口往屏幕外多长一圈（这里实测每边 6 DIP），
     // 结果就是最底下的横向滚动条和状态栏被切掉。自己接管最大化尺寸：正好贴住工作区。
     private const int WmGetMinMaxInfo = 0x0024;
+    private const int WmSysCommand = 0x0112;
+    private const int ScKeyMenu = 0xF100;
     private const int WmMouseHWheel = 0x020E;
     private const int MonitorDefaultToNearest = 2;
 
@@ -196,6 +223,12 @@ public partial class MainWindow : Window
         if (msg == App.WmShowMainWindow)
         {
             ShowFromTray();
+            handled = true;
+            return IntPtr.Zero;
+        }
+
+        if (msg == WmSysCommand && (wParam.ToInt64() & 0xFFF0) == ScKeyMenu)
+        {
             handled = true;
             return IntPtr.Zero;
         }
@@ -228,14 +261,13 @@ public partial class MainWindow : Window
         mmi.MaxSize.X = work.Right - work.Left;
         mmi.MaxSize.Y = work.Bottom - work.Top;
         Marshal.StructureToPtr(mmi, lParam, true);
-        handled = true;
 
         return IntPtr.Zero;
     }
 
     private bool HandleHorizontalWheel(int delta)
     {
-        if (_vm.IsEditorOpen || _vm.IsSettingsOpen) return false;
+        if (_vm.IsEditorOpen || _vm.IsSettingsOpen || _vm.IsPresetManagerOpen) return false;
 
         var pos = Mouse.GetPosition(this);
         ScrollViewer? target = null;
@@ -254,13 +286,16 @@ public partial class MainWindow : Window
             }
         }
 
-        if (target is null && _vm.IsTimeline && IsInsideElement(pos, PageTimeline) && BodyScroll.ScrollableWidth > 0)
+        if (target is null && _vm.IsTagDetailOpen && IsInsideElement(pos, TagDetailDialog) && TagDetailScroll.ScrollableWidth > 0)
+            target = TagDetailScroll;
+        else if (target is null && _vm.IsTimeline && IsInsideElement(pos, PageTimeline) && BodyScroll.ScrollableWidth > 0)
             target = BodyScroll;
 
         if (target is null) return false;
 
         if (ReferenceEquals(target, BodyScroll)) StopScrollAnimation();
-        target.ScrollToHorizontalOffset(Math.Clamp(target.HorizontalOffset + delta * 0.6, 0, target.ScrollableWidth));
+        else if (ReferenceEquals(target, TagDetailScroll)) StopTagDetailScrollAnimation();
+        target.ScrollToHorizontalOffset(Math.Clamp(target.HorizontalOffset + delta * 0.35, 0, target.ScrollableWidth));
         return true;
     }
 
@@ -269,6 +304,9 @@ public partial class MainWindow : Window
 
     [DllImport("user32.dll")]
     private static extern bool GetMonitorInfo(IntPtr monitor, ref MonitorInfo info);
+
+    [DllImport("user32.dll")]
+    private static extern bool InvalidateRect(IntPtr hWnd, IntPtr lpRect, bool bErase);
 
     [StructLayout(LayoutKind.Sequential)]
     private struct WinPoint
@@ -323,6 +361,22 @@ public partial class MainWindow : Window
         Top = Math.Max(area.Top, area.Top + (area.Height - ActualHeight) / 2);
     }
 
+    private void OnWindowStateChanged()
+    {
+        UpdateMaxIcon();
+        InvalidateMeasure();
+        InvalidateVisual();
+        var hwnd = new WindowInteropHelper(this).Handle;
+        if (hwnd == IntPtr.Zero) return;
+
+        InvalidateRect(hwnd, IntPtr.Zero, false);
+        Dispatcher.BeginInvoke(DispatcherPriority.Render, new Action(() =>
+        {
+            InvalidateVisual();
+            InvalidateRect(hwnd, IntPtr.Zero, false);
+        }));
+    }
+
     private void UpdateMaxIcon()
         => MaxButton.Content = WindowState == WindowState.Maximized ? "\uE923" : "\uE922";
 
@@ -367,6 +421,8 @@ public partial class MainWindow : Window
     {
         CancelActiveInteractions();
         _vm.CloseSettings();
+        _vm.ClosePresetManager();
+        _vm.CloseTagDetail();
         _vm.FlushSave();
         Hide();
     }
@@ -405,6 +461,9 @@ public partial class MainWindow : Window
 
     private void TestNotify_Click(object sender, RoutedEventArgs e) => _notifications.SendTestNotification();
 
+    private void SettingsDefaultRemind_Click(object sender, RoutedEventArgs e)
+        => HandleRemindChipClick(sender, _vm.ToggleDefaultRemindNode);
+
     // ==================== 卡片内操作 ====================
 
     private void Check_Click(object sender, RoutedEventArgs e)
@@ -417,9 +476,26 @@ public partial class MainWindow : Window
         if ((sender as FrameworkElement)?.DataContext is TaskVM task) _vm.CycleRepeat(task);
     }
 
-    private void Remind_Click(object sender, RoutedEventArgs e)
+    private void TaskRemindChip_Click(object sender, RoutedEventArgs e)
     {
-        if ((sender as FrameworkElement)?.DataContext is TaskVM task) _vm.ToggleRemind(task);
+        if (sender is FrameworkElement { DataContext: TaskVM task, Tag: string node })
+        {
+            _vm.ToggleTaskRemindNode(task, node);
+            SyncToggleBinding(sender);
+        }
+    }
+
+    private static void HandleRemindChipClick(object sender, Action<string> toggleNode)
+    {
+        if (sender is not FrameworkElement { Tag: string node }) return;
+        toggleNode(node);
+        SyncToggleBinding(sender);
+    }
+
+    private static void SyncToggleBinding(object sender)
+    {
+        if (sender is ToggleButton toggle)
+            BindingOperations.GetBindingExpression(toggle, ToggleButton.IsCheckedProperty)?.UpdateTarget();
     }
 
     private void Delete_Click(object sender, RoutedEventArgs e)
@@ -535,6 +611,86 @@ public partial class MainWindow : Window
         if (sender is FrameworkElement { Tag: TagVM tag }) _vm.DeleteTag(tag);
     }
 
+    // ==================== 标签 / 目标详情按日时间流弹窗 ====================
+
+    private void OpenTagDetailModal(TagVM tag) => OpenDetailModal(() => _vm.OpenTagDetail(tag));
+
+    private void OpenGoalDetailModal(GoalVM goal) => OpenDetailModal(() => _vm.OpenGoalDetail(goal));
+
+    private void OpenDetailModal(Action openAction)
+    {
+        openAction();
+        Dispatcher.BeginInvoke(new Action(() => ScrollTagDetailToToday(animate: false)), DispatcherPriority.Loaded);
+    }
+
+    private void TagDetailClose_Click(object sender, RoutedEventArgs e)
+    {
+        StopTagDetailScrollAnimation();
+        _vm.CloseTagDetail();
+    }
+
+    private void TagDetailScrim_Click(object sender, MouseButtonEventArgs e)
+    {
+        StopTagDetailScrollAnimation();
+        _vm.CloseTagDetail();
+    }
+
+    private void TagDetailToday_Click(object sender, RoutedEventArgs e) => ScrollTagDetailToToday(animate: true);
+
+    private void TagDetailScroll_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        if (!_vm.IsTagDetailOpen || _vm.IsEditorOpen) return;
+
+        StopTagDetailScrollAnimation();
+        e.Handled = true;
+        TagDetailScroll.ScrollToHorizontalOffset(
+            Math.Clamp(TagDetailScroll.HorizontalOffset - e.Delta * 0.45, 0, TagDetailScroll.ScrollableWidth));
+    }
+
+    private void ScrollTagDetailToToday(bool animate)
+    {
+        StopTagDetailScrollAnimation();
+        if (_vm.TagDetailDays.Count == 0) return;
+
+        TagDetailScroll.UpdateLayout();
+
+        const double columnWidth = 188;
+        var targetH = Math.Clamp((_vm.TagDetailTodayIndex - 1) * columnWidth, 0, TagDetailScroll.ScrollableWidth);
+
+        if (!animate)
+        {
+            TagDetailScroll.ScrollToHorizontalOffset(targetH);
+            return;
+        }
+
+        _tagDetailScrollFromH = TagDetailScroll.HorizontalOffset;
+        _tagDetailScrollToH = targetH;
+        if (Math.Abs(_tagDetailScrollToH - _tagDetailScrollFromH) < 1) return;
+
+        _tagDetailScrollAnimStart = DateTime.UtcNow;
+        _tagDetailScrollAnimHandler = OnTagDetailScrollAnimationFrame;
+        CompositionTarget.Rendering += _tagDetailScrollAnimHandler;
+    }
+
+    private void OnTagDetailScrollAnimationFrame(object? sender, EventArgs e)
+    {
+        var elapsed = (DateTime.UtcNow - _tagDetailScrollAnimStart).TotalMilliseconds;
+        var t = Math.Clamp(elapsed / Motion.M.TotalMilliseconds, 0, 1);
+        var eased = Motion.EaseOut.Ease(t);
+
+        TagDetailScroll.ScrollToHorizontalOffset(
+            _tagDetailScrollFromH + (_tagDetailScrollToH - _tagDetailScrollFromH) * eased);
+
+        if (t >= 1) StopTagDetailScrollAnimation();
+    }
+
+    private void StopTagDetailScrollAnimation()
+    {
+        if (_tagDetailScrollAnimHandler is null) return;
+        CompositionTarget.Rendering -= _tagDetailScrollAnimHandler;
+        _tagDetailScrollAnimHandler = null;
+    }
+
     // ==================== 视图（时间轴） ====================
 
     private void Zoom_Click(object sender, RoutedEventArgs e)
@@ -548,17 +704,30 @@ public partial class MainWindow : Window
         StartSmoothZoom(targetPx, centerY);
     }
 
-    private void BodyScroll_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    private void PageTimeline_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
     {
+        if (_vm.IsEditorOpen || _vm.IsSettingsOpen || _vm.IsPresetManagerOpen) return;
+
         StopScrollAnimation();
 
         var mods = Keyboard.Modifiers;
-        if ((mods & ModifierKeys.Alt) != 0)
+        // Windows 精密触控板双指捏合发送 Ctrl+MouseWheel，同时保留 Alt+MouseWheel 缩放
+        if ((mods & (ModifierKeys.Control | ModifierKeys.Alt)) != 0)
         {
             e.Handled = true;
-            var factor = Math.Pow(1.16, e.Delta / 120.0);
+            var factor = Math.Pow(1.18, e.Delta / 120.0);
             var basePx = _zoomAnimHandler is not null ? _zoomTargetPx : _vm.PxPerHourValue;
-            StartSmoothZoom(basePx * factor, e.GetPosition(BodyScroll).Y);
+            var anchorY = Math.Clamp(e.GetPosition(BodyScroll).Y, 0, Math.Max(1, BodyScroll.ViewportHeight));
+            StartSmoothZoom(basePx * factor, anchorY);
+            return;
+        }
+
+        // 工具条里的快捷卡片区如果横向溢出，优先横向滚它自己
+        if (IsInsideElement(e.GetPosition(this), PresetsScroll) && PresetsScroll.ScrollableWidth > 0)
+        {
+            e.Handled = true;
+            PresetsScroll.ScrollToHorizontalOffset(
+                Math.Clamp(PresetsScroll.HorizontalOffset - e.Delta * 0.35, 0, PresetsScroll.ScrollableWidth));
             return;
         }
 
@@ -566,16 +735,15 @@ public partial class MainWindow : Window
         {
             e.Handled = true;
             BodyScroll.ScrollToHorizontalOffset(
-                Math.Clamp(BodyScroll.HorizontalOffset - e.Delta * 0.75, 0, BodyScroll.ScrollableWidth));
+                Math.Clamp(BodyScroll.HorizontalOffset - e.Delta * 0.45, 0, BodyScroll.ScrollableWidth));
             return;
         }
 
-        if ((mods & ModifierKeys.Control) != 0)
-        {
-            e.Handled = true;
-            BodyScroll.ScrollToVerticalOffset(
-                Math.Clamp(BodyScroll.VerticalOffset - e.Delta * 0.75, 0, BodyScroll.ScrollableHeight));
-        }
+        // 接管普通滚轮 / 触控板双指滑动：WPF ScrollViewer 默认每条消息固定跳 48px，会导致触控板飞出去；
+        // 这里按实际 e.Delta 等比例滚动并降敏，轻滑就跟手。
+        e.Handled = true;
+        BodyScroll.ScrollToVerticalOffset(
+            Math.Clamp(BodyScroll.VerticalOffset - e.Delta * 0.35, 0, BodyScroll.ScrollableHeight));
     }
 
     private void StartSmoothZoom(double targetPx, double anchorViewportY)
@@ -757,11 +925,25 @@ public partial class MainWindow : Window
 
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
+        // 拦截单独的 Alt 键，防止 Alt+滚轮缩放松开后激活 Win32 系统菜单模式而吞掉后续滚轮事件
+        if (e.Key == Key.System && e.SystemKey is Key.LeftAlt or Key.RightAlt)
+        {
+            e.Handled = true;
+            return;
+        }
+
         if (e.Key == Key.Escape)
         {
             if (_vm.IsSettingsOpen)
             {
                 _vm.CloseSettings();
+                e.Handled = true;
+                return;
+            }
+
+            if (_vm.IsPresetManagerOpen)
+            {
+                _vm.ClosePresetManager();
                 e.Handled = true;
                 return;
             }
@@ -773,7 +955,15 @@ public partial class MainWindow : Window
                 return;
             }
 
-            if (_panning || _resizingBlock || _dragging || _draggingBlock || _creating)
+            if (_vm.IsTagDetailOpen)
+            {
+                StopTagDetailScrollAnimation();
+                _vm.CloseTagDetail();
+                e.Handled = true;
+                return;
+            }
+
+            if (_panning || _resizingBlock || _dragging || _draggingBlock || _draggingPreset || _creating)
             {
                 CancelActiveInteractions();
                 e.Handled = true;
@@ -785,7 +975,7 @@ public partial class MainWindow : Window
         }
 
         // 弹窗开着就别再响应全局快捷键
-        if (_vm.IsEditorOpen || _vm.IsSettingsOpen) return;
+        if (_vm.IsEditorOpen || _vm.IsSettingsOpen || _vm.IsPresetManagerOpen || _vm.IsTagDetailOpen) return;
 
         if (e.Key == Key.Space && _vm.IsTimeline && Keyboard.FocusedElement is not TextBoxBase)
         {
@@ -809,6 +999,12 @@ public partial class MainWindow : Window
 
     private void OnPreviewKeyUp(object sender, KeyEventArgs e)
     {
+        if (e.Key == Key.System && e.SystemKey is Key.LeftAlt or Key.RightAlt)
+        {
+            e.Handled = true;
+            return;
+        }
+
         if (e.Key != Key.Space) return;
 
         _spacePanKeyDown = false;
@@ -819,7 +1015,7 @@ public partial class MainWindow : Window
 
     private void OnPreviewRightDown(object sender, MouseButtonEventArgs e)
     {
-        if (!_vm.IsTimeline || _vm.IsEditorOpen) return;
+        if (!_vm.IsTimeline || _vm.IsEditorOpen || _vm.IsSettingsOpen || _vm.IsPresetManagerOpen || _vm.IsTagDetailOpen) return;
         if (IsInteractive(e.OriginalSource as DependencyObject)) return;
 
         var p = e.GetPosition(this);
@@ -895,19 +1091,39 @@ public partial class MainWindow : Window
     private void OnPreviewDown(object sender, MouseButtonEventArgs e)
     {
         _pressedGoal = null;
+        _pressedGoalPageCard = null;
+        _pressedGoalPageItem = null;
         _pressedBlock = null;
+        _pressedPreset = null;
+        _pressedPresetElement = null;
+        _pressedTagCard = null;
+        _pressedTagRow = null;
         _resizeCandidateBlock = null;
         _pendingOpen = null;
         _clickedPageBlank = false;
 
         // 弹窗开着时，底下的东西一概不接鼠标
-        if (_vm.IsEditorOpen) return;
+        if (_vm.IsEditorOpen || _vm.IsSettingsOpen || _vm.IsPresetManagerOpen) return;
 
         var src = e.OriginalSource as DependencyObject;
         if (IsInteractive(src))
         {
             _pressedTask = null;
             _pressedCard = null;
+            return;
+        }
+
+        if (_vm.IsTagDetailOpen)
+        {
+            _pressedTask = null;
+            _pressedCard = null;
+            var tagTaskCard = FindAncestorTag(src, "tagtaskcard") as Border;
+            if (tagTaskCard?.DataContext is TaskVM tagTask)
+            {
+                _pressedCard = tagTaskCard;
+                Motion.AnimateScale(tagTaskCard, 0.985, Motion.Xs);
+                if (e.ClickCount >= 2) _pendingOpen = tagTask;
+            }
             return;
         }
 
@@ -930,9 +1146,38 @@ public partial class MainWindow : Window
 
         if (_pressedTask is null)
         {
-            _pressedGoal = (FindAncestorTag(src, "goal") as FrameworkElement)?.DataContext as GoalVM;
+            var presetElement = FindAncestorTag(src, "preset") as FrameworkElement;
+            _pressedPreset = presetElement?.DataContext as SchedulePresetVM;
+            _pressedPresetElement = presetElement;
+            if (_pressedPresetElement is not null)
+                Motion.AnimateScale(_pressedPresetElement, 0.97, Motion.Xs);
 
-            if (_pressedGoal is null)
+            if (_pressedPreset is null)
+                _pressedGoal = (FindAncestorTag(src, "goal") as FrameworkElement)?.DataContext as GoalVM;
+
+            if (_pressedPreset is null && _pressedGoal is null)
+            {
+                var goalPageCard = FindAncestorTag(src, "goalpagecard") as Border;
+                if (goalPageCard?.DataContext is GoalVM goalItem)
+                {
+                    _pressedGoalPageCard = goalPageCard;
+                    _pressedGoalPageItem = goalItem;
+                    Motion.AnimateScale(goalPageCard, 0.985, Motion.Xs);
+                }
+            }
+
+            if (_pressedPreset is null && _pressedGoal is null && _pressedGoalPageItem is null)
+            {
+                var tagCard = FindAncestorTag(src, "tagcard") as Border;
+                if (tagCard?.DataContext is TagRowVM tagRow)
+                {
+                    _pressedTagCard = tagCard;
+                    _pressedTagRow = tagRow;
+                    Motion.AnimateScale(tagCard, 0.985, Motion.Xs);
+                }
+            }
+
+            if (_pressedPreset is null && _pressedGoal is null && _pressedGoalPageItem is null && _pressedTagRow is null)
             {
                 var topEdge = FindAncestorTag(src, "blockTopEdge") as FrameworkElement;
                 var bottomEdge = topEdge is null ? FindAncestorTag(src, "blockBottomEdge") as FrameworkElement : null;
@@ -951,8 +1196,8 @@ public partial class MainWindow : Window
                 }
             }
 
-            // 空白处按下：在时间轴网格内进入「拖一段建日程」状态，否则记下页面空白点击用于收起展开卡片
-            if (_pressedGoal is null && _pressedBlock is null)
+            // 空白处按下：在时间轴网格内进入「点击或拖一段建日程」状态，否则记下页面空白点击用于收起展开卡片
+            if (_pressedPreset is null && _pressedGoal is null && _pressedGoalPageItem is null && _pressedTagRow is null && _pressedBlock is null)
             {
                 var day = DayIndexAt(_pressPoint);
                 if (day >= 0)
@@ -1019,6 +1264,18 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (_draggingPreset)
+        {
+            if (e.LeftButton != MouseButtonState.Pressed)
+            {
+                EndPresetDrag();
+                return;
+            }
+
+            UpdatePresetDrag(e.GetPosition(this));
+            return;
+        }
+
         if (_draggingBlock)
         {
             if (e.LeftButton != MouseButtonState.Pressed)
@@ -1055,6 +1312,17 @@ public partial class MainWindow : Window
                 return;
 
             UpdateCreateGhost(cp);
+            return;
+        }
+
+        if (_pressedPreset is not null && _pressedPresetElement is not null)
+        {
+            if (e.LeftButton != MouseButtonState.Pressed) return;
+
+            var pp = e.GetPosition(this);
+            if (Math.Abs(pp.X - _pressPoint.X) < 6 && Math.Abs(pp.Y - _pressPoint.Y) < 6) return;
+
+            BeginPresetDrag(pp);
             return;
         }
 
@@ -1104,6 +1372,23 @@ public partial class MainWindow : Window
         if (_creating)
         {
             FinishCreate(e.GetPosition(this));
+            e.Handled = true;
+            return;
+        }
+
+        if (_draggingPreset)
+        {
+            var p = e.GetPosition(this);
+            var inside = IsInsideBody(p);
+            var preset = _pressedPreset;
+            var day = _presetDay;
+            var minutes = _presetMinutes;
+
+            EndPresetDrag();
+
+            if (inside && preset is not null && day >= 0 && day < _vm.TimelineDays.Count)
+                _vm.CreateScheduleFromPreset(preset, _vm.TimelineDays[day].Date, minutes);
+
             e.Handled = true;
             return;
         }
@@ -1176,24 +1461,52 @@ public partial class MainWindow : Window
             if (Equals(_pressedCard?.Tag, "card") && !_pressedTask.IsExpanded)
                 SchedulePendingExpand(_pressedTask);
         }
+        else if (_pressedPreset is not null)
+        {
+            ShowToast("按住快捷卡片拖到下方时间轴即可添加", highlight: false);
+        }
         else if (_pressedGoal is not null)
         {
             _vm.ToggleGoalExpand(_pressedGoal);
+        }
+        else if (_pressedGoalPageItem is not null)
+        {
+            if (IsCardTap(e, _pressedGoalPageCard, "goalpagecard"))
+                OpenGoalDetailModal(_pressedGoalPageItem);
+        }
+        else if (_pressedTagRow is not null)
+        {
+            if (IsCardTap(e, _pressedTagCard, "tagcard"))
+                OpenTagDetailModal(_pressedTagRow.Tag);
         }
         else if (clickedBlank)
         {
             _vm.CollapseAll();
         }
 
-        if (_pressedCard is not null) Motion.AnimateScale(_pressedCard, 1.0, Motion.S);
-        if (_pressedBlockElement is not null) Motion.AnimateScale(_pressedBlockElement, 1.0, Motion.S);
+        ResetPressedVisuals();
 
         _pressedTask = null;
         _pressedCard = null;
+        _pressedTagCard = null;
+        _pressedTagRow = null;
+        _pressedGoalPageCard = null;
+        _pressedGoalPageItem = null;
+        _pressedPreset = null;
+        _pressedPresetElement = null;
         _pressedGoal = null;
         _pressedBlock = null;
         _resizeCandidateBlock = null;
         _pressedBlockElement = null;
+    }
+
+    private bool IsCardTap(MouseButtonEventArgs e, Border? card, string tag)
+    {
+        if (card is null) return false;
+        var releaseSrc = e.OriginalSource as DependencyObject;
+        return !IsInteractive(releaseSrc) &&
+               (ReferenceEquals(FindAncestorTag(releaseSrc, tag), card) ||
+                IsInsideElement(e.GetPosition(this), card));
     }
 
     private void SchedulePendingExpand(TaskVM task)
@@ -1480,13 +1793,21 @@ public partial class MainWindow : Window
 
         if (day < 0 || day >= _vm.TimelineDays.Count) return;
 
-        // 仅在红线附近单击时直接从当前时刻起新建（默认 30 分钟）；其余空白单击不误触
+        // 单击空白格：红线附近从当前时刻起（30分），其余空白格按点击刻度起建日程
         if (!hadGhost)
         {
-            if (!snappedNow) return;
-            var nowStart = Math.Clamp(_vm.CurrentMinutes, 0, 24 * 60 - 5);
-            var nowEnd = Math.Min(24 * 60, nowStart + 30);
-            OpenNewEditor(_vm.TimelineDays[day].Date, nowStart, nowEnd);
+            if (snappedNow)
+            {
+                var nowStart = Math.Clamp(_vm.CurrentMinutes, 0, 24 * 60 - 5);
+                var nowEnd = Math.Min(24 * 60, nowStart + 30);
+                OpenNewEditor(_vm.TimelineDays[day].Date, nowStart, nowEnd);
+                return;
+            }
+
+            var clickDuration = _vm.IntervalMinutes is 15 or 30 or 60 ? _vm.IntervalMinutes : 30;
+            var clickStart = Math.Clamp(_createAnchorMinutes, 0, 24 * 60 - clickDuration);
+            var clickEnd = Math.Min(24 * 60, clickStart + clickDuration);
+            OpenNewEditor(_vm.TimelineDays[day].Date, clickStart, clickEnd);
             return;
         }
 
@@ -1521,6 +1842,8 @@ public partial class MainWindow : Window
 
     private void EditorCancel_Click(object sender, RoutedEventArgs e) => _vm.CloseEditor();
 
+    private void EditorScrim_Click(object sender, MouseButtonEventArgs e) => _vm.CloseEditor();
+
     private void EditorDelete_Click(object sender, RoutedEventArgs e) => _vm.DeleteEdited();
 
     private void EditorPrevDay_Click(object sender, RoutedEventArgs e) => _vm.Editor.StepDay(-1);
@@ -1531,6 +1854,9 @@ public partial class MainWindow : Window
     {
         if (sender is FrameworkElement { Tag: string repeat }) _vm.Editor.Repeat = repeat;
     }
+
+    private void EditorRemind_Click(object sender, RoutedEventArgs e)
+        => HandleRemindChipClick(sender, _vm.Editor.ToggleRemindNode);
 
     private void EditorGoal_Click(object sender, RoutedEventArgs e)
     {
@@ -1558,6 +1884,205 @@ public partial class MainWindow : Window
     }
 
     private static string Clock(int minutes) => $"{minutes / 60:00}:{minutes % 60:00}";
+
+    // ==================== 快捷日程预设管理弹窗 ====================
+
+    private void ManagePresets_Click(object sender, RoutedEventArgs e)
+    {
+        _vm.OpenPresetManager();
+        Dispatcher.BeginInvoke(new Action(() =>
+        {
+            PresetTitleBox.Focus();
+            PresetTitleBox.SelectAll();
+        }), DispatcherPriority.Input);
+    }
+
+    private void PresetManagerClose_Click(object sender, RoutedEventArgs e) => _vm.ClosePresetManager();
+
+    private void PresetManagerScrim_Click(object sender, MouseButtonEventArgs e) => _vm.ClosePresetManager();
+
+    private void PresetManager_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter) return;
+        if (Keyboard.FocusedElement is TextBox tb && Equals(tb.Name, "PresetNewTag")) return;
+        _vm.SavePreset();
+        e.Handled = true;
+    }
+
+    private void PresetCancelEdit_Click(object sender, RoutedEventArgs e) => _vm.CancelEditPreset();
+
+    private void PresetDurationChip_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: int minutes }) _vm.PresetManager.SetDuration(minutes);
+    }
+
+    private void PresetGoal_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is GoalPickVM pick) _vm.PresetManager.SelectGoal(pick);
+    }
+
+    private void PresetRemind_Click(object sender, RoutedEventArgs e)
+        => HandleRemindChipClick(sender, _vm.PresetManager.ToggleRemindNode);
+
+    private void PresetNewTag_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter || sender is not TextBox box) return;
+
+        _vm.AddPresetManagerTag(box.Text);
+        _vm.PresetManager.NewTagText = "";
+        box.Clear();
+        e.Handled = true;
+    }
+
+    private void PresetSave_Click(object sender, RoutedEventArgs e) => _vm.SavePreset();
+
+    private void PresetEdit_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: SchedulePresetVM preset })
+        {
+            _vm.StartEditPreset(preset);
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                PresetTitleBox.Focus();
+                PresetTitleBox.SelectAll();
+            }), DispatcherPriority.Input);
+        }
+    }
+
+    private void PresetDelete_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: SchedulePresetVM preset }) _vm.DeletePreset(preset);
+    }
+
+    // ==================== 快捷卡片拖到时间轴 ====================
+
+    private void BeginPresetDrag(Point p)
+    {
+        if (_pressedPreset is null || _pressedPresetElement is null) return;
+
+        _draggingPreset = true;
+        _presetGhostPlaced = false;
+        _presetGhostInBody = false;
+        Motion.AnimateScale(_pressedPresetElement, 1.0, Motion.Xs);
+        Motion.AnimateOpacity(_pressedPresetElement, 0.35, Motion.Xs);
+
+        var ghost = new Border
+        {
+            Background = (Brush)FindResource("Surface2"),
+            BorderBrush = (Brush)FindResource("Accent"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(6),
+            Padding = new Thickness(9, 4, 9, 4),
+            Opacity = 0,
+            RenderTransformOrigin = new Point(0.5, 0.5),
+            RenderTransform = new ScaleTransform(0.98, 0.98),
+            Effect = Motion.CreateFloatingShadow(),
+            IsHitTestVisible = false,
+            Child = new TextBlock
+            {
+                Text = $"{_pressedPreset.DisplayTitle} · {_pressedPreset.DurationLabel}",
+                Foreground = (Brush)FindResource("TextPrimary"),
+                FontFamily = (FontFamily)FindResource("AppFont"),
+                FontSize = 12,
+                FontWeight = FontWeights.SemiBold,
+                TextTrimming = TextTrimming.CharacterEllipsis
+            }
+        };
+
+        _presetGhost = ghost;
+        DragLayer.Children.Add(ghost);
+        Motion.AnimateOpacity(ghost, 0.96, Motion.Xs);
+        Motion.AnimateScale(ghost, 1.02, TimeSpan.FromMilliseconds(120));
+        Mouse.Capture(this, CaptureMode.SubTree);
+        UpdatePresetDrag(p);
+    }
+
+    private void UpdatePresetDrag(Point p)
+    {
+        if (_presetGhost is null || _pressedPreset is null) return;
+
+        var label = _presetGhost.Child as TextBlock;
+
+        if (!IsInsideBody(p))
+        {
+            if (_presetGhostInBody)
+            {
+                _presetGhostInBody = false;
+                _presetGhostPlaced = false;
+                _presetGhost.BeginAnimation(Canvas.LeftProperty, null);
+                _presetGhost.BeginAnimation(Canvas.TopProperty, null);
+                _presetGhost.Width = double.NaN;
+                _presetGhost.Height = double.NaN;
+                _presetGhost.CornerRadius = new CornerRadius(6);
+                _presetGhost.Padding = new Thickness(9, 4, 9, 4);
+                _presetGhost.Background = (Brush)FindResource("Surface2");
+                if (label is not null)
+                    label.Text = $"{_pressedPreset.DisplayTitle} · {_pressedPreset.DurationLabel}";
+            }
+
+            Canvas.SetLeft(_presetGhost, p.X - 24);
+            Canvas.SetTop(_presetGhost, p.Y - 14);
+            return;
+        }
+
+        var duration = Math.Clamp(_pressedPreset.DurationMinutes, 5, 24 * 60);
+        var (day, minutes, left, top) = SnapSlotAt(p, duration);
+        var height = Math.Max(20, duration / 60.0 * _vm.PxPerHourValue);
+
+        if (!_presetGhostInBody)
+        {
+            _presetGhostInBody = true;
+            _presetGhost.Width = MainViewModel.DayWidth - 10;
+            _presetGhost.Height = height;
+            _presetGhost.CornerRadius = new CornerRadius(4);
+            _presetGhost.Padding = height < 28 ? new Thickness(6, 1, 6, 1) : new Thickness(6, 3, 6, 3);
+            _presetGhost.Background = (Brush)FindResource("AccentTint");
+        }
+
+        if (label is not null)
+            label.Text = $"{_pressedPreset.DisplayTitle}  {Clock(minutes)}–{Clock(minutes + duration)}";
+
+        if (!_presetGhostPlaced)
+        {
+            _presetGhostPlaced = true;
+            _presetDay = day;
+            _presetMinutes = minutes;
+            _presetGhost.BeginAnimation(Canvas.LeftProperty, null);
+            _presetGhost.BeginAnimation(Canvas.TopProperty, null);
+            Canvas.SetLeft(_presetGhost, left);
+            Canvas.SetTop(_presetGhost, top);
+            return;
+        }
+
+        if (_presetDay == day && _presetMinutes == minutes) return;
+
+        _presetDay = day;
+        _presetMinutes = minutes;
+
+        var snap = TimeSpan.FromMilliseconds(75);
+        _presetGhost.BeginAnimation(Canvas.LeftProperty, new DoubleAnimation(left, snap) { EasingFunction = Motion.EaseOut });
+        _presetGhost.BeginAnimation(Canvas.TopProperty, new DoubleAnimation(top, snap) { EasingFunction = Motion.EaseOut });
+    }
+
+    private void EndPresetDrag()
+    {
+        if (_presetGhost is not null)
+        {
+            DragLayer.Children.Remove(_presetGhost);
+            _presetGhost = null;
+        }
+
+        if (_pressedPresetElement is not null) Motion.AnimateOpacity(_pressedPresetElement, 1, Motion.S);
+
+        _presetGhostPlaced = false;
+        _presetGhostInBody = false;
+        _draggingPreset = false;
+        _pressedPreset = null;
+        _pressedPresetElement = null;
+
+        if (IsMouseCaptured) ReleaseMouseCapture();
+        Mouse.Capture(null);
+    }
 
     // ==================== 时间轴拖块 ====================
 
@@ -1605,10 +2130,8 @@ public partial class MainWindow : Window
         UpdateBlockDrag(p);
     }
 
-    private void UpdateBlockDrag(Point p)
+    private (int Day, int Minutes, double Left, double Top) SnapSlotAt(Point p, int duration, TaskVM? exclude = null)
     {
-        if (_blockGhost is null || _pressedBlock is null) return;
-
         var origin = BodyScroll.TranslatePoint(new Point(0, 0), this);
         var contentX = p.X - origin.X + BodyScroll.HorizontalOffset;
         var contentY = p.Y - origin.Y + BodyScroll.VerticalOffset;
@@ -1621,15 +2144,23 @@ public partial class MainWindow : Window
             ? _vm.CurrentMinutes
             : (int)Math.Round(contentY / _vm.PxPerHourValue * 60.0 / interval) * interval;
 
-        var duration = MainViewModel.DurationMinutes(_pressedBlock.Task);
         minutes = Math.Clamp(minutes, 0, Math.Max(0, 24 * 60 - duration));
 
         // 幽灵直接吸到最近的空档：看到的就是松手后落的位置，不会先重叠再跳
         if (day < _vm.TimelineDays.Count)
-            minutes = _vm.FindFreeStart(_vm.TimelineDays[day].Date, minutes, duration, _pressedBlock.Task);
+            minutes = _vm.FindFreeStart(_vm.TimelineDays[day].Date, minutes, duration, exclude);
 
         var left = origin.X + day * MainViewModel.DayWidth + 5 - BodyScroll.HorizontalOffset;
         var top = origin.Y + minutes / 60.0 * _vm.PxPerHourValue - BodyScroll.VerticalOffset;
+        return (day, minutes, left, top);
+    }
+
+    private void UpdateBlockDrag(Point p)
+    {
+        if (_blockGhost is null || _pressedBlock is null) return;
+
+        var duration = MainViewModel.DurationMinutes(_pressedBlock.Task);
+        var (day, minutes, left, top) = SnapSlotAt(p, duration, _pressedBlock.Task);
 
         if (!_blockGhostPlaced)
         {
@@ -2042,12 +2573,14 @@ public partial class MainWindow : Window
     {
         CancelPendingExpand();
         StopZoomAnimation();
+        StopTagDetailScrollAnimation();
         _spacePanKeyDown = false;
         if (_panning) EndPan();
         else UpdatePanCursor();
         if (_resizingBlock) EndBlockResize(restoreVisual: true);
         _resizeCandidateBlock = null;
         if (_dragging) CancelDrag();
+        if (_draggingPreset) EndPresetDrag();
         if (_draggingBlock) EndBlockDrag();
         if (_creating)
         {
@@ -2066,6 +2599,9 @@ public partial class MainWindow : Window
     private void ResetPressedVisuals()
     {
         if (_pressedCard is not null) Motion.AnimateScale(_pressedCard, 1.0, Motion.S);
+        if (_pressedTagCard is not null) Motion.AnimateScale(_pressedTagCard, 1.0, Motion.S);
+        if (_pressedGoalPageCard is not null) Motion.AnimateScale(_pressedGoalPageCard, 1.0, Motion.S);
+        if (_pressedPresetElement is not null) Motion.AnimateScale(_pressedPresetElement, 1.0, Motion.S);
         if (_pressedBlockElement is not null) Motion.AnimateScale(_pressedBlockElement, 1.0, Motion.S);
     }
 
@@ -2179,11 +2715,15 @@ public partial class MainWindow : Window
 
     private void OnTaskTouched(TaskVM task)
     {
+        _notifications.ResetTaskFires(task);
+
         Dispatcher.BeginInvoke(new Action(() =>
         {
             FrameworkElement? target = null;
 
-            if (_vm.IsOverview)
+            if (_vm.IsTagDetailOpen)
+                target = FindDescendant<Border>(TagDetailDaysHost, b => Equals(b.Tag, "tagtaskcard") && ReferenceEquals(b.DataContext, task));
+            else if (_vm.IsOverview)
                 target = FindDescendant<Border>(LanesHost, b => Equals(b.Tag, "card") && ReferenceEquals(b.DataContext, task));
             else if (_vm.IsOverduePage)
                 target = FindDescendant<Border>(OverdueHost, b => Equals(b.Tag, "card") && ReferenceEquals(b.DataContext, task));

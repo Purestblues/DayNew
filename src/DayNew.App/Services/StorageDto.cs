@@ -15,6 +15,9 @@ public sealed class StoreDto
     public List<TagDto> Tags { get; set; } = new();
 
     public List<ScheduleDto> Schedules { get; set; } = new();
+
+    /// <summary>为 null 表示老版本文件，加载时需补默认预设；空列表表示用户主动清空。</summary>
+    public List<PresetDto>? Presets { get; set; }
 }
 
 public sealed class GoalDto
@@ -56,4 +59,17 @@ public sealed class ScheduleDto
     public List<string> TagIds { get; set; } = new();
 
     public int Order { get; set; }
+}
+
+public sealed class PresetDto
+{
+    public string Id { get; set; } = "";
+    public string Title { get; set; } = "";
+    public int DurationMinutes { get; set; } = 10;
+    public string? Remind { get; set; }
+    public string Note { get; set; } = "";
+    public bool Urgent { get; set; }
+    public bool Important { get; set; }
+    public string? GoalId { get; set; }
+    public List<string> TagIds { get; set; } = new();
 }

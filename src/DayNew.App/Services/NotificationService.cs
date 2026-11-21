@@ -1,7 +1,9 @@
 using System.Drawing.Imaging;
+using System.Globalization;
 using System.IO;
 using System.Windows;
 using System.Windows.Threading;
+using DayNew.Core;
 using DayNew.ViewModels;
 using Microsoft.Toolkit.Uwp.Notifications;
 using Microsoft.Win32;
@@ -11,11 +13,14 @@ namespace DayNew.Services;
 
 /// <summary>
 /// Windows 系统通知推送服务（基于 ToastNotificationManagerCompat）：
-///   1. 日程节点提醒：今日未完成日程在开始前 5 分钟、开始时、结束时及自定义 Remind 时刻推送，带「标为完成」快捷按钮。
-///   2. 今日待办摘要：启动（自启或手动）或从睡眠/休眠唤醒时推送一次，推送后当日内不再检测。
+///   1. 日程节点提醒：严格按日程勾选的 Remind 节点（pre15/pre5/start/end）推送，带「标为完成」「延后 5/10 分钟」快捷按钮。
+///   2. 贪睡延后队列：仅推迟通知本身，不改动日程在时间轴上的起止时间。
+///   3. 今日待办摘要：启动（自启或手动）或从睡眠/休眠唤醒时推送一次，受 DailyDigestEnabled 控制且当日不重复。
 /// </summary>
 public sealed class NotificationService : IDisposable
 {
+    private sealed record SnoozeEntry(string TaskId, DateTime FireAt, string Title, string Body);
+
     private readonly AppSettings _settings;
     private readonly Func<IReadOnlyList<TaskVM>> _getSchedules;
     private readonly Action _onOpenWindow;
@@ -23,6 +28,7 @@ public sealed class NotificationService : IDisposable
 
     private readonly DispatcherTimer _timer;
     private readonly HashSet<string> _firedKeys = new();
+    private readonly List<SnoozeEntry> _snoozes = new();
     private DateTime _lastScanDate = DateTime.Today;
     private string? _toastIconPath;
     private bool _digestScheduled;
@@ -52,7 +58,7 @@ public sealed class NotificationService : IDisposable
 
     public void ScheduleDigestCheck()
     {
-        if (_disposed || !_settings.NotifyEnabled) return;
+        if (_disposed || !_settings.NotifyEnabled || !_settings.DailyDigestEnabled) return;
         if (_settings.LastDigestDate == DateTime.Today.ToString("yyyy-MM-dd")) return;
         if (_digestScheduled) return;
 
@@ -69,7 +75,7 @@ public sealed class NotificationService : IDisposable
 
     public void TryPushDailyDigest()
     {
-        if (_disposed || !_settings.NotifyEnabled) return;
+        if (_disposed || !_settings.NotifyEnabled || !_settings.DailyDigestEnabled) return;
 
         var today = DateTime.Today;
         var todayStr = today.ToString("yyyy-MM-dd");
@@ -124,16 +130,57 @@ public sealed class NotificationService : IDisposable
     {
         ShowToast(
             title: "日新通知已就绪",
-            body: "日程开始前 5 分钟、开始与结束时将在这里提醒你。",
+            body: "将按各日程配置的节点（提前 15/5 分钟、开始、结束）准时提醒，并支持标为完成或延后。",
             tag: "test",
             taskId: null,
             includeCompleteAction: false);
     }
 
+    /// <summary>当日程时间或提醒配置改变时，清理该任务尚未过期的已触发记录；已完成则清理贪睡队列。</summary>
+    public void ResetTaskFires(TaskVM task)
+    {
+        if (_disposed) return;
+
+        if (task.Done)
+        {
+            _snoozes.RemoveAll(s => s.TaskId == task.Id);
+            return;
+        }
+
+        var today = DateTime.Today;
+        var now = DateTime.Now.TimeOfDay;
+        var prefix = task.Id + "|";
+
+        var currentTriggers = new HashSet<(string Node, int TargetMinutes)>();
+        if (task.Due?.Date == today && task.StartTime is { } st && task.EndTime is { } et && task.HasRemind)
+        {
+            foreach (var trigger in RemindRules.GetTriggers(task.Remind, st, et, TitleOf(task)))
+                currentTriggers.Add((trigger.Node, (int)trigger.TargetTime.TotalMinutes));
+        }
+
+        _firedKeys.RemoveWhere(key =>
+        {
+            if (!key.StartsWith(prefix, StringComparison.Ordinal)) return false;
+
+            var parts = key.Split('|');
+            if (parts.Length != 4) return true;
+
+            if (!DateTime.TryParseExact(parts[1], "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var keyDate)
+                || keyDate != today)
+                return true;
+
+            if (!int.TryParse(parts[3], out var targetMins)) return true;
+
+            if (TimeSpan.FromMinutes(targetMins) > now) return true;
+
+            return !currentTriggers.Contains((parts[2], targetMins));
+        });
+    }
+
     private void OnPowerModeChanged(object sender, PowerModeChangedEventArgs e)
     {
         if (_disposed || e.Mode != PowerModes.Resume) return;
-        if (!_settings.NotifyEnabled) return;
+        if (!_settings.NotifyEnabled || !_settings.DailyDigestEnabled) return;
 
         // 今日已推送过则不再做检测
         if (_settings.LastDigestDate == DateTime.Today.ToString("yyyy-MM-dd")) return;
@@ -145,48 +192,56 @@ public sealed class NotificationService : IDisposable
     {
         if (_disposed || !_settings.NotifyEnabled) return;
 
-        var today = DateTime.Today;
+        var nowDateTime = DateTime.Now;
+        var today = nowDateTime.Date;
         if (today != _lastScanDate)
         {
             _lastScanDate = today;
             _firedKeys.Clear();
         }
 
-        var now = DateTime.Now.TimeOfDay;
         var all = _getSchedules();
 
+        // 1. 处理到点的贪睡提醒
+        for (var i = _snoozes.Count - 1; i >= 0; i--)
+        {
+            var entry = _snoozes[i];
+            if (nowDateTime < entry.FireAt) continue;
+
+            _snoozes.RemoveAt(i);
+            var targetTask = all.FirstOrDefault(t => t.Id == entry.TaskId);
+            if (targetTask is null || targetTask.Done) continue;
+
+            ShowToast(
+                title: entry.Title,
+                body: entry.Body,
+                tag: $"snz-{targetTask.Id}",
+                taskId: targetTask.Id,
+                includeCompleteAction: true);
+        }
+
+        // 2. 扫描今日各日程的相对提醒节点
+        var now = nowDateTime.TimeOfDay;
         foreach (var task in all)
         {
             if (task.Done || task.Due?.Date != today) continue;
+            if (!task.HasTime || !task.HasRemind) continue;
 
-            if (task.StartTime is { } st && task.EndTime is { } et)
+            var st = task.StartTime!.Value;
+            var et = task.EndTime!.Value;
+            var range = $"{Fmt(st)} – {Fmt(et)}";
+
+            foreach (var trigger in RemindRules.GetTriggers(task.Remind, st, et, TitleOf(task)))
             {
-                var range = $"{Fmt(st)} – {Fmt(et)}";
-
-                if (st >= TimeSpan.FromMinutes(5))
-                {
-                    TryFire(task, today, now, st - TimeSpan.FromMinutes(5), "pre5",
-                        $"5 分钟后开始 · {TitleOf(task)}",
-                        BuildBody(task, range));
-                }
-
-                TryFire(task, today, now, st, "start",
-                    $"现在开始 · {TitleOf(task)}",
-                    BuildBody(task, range));
-
-                TryFire(task, today, now, et, "end",
-                    $"日程已结束 · {TitleOf(task)}",
-                    BuildBody(task, $"{range} · 记得确认完成"));
-            }
-
-            if (!string.IsNullOrWhiteSpace(task.Remind) && TimeSpan.TryParse(task.Remind, out var rt))
-            {
-                // 若 Remind 时刻与 StartTime 相同，不重复推送两条
-                if (task.HasTime && rt == task.StartTime) continue;
-
-                TryFire(task, today, now, rt, "remind",
-                    $"提醒 · {TitleOf(task)}",
-                    BuildBody(task, $"定时提醒 {task.Remind}"));
+                var primary = trigger.IsEnd ? $"{range} · 记得确认完成" : range;
+                TryFire(
+                    task,
+                    today,
+                    now,
+                    trigger.TargetTime,
+                    trigger.Node,
+                    trigger.ToastTitle,
+                    BuildBody(task, primary));
             }
         }
     }
@@ -236,6 +291,20 @@ public sealed class NotificationService : IDisposable
                     .AddArgument("action", "complete")
                     .AddArgument("taskId", taskId)
                     .SetBackgroundActivation());
+
+                builder.AddButton(new ToastButton()
+                    .SetContent("延后 5 分钟")
+                    .AddArgument("action", "snooze")
+                    .AddArgument("minutes", "5")
+                    .AddArgument("taskId", taskId)
+                    .SetBackgroundActivation());
+
+                builder.AddButton(new ToastButton()
+                    .SetContent("延后 10 分钟")
+                    .AddArgument("action", "snooze")
+                    .AddArgument("minutes", "10")
+                    .AddArgument("taskId", taskId)
+                    .SetBackgroundActivation());
             }
 
             builder.Show(toast =>
@@ -263,12 +332,42 @@ public sealed class NotificationService : IDisposable
                 return;
             }
 
+            if (action == "snooze"
+                && args.TryGetValue("taskId", out var snoozeTaskId)
+                && !string.IsNullOrEmpty(snoozeTaskId)
+                && args.TryGetValue("minutes", out var minsStr)
+                && int.TryParse(minsStr, out var mins)
+                && mins > 0)
+            {
+                Application.Current?.Dispatcher.BeginInvoke(() => SnoozeTask(snoozeTaskId, mins));
+                return;
+            }
+
             Application.Current?.Dispatcher.BeginInvoke(_onOpenWindow);
         }
         catch
         {
             Application.Current?.Dispatcher.BeginInvoke(_onOpenWindow);
         }
+    }
+
+    private void SnoozeTask(string taskId, int minutes)
+    {
+        if (_disposed) return;
+
+        var task = _getSchedules().FirstOrDefault(t => t.Id == taskId);
+        if (task is null || task.Done) return;
+
+        var primary = task.HasTime
+            ? $"{Fmt(task.StartTime!.Value)} – {Fmt(task.EndTime!.Value)} · 已延后 {minutes} 分钟"
+            : $"已延后 {minutes} 分钟";
+
+        _snoozes.RemoveAll(s => s.TaskId == taskId);
+        _snoozes.Add(new SnoozeEntry(
+            taskId,
+            DateTime.Now.AddMinutes(minutes),
+            $"延后提醒 · {TitleOf(task)}",
+            BuildBody(task, primary)));
     }
 
     private string? EnsureToastIconPath()

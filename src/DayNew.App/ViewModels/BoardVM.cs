@@ -22,6 +22,41 @@ public sealed class TagRowVM
     public override string ToString() => Tag.Name;
 }
 
+/// <summary>标签详情弹窗里按日划分的一条纵向日期列。</summary>
+public sealed class TagDayColumnVM : ObservableObject
+{
+    public TagDayColumnVM(DateTime date)
+    {
+        Date = date.Date;
+    }
+
+    public DateTime Date { get; }
+
+    /// <summary>周几，比如「周一」。</summary>
+    public string DayName => Date.DayOfWeek switch
+    {
+        DayOfWeek.Monday => "周一",
+        DayOfWeek.Tuesday => "周二",
+        DayOfWeek.Wednesday => "周三",
+        DayOfWeek.Thursday => "周四",
+        DayOfWeek.Friday => "周五",
+        DayOfWeek.Saturday => "周六",
+        _ => "周日"
+    };
+
+    public string DayNumber => $"{Date.Month}/{Date.Day}";
+
+    public bool IsToday => Date.Date == DateTime.Today;
+
+    public ObservableCollection<TaskVM> Items { get; } = new();
+
+    public int Count => Items.Count;
+
+    public bool HasItems => Items.Count > 0;
+
+    public override string ToString() => $"{DayName} {DayNumber} ({Count})";
+}
+
 /// <summary>艾森豪威尔的一个象限。</summary>
 public sealed class QuadrantVM : ObservableObject
 {

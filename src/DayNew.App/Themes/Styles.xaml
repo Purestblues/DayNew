@@ -869,7 +869,7 @@
 
     <!-- ============ 卡片网格（标签页 / 目标页 / 四象限） ============ -->
     <Style x:Key="GridCard" TargetType="Border" BasedOn="{StaticResource CardBorder}">
-        <Setter Property="Margin" Value="0,0,10,10"/>
+        <Setter Property="Margin" Value="0"/>
         <Setter Property="Padding" Value="12,10"/>
         <Setter Property="Cursor" Value="Arrow"/>
     </Style>

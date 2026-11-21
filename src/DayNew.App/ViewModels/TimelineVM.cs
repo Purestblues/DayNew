@@ -75,6 +75,8 @@ public sealed class TimelineBlockVM : ObservableObject
         {
             if (!Set(ref _height, value)) return;
             OnPropertyChanged(nameof(HasRoomForMeta));
+            OnPropertyChanged(nameof(HasSideMeta));
+            OnPropertyChanged(nameof(HasInlineDots));
             OnPropertyChanged(nameof(IsSingleLine));
             OnPropertyChanged(nameof(IsCompact));
             OnPropertyChanged(nameof(IsSmallBlock));
@@ -91,7 +93,12 @@ public sealed class TimelineBlockVM : ObservableObject
     public double Width
     {
         get => _width;
-        set => Set(ref _width, value);
+        set
+        {
+            if (!Set(ref _width, value)) return;
+            OnPropertyChanged(nameof(HasSideMeta));
+            OnPropertyChanged(nameof(HasInlineDots));
+        }
     }
 
     public string? PreviewTimeText
@@ -106,8 +113,16 @@ public sealed class TimelineBlockVM : ObservableObject
 
     public string Title => string.IsNullOrWhiteSpace(Task.Title) ? "未命名" : Task.Title;
 
+    public bool HasMeta => Task.Tags.Count > 0 || Task.HasGoal;
+
     /// <summary>块够不够高再写标签和目标；太矮就只写标题和时间，不留半行。</summary>
     public bool HasRoomForMeta => Height >= 60;
+
+    /// <summary>常规高度且宽度足够时，在块右侧并排显示标签和目标。</summary>
+    public bool HasSideMeta => !IsSingleLine && Width >= 96 && HasMeta;
+
+    /// <summary>单行矮块且宽度够时，仅展示小色点，避免裁切文字。</summary>
+    public bool HasInlineDots => IsSingleLine && Width >= 110 && HasMeta;
 
     /// <summary>太矮放不下两行时（如 1 时缩放下的 15–45 分钟）改成单行并排，绝不纵向裁切。</summary>
     public bool IsSingleLine => Height < 38;

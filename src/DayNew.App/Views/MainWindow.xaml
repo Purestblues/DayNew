@@ -19,7 +19,7 @@
     <WindowChrome.WindowChrome>
         <WindowChrome CaptionHeight="38"
                       ResizeBorderThickness="6"
-                      GlassFrameThickness="0"
+                      GlassFrameThickness="1"
                       CornerRadius="0"
                       UseAeroCaptionButtons="False"/>
     </WindowChrome.WindowChrome>
@@ -103,9 +103,21 @@
                                      KeyDown="TitleBox_KeyDown"/>
                             <TextBlock x:Name="titleText" Text="{Binding Title}"
                                        Style="{StaticResource CardTitle}"/>
-                            <TextBlock x:Name="metaText" Text="{Binding MetaText}"
-                                       Style="{StaticResource Caption}"
-                                       Margin="0,1,0,0"/>
+                            <Grid x:Name="metaRow" Margin="0,1,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock x:Name="remindBell" Grid.Column="0" Text="&#xEA8F;"
+                                           FontFamily="{StaticResource IconFont}" FontSize="10.5"
+                                           Foreground="{DynamicResource TextTertiary}"
+                                           VerticalAlignment="Center" Margin="0,0,5,0"
+                                           ToolTip="{Binding RemindTooltip}"
+                                           Visibility="{Binding ShowRemindBell, Converter={StaticResource BoolToVisible}}"/>
+                                <TextBlock x:Name="metaText" Grid.Column="1" Text="{Binding MetaText}"
+                                           Style="{StaticResource Caption}"
+                                           VerticalAlignment="Center"/>
+                            </Grid>
 
                             <StackPanel x:Name="editor" Visibility="Collapsed"
                                         Opacity="0" Margin="0,9,0,0">
@@ -187,23 +199,40 @@
                                                   Click="Important_Click"/>
                                 </StackPanel>
 
-                                <Grid Margin="0,8,0,0">
+                                <WrapPanel Margin="0,7,0,0" ToolTip="{Binding RemindTooltip}">
+                                    <ToggleButton Style="{StaticResource FlagChip}" Content="不提醒" Tag="none"
+                                                  Margin="0,0,4,4"
+                                                  IsChecked="{Binding IsRemindNone, Mode=OneWay}"
+                                                  Click="TaskRemindChip_Click"/>
+                                    <ToggleButton Style="{StaticResource FlagChip}" Content="前15分" Tag="pre15"
+                                                  Margin="0,0,4,4"
+                                                  IsChecked="{Binding IsRemindPre15, Mode=OneWay}"
+                                                  Click="TaskRemindChip_Click"/>
+                                    <ToggleButton Style="{StaticResource FlagChip}" Content="前5分" Tag="pre5"
+                                                  Margin="0,0,4,4"
+                                                  IsChecked="{Binding IsRemindPre5, Mode=OneWay}"
+                                                  Click="TaskRemindChip_Click"/>
+                                    <ToggleButton Style="{StaticResource FlagChip}" Content="开始" Tag="start"
+                                                  Margin="0,0,4,4"
+                                                  IsChecked="{Binding IsRemindStart, Mode=OneWay}"
+                                                  Click="TaskRemindChip_Click"/>
+                                    <ToggleButton Style="{StaticResource FlagChip}" Content="结束" Tag="end"
+                                                  Margin="0,0,4,4"
+                                                  IsChecked="{Binding IsRemindEnd, Mode=OneWay}"
+                                                  Click="TaskRemindChip_Click"/>
+                                </WrapPanel>
+
+                                <Grid Margin="0,4,0,0">
                                     <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="Auto"/>
                                         <ColumnDefinition Width="Auto"/>
                                         <ColumnDefinition Width="*"/>
                                     </Grid.ColumnDefinitions>
                                     <Button Grid.Column="0" Style="{StaticResource GhostButton}"
-                                            HorizontalAlignment="Left" Padding="7,4" FontSize="11.5" Margin="0,0,4,0"
+                                            HorizontalAlignment="Left" Padding="7,4" FontSize="11.5"
                                             Content="{Binding RepeatLabel}"
                                             ToolTip="点击切换：不重复 / 每天 / 每周 / 每月"
                                             Click="Repeat_Click"/>
                                     <Button Grid.Column="1" Style="{StaticResource GhostButton}"
-                                            HorizontalAlignment="Left" Padding="7,4" FontSize="11.5"
-                                            Content="{Binding RemindLabel}"
-                                            ToolTip="点击开关提醒"
-                                            Click="Remind_Click"/>
-                                    <Button Grid.Column="2" Style="{StaticResource GhostButton}"
                                             HorizontalAlignment="Right" Padding="7,4" FontSize="11.5"
                                             Foreground="{DynamicResource TextTertiary}"
                                             Content="删除" Click="Delete_Click"/>
@@ -224,7 +253,7 @@
                     <Setter TargetName="editor" Property="Visibility" Value="Visible"/>
                     <Setter TargetName="titleBox" Property="Visibility" Value="Visible"/>
                     <Setter TargetName="titleText" Property="Visibility" Value="Collapsed"/>
-                    <Setter TargetName="metaText" Property="Visibility" Value="Collapsed"/>
+                    <Setter TargetName="metaRow" Property="Visibility" Value="Collapsed"/>
                     <Setter TargetName="card" Property="BorderBrush" Value="{DynamicResource BorderStrong}"/>
                     <Setter TargetName="card" Property="Cursor" Value="Arrow"/>
                     <DataTrigger.EnterActions>
@@ -251,6 +280,13 @@
                 <DataTrigger Binding="{Binding MetaText}" Value="">
                     <Setter TargetName="metaText" Property="Visibility" Value="Collapsed"/>
                 </DataTrigger>
+                <MultiDataTrigger>
+                    <MultiDataTrigger.Conditions>
+                        <Condition Binding="{Binding MetaText}" Value=""/>
+                        <Condition Binding="{Binding ShowRemindBell}" Value="False"/>
+                    </MultiDataTrigger.Conditions>
+                    <Setter TargetName="metaRow" Property="Visibility" Value="Collapsed"/>
+                </MultiDataTrigger>
             </DataTemplate.Triggers>
         </DataTemplate>
     </Window.Resources>
@@ -659,6 +695,7 @@
 
                     <!-- 视图：24 小时 × 日期 -->
                     <Grid x:Name="PageTimeline" Margin="16,14,16,0"
+                          PreviewMouseWheel="PageTimeline_PreviewMouseWheel"
                           Visibility="{Binding IsTimeline, Converter={StaticResource BoolToVisible}}">
                         <Grid.RenderTransform>
                             <TranslateTransform/>
@@ -673,28 +710,103 @@
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
 
-                        <!-- 工具条 -->
+                        <!-- 工具条：回到今日今时 + 快捷日程预设卡片 + 管理入口 + 缩放档 -->
                         <Grid Grid.Row="0" Grid.ColumnSpan="2" Margin="0,0,0,10">
-                            <Button Content="回到今日今时" Style="{StaticResource GhostButton}"
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+
+                            <Button Grid.Column="0" Content="回到今日今时" Style="{StaticResource GhostButton}"
                                     AutomationProperties.Name="回到今日今时"
-                                    HorizontalAlignment="Left" Padding="9,4" Click="Today_Click"/>
-                            <ItemsControl ItemsSource="{Binding ZoomOptions}" HorizontalAlignment="Right"
-                                          VerticalAlignment="Center">
-                                <ItemsControl.ItemsPanel>
-                                    <ItemsPanelTemplate>
-                                        <StackPanel Orientation="Horizontal"/>
-                                    </ItemsPanelTemplate>
-                                </ItemsControl.ItemsPanel>
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate DataType="{x:Type vm:ZoomOptionVM}">
-                                        <ToggleButton Style="{StaticResource SegmentButton}"
-                                                      Content="{Binding Label}"
-                                                      Tag="{Binding Index}"
-                                                      IsChecked="{Binding IsCurrent, Mode=OneWay}"
-                                                      Click="Zoom_Click"/>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
+                                    HorizontalAlignment="Left" VerticalAlignment="Center"
+                                    Padding="9,4" Margin="0,0,8,0" Click="Today_Click"/>
+
+                            <ScrollViewer x:Name="PresetsScroll" Grid.Column="1"
+                                          HorizontalScrollBarVisibility="Auto"
+                                          VerticalScrollBarVisibility="Disabled"
+                                          VerticalAlignment="Center" Margin="0,0,8,0">
+                                <ItemsControl x:Name="PresetsHost" ItemsSource="{Binding Presets}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <StackPanel Orientation="Horizontal"/>
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate DataType="{x:Type vm:SchedulePresetVM}">
+                                            <Border x:Name="presetChip" Tag="preset"
+                                                    Background="{DynamicResource Surface2}"
+                                                    BorderBrush="{DynamicResource BorderSubtle}"
+                                                    BorderThickness="1" CornerRadius="6"
+                                                    Padding="9,4" Margin="0,0,6,0"
+                                                    Cursor="Hand" VerticalAlignment="Center"
+                                                    RenderTransformOrigin="0.5,0.5"
+                                                    ToolTip="按住拖到下方时间轴直接添加">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <Ellipse Width="5" Height="5" Fill="{Binding DotBrush}"
+                                                             VerticalAlignment="Center" Margin="0,0,5,0"
+                                                             Visibility="{Binding HasDot, Converter={StaticResource BoolToVisible}}"/>
+                                                    <TextBlock Text="{Binding DisplayTitle}"
+                                                               FontSize="12" FontWeight="SemiBold"
+                                                               VerticalAlignment="Center"
+                                                               Foreground="{DynamicResource TextPrimary}"/>
+                                                    <TextBlock Text="{Binding DurationLabel}"
+                                                               FontSize="11" FontWeight="Medium"
+                                                               VerticalAlignment="Center" Margin="5,0,0,0"
+                                                               Foreground="{DynamicResource TextTertiary}"
+                                                               Typography.NumeralAlignment="Tabular"/>
+                                                    <TextBlock Text="&#xEA8F;"
+                                                               FontFamily="{StaticResource IconFont}" FontSize="9.5"
+                                                               Foreground="{DynamicResource TextTertiary}"
+                                                               VerticalAlignment="Center" Margin="4,0,0,0"
+                                                               ToolTip="{Binding RemindTooltip}"
+                                                               Visibility="{Binding HasRemind, Converter={StaticResource BoolToVisible}}"/>
+                                                </StackPanel>
+                                            </Border>
+                                            <DataTemplate.Triggers>
+                                                <Trigger SourceName="presetChip" Property="IsMouseOver" Value="True">
+                                                    <Setter TargetName="presetChip" Property="Background" Value="{DynamicResource Surface3}"/>
+                                                    <Setter TargetName="presetChip" Property="BorderBrush" Value="{DynamicResource BorderStrong}"/>
+                                                </Trigger>
+                                            </DataTemplate.Triggers>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </ScrollViewer>
+
+                            <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                                <Button x:Name="ManagePresetsButton" Style="{StaticResource GhostButton}"
+                                        Padding="8,4" Margin="0,0,6,0"
+                                        ToolTip="新增、编辑或删除快捷日程卡片"
+                                        AutomationProperties.Name="管理快捷卡片"
+                                        AutomationProperties.AutomationId="ManagePresetsButton"
+                                        Click="ManagePresets_Click">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="&#xE70F;" FontFamily="{StaticResource IconFont}"
+                                                   FontSize="10.5" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                                        <TextBlock Text="快捷卡片" FontSize="12" FontWeight="Medium"
+                                                   VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+
+                                <ItemsControl ItemsSource="{Binding ZoomOptions}" VerticalAlignment="Center">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <StackPanel Orientation="Horizontal"/>
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate DataType="{x:Type vm:ZoomOptionVM}">
+                                            <ToggleButton Style="{StaticResource SegmentButton}"
+                                                          Content="{Binding Label}"
+                                                          Tag="{Binding Index}"
+                                                          IsChecked="{Binding IsCurrent, Mode=OneWay}"
+                                                          Click="Zoom_Click"/>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
                         </Grid>
 
                         <!-- 日期表头（跟着横向滚动） -->
@@ -777,7 +889,6 @@
                         <ScrollViewer x:Name="BodyScroll" Grid.Row="2" Grid.Column="1"
                                       HorizontalScrollBarVisibility="Auto"
                                       VerticalScrollBarVisibility="Auto"
-                                      PreviewMouseWheel="BodyScroll_PreviewMouseWheel"
                                       ScrollChanged="BodyScroll_ScrollChanged">
                             <Grid Width="{Binding TimelineWidth}" Height="{Binding GridHeight}">
                                 <ItemsControl x:Name="DaysHost" ItemsSource="{Binding TimelineDays}">
@@ -826,56 +937,107 @@
                                                                             <Grid.ColumnDefinitions>
                                                                                 <ColumnDefinition Width="*"/>
                                                                                 <ColumnDefinition Width="Auto"/>
+                                                                                <ColumnDefinition Width="Auto"/>
                                                                             </Grid.ColumnDefinitions>
                                                                             <TextBlock x:Name="blkSingleTitle" Text="{Binding Title}"
                                                                                        FontSize="11.5" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
                                                                                        VerticalAlignment="Center"
                                                                                        Foreground="{DynamicResource TextPrimary}"/>
-                                                                            <TextBlock Grid.Column="1" Text="{Binding TimeText}"
-                                                                                       FontSize="10.5" FontWeight="Medium" Margin="6,0,0,0"
-                                                                                       VerticalAlignment="Center"
-                                                                                       Foreground="{DynamicResource TextTertiary}"
-                                                                                       Typography.NumeralAlignment="Tabular"/>
-                                                                        </Grid>
-                                                                        <StackPanel x:Name="blkContent" Margin="6,3">
-                                                                        <TextBlock x:Name="blkTitle" Text="{Binding Title}"
-                                                                                   FontSize="12" FontWeight="SemiBold"
-                                                                                   TextTrimming="CharacterEllipsis"
-                                                                                   Foreground="{DynamicResource TextPrimary}"/>
-                                                                        <TextBlock x:Name="blkTime" Text="{Binding TimeText}" FontSize="10.5" FontWeight="Medium"
-                                                                                   Foreground="{DynamicResource TextTertiary}"
-                                                                                   Typography.NumeralAlignment="Tabular"/>
-
-                                                                        <!-- 下方：所属标签 + 目标。块矮时整块隐起来，不留半行字 -->
-                                                                        <StackPanel x:Name="blkMeta" Margin="0,2,0,0">
-                                                                            <ItemsControl ItemsSource="{Binding Task.Tags}">
-                                                                                <ItemsControl.ItemsPanel>
-                                                                                    <ItemsPanelTemplate>
-                                                                                        <WrapPanel/>
-                                                                                    </ItemsPanelTemplate>
-                                                                                </ItemsControl.ItemsPanel>
-                                                                                <ItemsControl.ItemTemplate>
-                                                                                    <DataTemplate>
-                                                                                        <StackPanel Orientation="Horizontal" Margin="0,1,5,0">
+                                                                            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center"
+                                                                                        Margin="4,0,0,0"
+                                                                                        Visibility="{Binding HasInlineDots, Converter={StaticResource BoolToVisible}}">
+                                                                                <ItemsControl ItemsSource="{Binding Task.Tags}" VerticalAlignment="Center">
+                                                                                    <ItemsControl.ItemsPanel>
+                                                                                        <ItemsPanelTemplate>
+                                                                                            <StackPanel Orientation="Horizontal"/>
+                                                                                        </ItemsPanelTemplate>
+                                                                                    </ItemsControl.ItemsPanel>
+                                                                                    <ItemsControl.ItemTemplate>
+                                                                                        <DataTemplate>
                                                                                             <Ellipse Width="4" Height="4" Fill="{Binding Color}"
-                                                                                                     VerticalAlignment="Center" Margin="0,0,3,0"/>
-                                                                                            <TextBlock Text="{Binding Name}" FontSize="10.5" FontWeight="Medium"
-                                                                                                       Foreground="{DynamicResource TextTertiary}"/>
-                                                                                        </StackPanel>
-                                                                                    </DataTemplate>
-                                                                                </ItemsControl.ItemTemplate>
-                                                                            </ItemsControl>
-
-                                                                            <StackPanel Orientation="Horizontal" Margin="0,1,0,0"
-                                                                                        Visibility="{Binding Task.HasGoal, Converter={StaticResource BoolToVisible}}">
+                                                                                                     VerticalAlignment="Center" Margin="0,0,2,0"
+                                                                                                     ToolTip="{Binding Name}"/>
+                                                                                        </DataTemplate>
+                                                                                    </ItemsControl.ItemTemplate>
+                                                                                </ItemsControl>
                                                                                 <Ellipse Width="4" Height="4" Fill="{Binding Task.Goal.Color}"
-                                                                                         VerticalAlignment="Center" Margin="0,0,3,0"/>
-                                                                                <TextBlock Text="{Binding Task.Goal.Title}" FontSize="10.5" FontWeight="Medium"
-                                                                                           Foreground="{DynamicResource TextTertiary}"
-                                                                                           TextTrimming="CharacterEllipsis"/>
+                                                                                         VerticalAlignment="Center" Margin="1,0,0,0"
+                                                                                         Visibility="{Binding Task.HasGoal, Converter={StaticResource BoolToVisible}}"
+                                                                                         ToolTip="{Binding Task.Goal.Title}"/>
                                                                             </StackPanel>
-                                                                        </StackPanel>
-                                                                        </StackPanel>
+                                                                            <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Margin="5,0,0,0">
+                                                                                <TextBlock Text="&#xEA8F;"
+                                                                                           FontFamily="{StaticResource IconFont}" FontSize="9.5"
+                                                                                           Foreground="{DynamicResource TextTertiary}"
+                                                                                           VerticalAlignment="Center" Margin="0,0,3,0"
+                                                                                           ToolTip="{Binding Task.RemindTooltip}"
+                                                                                           Visibility="{Binding Task.ShowRemindBell, Converter={StaticResource BoolToVisible}}"/>
+                                                                                <TextBlock Text="{Binding TimeText}"
+                                                                                           FontSize="10.5" FontWeight="Medium"
+                                                                                           VerticalAlignment="Center"
+                                                                                           Foreground="{DynamicResource TextTertiary}"
+                                                                                           Typography.NumeralAlignment="Tabular"/>
+                                                                            </StackPanel>
+                                                                        </Grid>
+                                                                        <Grid x:Name="blkContent" Margin="6,3">
+                                                                            <Grid.ColumnDefinitions>
+                                                                                <ColumnDefinition Width="*"/>
+                                                                                <ColumnDefinition Width="Auto"/>
+                                                                            </Grid.ColumnDefinitions>
+
+                                                                            <StackPanel Grid.Column="0" VerticalAlignment="Top">
+                                                                                <TextBlock x:Name="blkTitle" Text="{Binding Title}"
+                                                                                           FontSize="12" FontWeight="SemiBold"
+                                                                                           TextTrimming="CharacterEllipsis"
+                                                                                           Foreground="{DynamicResource TextPrimary}"/>
+                                                                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                                                                    <TextBlock x:Name="blkTime" Text="{Binding TimeText}" FontSize="10.5" FontWeight="Medium"
+                                                                                               Foreground="{DynamicResource TextTertiary}"
+                                                                                               VerticalAlignment="Center"
+                                                                                               Typography.NumeralAlignment="Tabular"/>
+                                                                                    <TextBlock Text="&#xEA8F;"
+                                                                                               FontFamily="{StaticResource IconFont}" FontSize="9.5"
+                                                                                               Foreground="{DynamicResource TextTertiary}"
+                                                                                               VerticalAlignment="Center" Margin="4,0,0,0"
+                                                                                               ToolTip="{Binding Task.RemindTooltip}"
+                                                                                               Visibility="{Binding Task.ShowRemindBell, Converter={StaticResource BoolToVisible}}"/>
+                                                                                </StackPanel>
+                                                                            </StackPanel>
+
+                                                                            <!-- 右侧：所属标签 + 目标。和标题/时间左右并排，短块也能完整展示 -->
+                                                                            <StackPanel x:Name="blkMeta" Grid.Column="1"
+                                                                                        MaxWidth="76" Margin="6,1,0,0"
+                                                                                        VerticalAlignment="Top" HorizontalAlignment="Right"
+                                                                                        Visibility="{Binding HasSideMeta, Converter={StaticResource BoolToVisible}}">
+                                                                                <ItemsControl ItemsSource="{Binding Task.Tags}" HorizontalAlignment="Right">
+                                                                                    <ItemsControl.ItemsPanel>
+                                                                                        <ItemsPanelTemplate>
+                                                                                            <WrapPanel HorizontalAlignment="Right"/>
+                                                                                        </ItemsPanelTemplate>
+                                                                                    </ItemsControl.ItemsPanel>
+                                                                                    <ItemsControl.ItemTemplate>
+                                                                                        <DataTemplate>
+                                                                                            <StackPanel Orientation="Horizontal" Margin="4,0,0,1">
+                                                                                                <Ellipse Width="4" Height="4" Fill="{Binding Color}"
+                                                                                                         VerticalAlignment="Center" Margin="0,0,3,0"/>
+                                                                                                <TextBlock Text="{Binding Name}" FontSize="10" FontWeight="Medium"
+                                                                                                           MaxWidth="52" TextTrimming="CharacterEllipsis"
+                                                                                                           Foreground="{DynamicResource TextTertiary}"/>
+                                                                                            </StackPanel>
+                                                                                        </DataTemplate>
+                                                                                    </ItemsControl.ItemTemplate>
+                                                                                </ItemsControl>
+
+                                                                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,1,0,0"
+                                                                                            Visibility="{Binding Task.HasGoal, Converter={StaticResource BoolToVisible}}">
+                                                                                    <Ellipse Width="4" Height="4" Fill="{Binding Task.Goal.Color}"
+                                                                                             VerticalAlignment="Center" Margin="0,0,3,0"/>
+                                                                                    <TextBlock Text="{Binding Task.Goal.Title}" FontSize="10" FontWeight="Medium"
+                                                                                               MaxWidth="64" TextTrimming="CharacterEllipsis"
+                                                                                               Foreground="{DynamicResource TextSecondary}"/>
+                                                                                </StackPanel>
+                                                                            </StackPanel>
+                                                                        </Grid>
 
                                                                         <!-- 上下边缘调整时间热区（以 5 分钟为单位） -->
                                                                         <Border x:Name="topResize" Tag="blockTopEdge" Height="5" VerticalAlignment="Top"
@@ -921,9 +1083,6 @@
                                                                         <Setter TargetName="blk" Property="Opacity" Value="0.5"/>
                                                                         <Setter TargetName="blkTitle" Property="TextDecorations" Value="Strikethrough"/>
                                                                         <Setter TargetName="blkSingleTitle" Property="TextDecorations" Value="Strikethrough"/>
-                                                                    </DataTrigger>
-                                                                    <DataTrigger Binding="{Binding HasRoomForMeta}" Value="False">
-                                                                        <Setter TargetName="blkMeta" Property="Visibility" Value="Collapsed"/>
                                                                     </DataTrigger>
                                                                     <DataTrigger Binding="{Binding IsSingleLine}" Value="True">
                                                                         <Setter TargetName="blkContent" Property="Visibility" Value="Collapsed"/>
@@ -987,12 +1146,16 @@
                                 <ItemsControl ItemsSource="{Binding Goals}">
                                     <ItemsControl.ItemsPanel>
                                         <ItemsPanelTemplate>
-                                            <WrapPanel/>
+                                            <core:ResponsiveGridPanel MinColumnWidth="268" ColumnGap="12" RowGap="12"/>
                                         </ItemsPanelTemplate>
                                     </ItemsControl.ItemsPanel>
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate DataType="{x:Type vm:GoalVM}">
-                                            <Border Style="{StaticResource GridCard}" Width="288" Height="138">
+                                            <Border x:Name="goalPageCard" Tag="goalpagecard"
+                                                    Style="{StaticResource GridCard}" Height="138"
+                                                    Cursor="Hand" RenderTransformOrigin="0.5,0.5"
+                                                    ToolTip="点击查看该目标下的日程"
+                                                    AutomationProperties.Name="{Binding Title}">
                                                 <Grid>
                                                     <Grid.RowDefinitions>
                                                         <RowDefinition Height="Auto"/>
@@ -1004,12 +1167,19 @@
                                                         <Grid.ColumnDefinitions>
                                                             <ColumnDefinition Width="Auto"/>
                                                             <ColumnDefinition Width="*"/>
+                                                            <ColumnDefinition Width="Auto"/>
                                                         </Grid.ColumnDefinitions>
                                                         <Ellipse Width="8" Height="8" Fill="{Binding Color}"
                                                                  VerticalAlignment="Center" Margin="0,1,8,0"/>
                                                         <TextBox Grid.Column="1" Style="{StaticResource TitleEditor}"
-                                                                 VerticalAlignment="Center"
+                                                                 HorizontalAlignment="Left" MinWidth="32"
+                                                                 VerticalAlignment="Center" Cursor="IBeam"
+                                                                 ToolTip="点击名称可重命名"
                                                                  Text="{Binding Title, UpdateSourceTrigger=PropertyChanged}"/>
+                                                        <TextBlock Grid.Column="2" Text="&#xE76C;"
+                                                                   FontFamily="{StaticResource IconFont}" FontSize="10"
+                                                                   Foreground="{DynamicResource TextDisabled}"
+                                                                   VerticalAlignment="Center" Margin="8,0,0,0"/>
                                                     </Grid>
 
                                                     <Grid x:Name="bar" Grid.Row="1" Height="4" VerticalAlignment="Center"
@@ -1059,12 +1229,17 @@
                                 <ItemsControl ItemsSource="{Binding TagRows}">
                                     <ItemsControl.ItemsPanel>
                                         <ItemsPanelTemplate>
-                                            <WrapPanel/>
+                                            <core:ResponsiveGridPanel MinColumnWidth="236" ColumnGap="12" RowGap="12"/>
                                         </ItemsPanelTemplate>
                                     </ItemsControl.ItemsPanel>
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate DataType="{x:Type vm:TagRowVM}">
-                                            <Border Style="{StaticResource GridCard}" Width="252" Height="116">
+                                            <Border x:Name="tagCard" Tag="tagcard"
+                                                    Style="{StaticResource GridCard}"
+                                                    Height="116" Cursor="Hand"
+                                                    RenderTransformOrigin="0.5,0.5"
+                                                    ToolTip="点击查看该标签下的日程"
+                                                    AutomationProperties.Name="{Binding Tag.Name}">
                                                 <Grid>
                                                     <Grid.RowDefinitions>
                                                         <RowDefinition Height="Auto"/>
@@ -1076,12 +1251,19 @@
                                                         <Grid.ColumnDefinitions>
                                                             <ColumnDefinition Width="Auto"/>
                                                             <ColumnDefinition Width="*"/>
+                                                            <ColumnDefinition Width="Auto"/>
                                                         </Grid.ColumnDefinitions>
                                                         <Ellipse Width="8" Height="8" Fill="{Binding Tag.Color}"
                                                                  VerticalAlignment="Center" Margin="0,1,8,0"/>
                                                         <TextBox Grid.Column="1" Style="{StaticResource TitleEditor}"
-                                                                 VerticalAlignment="Center"
+                                                                 HorizontalAlignment="Left" MinWidth="32"
+                                                                 VerticalAlignment="Center" Cursor="IBeam"
+                                                                 ToolTip="点击名称可重命名"
                                                                  Text="{Binding Tag.Name, UpdateSourceTrigger=PropertyChanged}"/>
+                                                        <TextBlock Grid.Column="2" Text="&#xE76C;"
+                                                                   FontFamily="{StaticResource IconFont}" FontSize="10"
+                                                                   Foreground="{DynamicResource TextDisabled}"
+                                                                   VerticalAlignment="Center" Margin="8,0,0,0"/>
                                                     </Grid>
 
                                                     <TextBlock Grid.Row="1" Text="{Binding CountText}"
@@ -1166,8 +1348,21 @@
                                                                         <TextBlock Text="{Binding Title}"
                                                                                    Style="{StaticResource CardTitle}"
                                                                                    TextTrimming="CharacterEllipsis"/>
-                                                                        <TextBlock Text="{Binding MetaText}"
-                                                                                   Style="{StaticResource Caption}" Margin="0,1,0,0"/>
+                                                                        <Grid Margin="0,1,0,0">
+                                                                            <Grid.ColumnDefinitions>
+                                                                                <ColumnDefinition Width="Auto"/>
+                                                                                <ColumnDefinition Width="*"/>
+                                                                            </Grid.ColumnDefinitions>
+                                                                            <TextBlock Grid.Column="0" Text="&#xEA8F;"
+                                                                                       FontFamily="{StaticResource IconFont}" FontSize="10.5"
+                                                                                       Foreground="{DynamicResource TextTertiary}"
+                                                                                       VerticalAlignment="Center" Margin="0,0,5,0"
+                                                                                       ToolTip="{Binding RemindTooltip}"
+                                                                                       Visibility="{Binding ShowRemindBell, Converter={StaticResource BoolToVisible}}"/>
+                                                                            <TextBlock Grid.Column="1" Text="{Binding MetaText}"
+                                                                                       Style="{StaticResource Caption}"
+                                                                                       VerticalAlignment="Center"/>
+                                                                        </Grid>
                                                                     </StackPanel>
                                                                 </Grid>
                                                             </Border>
@@ -1240,16 +1435,9 @@
                                                   ItemTemplate="{StaticResource TaskCardTemplate}">
                                         <ItemsControl.ItemsPanel>
                                             <ItemsPanelTemplate>
-                                                <WrapPanel/>
+                                                <core:ResponsiveGridPanel MinColumnWidth="252" ColumnGap="12" RowGap="4"/>
                                             </ItemsPanelTemplate>
                                         </ItemsControl.ItemsPanel>
-                                        <ItemsControl.ItemContainerStyle>
-                                            <Style TargetType="ContentPresenter">
-                                                <Setter Property="Width" Value="264"/>
-                                                <Setter Property="Margin" Value="0,0,10,2"/>
-                                                <Setter Property="VerticalAlignment" Value="Top"/>
-                                            </Style>
-                                        </ItemsControl.ItemContainerStyle>
                                     </ItemsControl>
                                 </ScrollViewer>
 
@@ -1304,9 +1492,203 @@
             </Grid>
         </Grid>
 
+        <!-- ================= 标签详情按日时间流浮层 ================= -->
+        <Grid x:Name="TagDetailLayer" Grid.RowSpan="2" Visibility="Collapsed">
+            <Border x:Name="TagDetailScrim" Background="{DynamicResource Scrim}" Opacity="0"
+                    MouseLeftButtonDown="TagDetailScrim_Click"/>
+            <Border x:Name="TagDetailDialog" Width="980" Height="560"
+                    VerticalAlignment="Center" HorizontalAlignment="Center"
+                    Background="{DynamicResource Surface4}"
+                    BorderBrush="{DynamicResource BorderStrong}" BorderThickness="1"
+                    CornerRadius="12" ClipToBounds="True"
+                    Opacity="0" RenderTransformOrigin="0.5,0.5"
+                    PreviewMouseWheel="TagDetailScroll_PreviewMouseWheel">
+                <Border.RenderTransform>
+                    <TransformGroup>
+                        <ScaleTransform x:Name="TagDetailScale" ScaleX="0.97" ScaleY="0.97"/>
+                        <TranslateTransform x:Name="TagDetailShift" Y="10"/>
+                    </TransformGroup>
+                </Border.RenderTransform>
+                <Border.Effect>
+                    <DropShadowEffect Color="Black" BlurRadius="24" ShadowDepth="8" Direction="270" Opacity="0.28"/>
+                </Border.Effect>
+                <DockPanel>
+                    <!-- 顶部栏 -->
+                    <Border DockPanel.Dock="Top" Padding="20,14,14,12"
+                            BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="0,0,0,1">
+                        <Grid>
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <Ellipse Width="9" Height="9" Fill="{Binding DetailColor}"
+                                         VerticalAlignment="Center" Margin="0,1,9,0"/>
+                                <TextBlock Text="{Binding DetailTitle}" FontSize="16" FontWeight="SemiBold"
+                                           VerticalAlignment="Center"/>
+                                <TextBlock Text="{Binding TagDetailTotalText}" Style="{StaticResource Caption}"
+                                           VerticalAlignment="Center" Margin="10,2,0,0"/>
+                            </StackPanel>
+
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                <TextBlock Text="滚轮横向滚动 · 双击日程编辑" Style="{StaticResource Caption}"
+                                           Foreground="{DynamicResource TextDisabled}"
+                                           VerticalAlignment="Center" Margin="0,0,12,0"/>
+                                <Button Style="{StaticResource GhostButton}" Content="回到今天"
+                                        Padding="9,4" Margin="0,0,6,0"
+                                        AutomationProperties.Name="回到今天"
+                                        AutomationProperties.AutomationId="TagDetailTodayButton"
+                                        Click="TagDetailToday_Click"/>
+                                <Button Style="{StaticResource GhostButton}" Content="&#xE711;"
+                                        FontFamily="{StaticResource IconFont}" FontSize="11"
+                                        ToolTip="关闭（Esc）"
+                                        AutomationProperties.Name="关闭"
+                                        AutomationProperties.AutomationId="TagDetailCloseButton"
+                                        Click="TagDetailClose_Click"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
+                    <!-- 横向日期条状流 + 底部横向滚动条 -->
+                    <ScrollViewer x:Name="TagDetailScroll"
+                                  HorizontalScrollBarVisibility="Visible"
+                                  VerticalScrollBarVisibility="Disabled"
+                                  Margin="8,0,8,6" Padding="0,0,0,4">
+                        <ItemsControl x:Name="TagDetailDaysHost" ItemsSource="{Binding TagDetailDays}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel Orientation="Horizontal"/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="{x:Type vm:TagDayColumnVM}">
+                                    <Border Width="188" BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="0,0,1,0">
+                                        <Grid>
+                                            <Border Background="{DynamicResource AccentTint}" Opacity="0.22"
+                                                    IsHitTestVisible="False"
+                                                    Visibility="{Binding IsToday, Converter={StaticResource BoolToVisible}}"/>
+                                            <DockPanel>
+                                                <Border DockPanel.Dock="Top" Padding="12,10,12,8"
+                                                        BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="0,0,0,1">
+                                                    <Grid>
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="*"/>
+                                                            <ColumnDefinition Width="Auto"/>
+                                                        </Grid.ColumnDefinitions>
+                                                        <StackPanel Orientation="Horizontal">
+                                                            <TextBlock x:Name="tagDayName" Text="{Binding DayName}"
+                                                                       Style="{StaticResource Eyebrow}" FontSize="13.5"
+                                                                       VerticalAlignment="Center"/>
+                                                            <TextBlock x:Name="tagDayNumber" Text="{Binding DayNumber}"
+                                                                       Style="{StaticResource Caption}" FontSize="12.5"
+                                                                       VerticalAlignment="Center" Margin="7,0,0,0"/>
+                                                        </StackPanel>
+                                                        <TextBlock Grid.Column="1" Text="{Binding Count}"
+                                                                   Style="{StaticResource Eyebrow}"
+                                                                   Foreground="{DynamicResource TextTertiary}"
+                                                                   VerticalAlignment="Center"
+                                                                   Visibility="{Binding HasItems, Converter={StaticResource BoolToVisible}}"/>
+                                                    </Grid>
+                                                </Border>
+
+                                                <ScrollViewer VerticalScrollBarVisibility="Auto"
+                                                              HorizontalScrollBarVisibility="Disabled"
+                                                              Padding="8,10,8,10">
+                                                    <ItemsControl ItemsSource="{Binding Items}">
+                                                        <ItemsControl.ItemTemplate>
+                                                            <DataTemplate DataType="{x:Type vm:TaskVM}">
+                                                                <Border x:Name="tagTaskCard" Tag="tagtaskcard"
+                                                                        Style="{StaticResource CardBorder}"
+                                                                        RenderTransformOrigin="0.5,0.5"
+                                                                        ToolTip="双击编辑日程">
+                                                                    <Border.ContextMenu>
+                                                                        <ContextMenu>
+                                                                            <MenuItem Header="标记完成 / 取消" Click="MenuToggleDone_Click"/>
+                                                                            <MenuItem Header="移到今天" Click="MenuMoveToday_Click"/>
+                                                                            <MenuItem Header="移到明天" Click="MenuMoveTomorrow_Click"/>
+                                                                            <Separator/>
+                                                                            <MenuItem Header="删除" Click="MenuDelete_Click"/>
+                                                                        </ContextMenu>
+                                                                    </Border.ContextMenu>
+                                                                    <Grid>
+                                                                        <Grid.ColumnDefinitions>
+                                                                            <ColumnDefinition Width="Auto"/>
+                                                                            <ColumnDefinition Width="*"/>
+                                                                        </Grid.ColumnDefinitions>
+
+                                                                        <ToggleButton Grid.Column="0" Style="{StaticResource CheckDot}"
+                                                                                      IsChecked="{Binding Done, Mode=OneWay}"
+                                                                                      VerticalAlignment="Top" Margin="0,2,8,0"
+                                                                                      Click="Check_Click"/>
+
+                                                                        <StackPanel Grid.Column="1">
+                                                                            <StackPanel Orientation="Horizontal" Margin="0,0,0,2">
+                                                                                <TextBlock x:Name="tagTaskTime" Text="{Binding TimeLabel}"
+                                                                                           FontSize="11" FontWeight="SemiBold"
+                                                                                           Foreground="{DynamicResource Accent}"
+                                                                                           VerticalAlignment="Center"
+                                                                                           Typography.NumeralAlignment="Tabular"/>
+                                                                                <TextBlock Text="&#xEA8F;"
+                                                                                           FontFamily="{StaticResource IconFont}" FontSize="10"
+                                                                                           Foreground="{DynamicResource TextTertiary}"
+                                                                                           VerticalAlignment="Center" Margin="5,0,0,0"
+                                                                                           ToolTip="{Binding RemindTooltip}"
+                                                                                           Visibility="{Binding ShowRemindBell, Converter={StaticResource BoolToVisible}}"/>
+                                                                            </StackPanel>
+
+                                                                            <Grid>
+                                                                                <Grid.ColumnDefinitions>
+                                                                                    <ColumnDefinition Width="Auto"/>
+                                                                                    <ColumnDefinition Width="*"/>
+                                                                                </Grid.ColumnDefinitions>
+                                                                                <Ellipse Width="6" Height="6" Fill="{Binding Goal.Color}"
+                                                                                         VerticalAlignment="Top" Margin="0,6,6,0"
+                                                                                         Visibility="{Binding HasGoal, Converter={StaticResource BoolToVisible}}"/>
+                                                                                <TextBlock x:Name="tagTaskTitle" Grid.Column="1"
+                                                                                           Text="{Binding Title}"
+                                                                                           Style="{StaticResource CardTitle}"
+                                                                                           FontSize="13"/>
+                                                                            </Grid>
+
+                                                                            <TextBlock Text="{Binding Note}"
+                                                                                       Style="{StaticResource Caption}"
+                                                                                       TextWrapping="Wrap" MaxHeight="34"
+                                                                                       Margin="0,3,0,0"
+                                                                                       Visibility="{Binding Note, Converter={StaticResource EmptyToCollapsed}}"/>
+                                                                        </StackPanel>
+                                                                    </Grid>
+                                                                </Border>
+                                                                <DataTemplate.Triggers>
+                                                                    <DataTrigger Binding="{Binding HasTime}" Value="False">
+                                                                        <Setter TargetName="tagTaskTime" Property="Text" Value="未设时刻"/>
+                                                                        <Setter TargetName="tagTaskTime" Property="Foreground" Value="{DynamicResource TextDisabled}"/>
+                                                                    </DataTrigger>
+                                                                    <DataTrigger Binding="{Binding Done}" Value="True">
+                                                                        <Setter TargetName="tagTaskCard" Property="Opacity" Value="0.5"/>
+                                                                        <Setter TargetName="tagTaskTitle" Property="TextDecorations" Value="Strikethrough"/>
+                                                                    </DataTrigger>
+                                                                </DataTemplate.Triggers>
+                                                            </DataTemplate>
+                                                        </ItemsControl.ItemTemplate>
+                                                    </ItemsControl>
+                                                </ScrollViewer>
+                                            </DockPanel>
+                                        </Grid>
+                                    </Border>
+                                    <DataTemplate.Triggers>
+                                        <DataTrigger Binding="{Binding IsToday}" Value="True">
+                                            <Setter TargetName="tagDayName" Property="Foreground" Value="{DynamicResource Accent}"/>
+                                            <Setter TargetName="tagDayNumber" Property="Foreground" Value="{DynamicResource Accent}"/>
+                                        </DataTrigger>
+                                    </DataTemplate.Triggers>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </DockPanel>
+            </Border>
+        </Grid>
+
         <!-- ================= 日程编辑浮层（新建 / 编辑同一个） ================= -->
         <Grid x:Name="EditorLayer" Grid.RowSpan="2" Visibility="Collapsed">
-            <Border x:Name="EditorScrim" Background="{DynamicResource Scrim}" Opacity="0"/>
+            <Border x:Name="EditorScrim" Background="{DynamicResource Scrim}" Opacity="0"
+                    MouseLeftButtonDown="EditorScrim_Click"/>
             <Border x:Name="EditorDialog" Width="600" MaxHeight="680"
                     VerticalAlignment="Center" HorizontalAlignment="Center"
                     Background="{DynamicResource Surface4}"
@@ -1516,20 +1898,45 @@
                                 </StackPanel>
                             </Grid>
 
-                            <!-- 提醒 + 紧急 / 重要 -->
+                            <!-- 提醒 -->
                             <Grid Margin="0,12,0,0">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="58"/>
-                                    <ColumnDefinition Width="*" MinWidth="120"/>
-                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
                                 </Grid.ColumnDefinitions>
                                 <TextBlock Text="提醒" Style="{StaticResource EditorLabel}"/>
-                                <TextBox Grid.Column="1" Style="{StaticResource SubtleInput}" Width="88" Height="34"
-                                         HorizontalAlignment="Left" HorizontalContentAlignment="Center"
-                                         VerticalContentAlignment="Center"
-                                         Text="{Binding Editor.RemindText, UpdateSourceTrigger=PropertyChanged}"
-                                         ToolTip="留空 = 不提醒，比如 19:30"/>
-                                <StackPanel Grid.Column="2" Orientation="Horizontal">
+                                <WrapPanel Grid.Column="1">
+                                    <ToggleButton Style="{StaticResource FlagChip}" Content="不提醒" Tag="none" Margin="0,0,6,4"
+                                                  AutomationProperties.Name="不提醒"
+                                                  IsChecked="{Binding Editor.IsRemindNone, Mode=OneWay}"
+                                                  Click="EditorRemind_Click"/>
+                                    <ToggleButton Style="{StaticResource FlagChip}" Content="提前15分" Tag="pre15" Margin="0,0,6,4"
+                                                  AutomationProperties.Name="提前15分"
+                                                  IsChecked="{Binding Editor.IsRemindPre15, Mode=OneWay}"
+                                                  Click="EditorRemind_Click"/>
+                                    <ToggleButton Style="{StaticResource FlagChip}" Content="提前5分" Tag="pre5" Margin="0,0,6,4"
+                                                  AutomationProperties.Name="提前5分"
+                                                  IsChecked="{Binding Editor.IsRemindPre5, Mode=OneWay}"
+                                                  Click="EditorRemind_Click"/>
+                                    <ToggleButton Style="{StaticResource FlagChip}" Content="开始时" Tag="start" Margin="0,0,6,4"
+                                                  AutomationProperties.Name="开始时"
+                                                  IsChecked="{Binding Editor.IsRemindStart, Mode=OneWay}"
+                                                  Click="EditorRemind_Click"/>
+                                    <ToggleButton Style="{StaticResource FlagChip}" Content="结束时" Tag="end" Margin="0,0,6,4"
+                                                  AutomationProperties.Name="结束时"
+                                                  IsChecked="{Binding Editor.IsRemindEnd, Mode=OneWay}"
+                                                  Click="EditorRemind_Click"/>
+                                </WrapPanel>
+                            </Grid>
+
+                            <!-- 紧急 / 重要 -->
+                            <Grid Margin="0,8,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="58"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="标记" Style="{StaticResource EditorLabel}"/>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal">
                                     <ToggleButton Style="{StaticResource FlagChip}" Content="紧急"
                                                   IsChecked="{Binding Editor.IsUrgent, Mode=TwoWay}"/>
                                     <ToggleButton Style="{StaticResource FlagChip}" Content="重要"
@@ -1561,7 +1968,7 @@
         <Grid x:Name="SettingsLayer" Grid.RowSpan="2" Visibility="Collapsed">
             <Border x:Name="SettingsScrim" Background="{DynamicResource Scrim}" Opacity="0"
                     MouseLeftButtonDown="SettingsScrim_Click"/>
-            <Border x:Name="SettingsDialog" Width="452" MaxHeight="560"
+            <Border x:Name="SettingsDialog" Width="484" MaxHeight="620"
                     VerticalAlignment="Center" HorizontalAlignment="Center"
                     Background="{DynamicResource Surface4}"
                     BorderBrush="{DynamicResource BorderStrong}" BorderThickness="1"
@@ -1606,70 +2013,429 @@
                         </Grid>
                     </Border>
 
-                    <StackPanel Margin="20,4,20,18">
-                        <Border Background="{DynamicResource Surface3}" CornerRadius="8"
-                                BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="1"
-                                Padding="14,12" Margin="0,0,0,10">
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <StackPanel Margin="0,0,14,0">
-                                    <TextBlock Text="开机静默自启" FontSize="13.5" FontWeight="SemiBold"/>
-                                    <TextBlock Text="登录 Windows 时自动启动并隐藏到系统托盘"
-                                               Style="{StaticResource Caption}" Margin="0,3,0,0" TextWrapping="Wrap"/>
-                                </StackPanel>
-                                <ToggleButton Grid.Column="1" Style="{StaticResource SwitchToggle}"
-                                              VerticalAlignment="Center"
-                                              IsChecked="{Binding AutoStartEnabled, Mode=TwoWay}"
-                                              AutomationProperties.Name="开机静默自启"
-                                              AutomationProperties.AutomationId="AutoStartToggle"/>
-                            </Grid>
-                        </Border>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                                  Padding="20,4,20,18">
+                        <StackPanel>
+                            <Border Background="{DynamicResource Surface3}" CornerRadius="8"
+                                    BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="1"
+                                    Padding="14,12" Margin="0,0,0,10">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Margin="0,0,14,0">
+                                        <TextBlock Text="开机静默自启" FontSize="13.5" FontWeight="SemiBold"/>
+                                        <TextBlock Text="登录 Windows 时自动启动并隐藏到系统托盘"
+                                                   Style="{StaticResource Caption}" Margin="0,3,0,0" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                    <ToggleButton Grid.Column="1" Style="{StaticResource SwitchToggle}"
+                                                  VerticalAlignment="Center"
+                                                  IsChecked="{Binding AutoStartEnabled, Mode=TwoWay}"
+                                                  AutomationProperties.Name="开机静默自启"
+                                                  AutomationProperties.AutomationId="AutoStartToggle"/>
+                                </Grid>
+                            </Border>
 
-                        <Border Background="{DynamicResource Surface3}" CornerRadius="8"
-                                BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="1"
-                                Padding="14,12" Margin="0,0,0,10">
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <StackPanel Margin="0,0,14,0">
-                                    <TextBlock Text="关闭窗口时最小化到托盘" FontSize="13.5" FontWeight="SemiBold"/>
-                                    <TextBlock Text="点右上角关闭后常驻后台，从托盘右键可彻底退出"
-                                               Style="{StaticResource Caption}" Margin="0,3,0,0" TextWrapping="Wrap"/>
-                                </StackPanel>
-                                <ToggleButton Grid.Column="1" Style="{StaticResource SwitchToggle}"
-                                              VerticalAlignment="Center"
-                                              IsChecked="{Binding CloseToTray, Mode=TwoWay}"
-                                              AutomationProperties.Name="关闭窗口时最小化到托盘"
-                                              AutomationProperties.AutomationId="CloseToTrayToggle"/>
-                            </Grid>
-                        </Border>
+                            <Border Background="{DynamicResource Surface3}" CornerRadius="8"
+                                    BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="1"
+                                    Padding="14,12" Margin="0,0,0,10">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Margin="0,0,14,0">
+                                        <TextBlock Text="关闭窗口时最小化到托盘" FontSize="13.5" FontWeight="SemiBold"/>
+                                        <TextBlock Text="点右上角关闭后常驻后台，从托盘右键可彻底退出"
+                                                   Style="{StaticResource Caption}" Margin="0,3,0,0" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                    <ToggleButton Grid.Column="1" Style="{StaticResource SwitchToggle}"
+                                                  VerticalAlignment="Center"
+                                                  IsChecked="{Binding CloseToTray, Mode=TwoWay}"
+                                                  AutomationProperties.Name="关闭窗口时最小化到托盘"
+                                                  AutomationProperties.AutomationId="CloseToTrayToggle"/>
+                                </Grid>
+                            </Border>
 
-                        <Border Background="{DynamicResource Surface3}" CornerRadius="8"
-                                BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="1"
-                                Padding="14,12">
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <StackPanel Margin="0,0,14,0">
-                                    <TextBlock Text="系统通知推送" FontSize="13.5" FontWeight="SemiBold"/>
-                                    <TextBlock Text="日程开始前 5 分钟、开始与结束时提醒；启动或睡眠唤醒每日推一次今日待办摘要"
-                                               Style="{StaticResource Caption}" Margin="0,3,0,0" TextWrapping="Wrap"/>
+                            <Border Background="{DynamicResource Surface3}" CornerRadius="8"
+                                    BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="1"
+                                    Padding="14,12" Margin="0,0,0,10">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Margin="0,0,14,0">
+                                        <TextBlock Text="系统通知推送" FontSize="13.5" FontWeight="SemiBold"/>
+                                        <TextBlock Text="按日程配置的节点推送 Windows 通知，支持在通知上直接标为完成或延后 5/10 分钟"
+                                                   Style="{StaticResource Caption}" Margin="0,3,0,0" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                    <ToggleButton Grid.Column="1" Style="{StaticResource SwitchToggle}"
+                                                  VerticalAlignment="Center"
+                                                  IsChecked="{Binding NotifyEnabled, Mode=TwoWay}"
+                                                  AutomationProperties.Name="系统通知推送"
+                                                  AutomationProperties.AutomationId="NotifyEnabledToggle"/>
+                                </Grid>
+                            </Border>
+
+                            <Border Background="{DynamicResource Surface3}" CornerRadius="8"
+                                    BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="1"
+                                    Padding="14,12" Margin="0,0,0,10">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Margin="0,0,14,0">
+                                        <TextBlock Text="每日待办摘要" FontSize="13.5" FontWeight="SemiBold"/>
+                                        <TextBlock Text="启动或从睡眠唤醒时推送一次今日待办与逾期统计（当日不重复打扰）"
+                                                   Style="{StaticResource Caption}" Margin="0,3,0,0" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                    <ToggleButton Grid.Column="1" Style="{StaticResource SwitchToggle}"
+                                                  VerticalAlignment="Center"
+                                                  IsChecked="{Binding DailyDigestEnabled, Mode=TwoWay}"
+                                                  AutomationProperties.Name="每日待办摘要"
+                                                  AutomationProperties.AutomationId="DailyDigestToggle"/>
+                                </Grid>
+                            </Border>
+
+                            <Border Background="{DynamicResource Surface3}" CornerRadius="8"
+                                    BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="1"
+                                    Padding="14,12">
+                                <StackPanel>
+                                    <TextBlock Text="新建日程默认提醒" FontSize="13.5" FontWeight="SemiBold"/>
+                                    <TextBlock Text="在时间轴拖出日程或新增快捷卡片时默认勾选的提醒节点"
+                                               Style="{StaticResource Caption}" Margin="0,3,0,10" TextWrapping="Wrap"/>
+                                    <WrapPanel>
+                                        <ToggleButton Style="{StaticResource FlagChip}" Content="不提醒" Tag="none" Margin="0,0,6,4"
+                                                      AutomationProperties.Name="默认不提醒"
+                                                      IsChecked="{Binding IsDefaultRemindNone, Mode=OneWay}"
+                                                      Click="SettingsDefaultRemind_Click"/>
+                                        <ToggleButton Style="{StaticResource FlagChip}" Content="提前15分" Tag="pre15" Margin="0,0,6,4"
+                                                      AutomationProperties.Name="默认提前15分"
+                                                      IsChecked="{Binding IsDefaultRemindPre15, Mode=OneWay}"
+                                                      Click="SettingsDefaultRemind_Click"/>
+                                        <ToggleButton Style="{StaticResource FlagChip}" Content="提前5分" Tag="pre5" Margin="0,0,6,4"
+                                                      AutomationProperties.Name="默认提前5分"
+                                                      IsChecked="{Binding IsDefaultRemindPre5, Mode=OneWay}"
+                                                      Click="SettingsDefaultRemind_Click"/>
+                                        <ToggleButton Style="{StaticResource FlagChip}" Content="开始时" Tag="start" Margin="0,0,6,4"
+                                                      AutomationProperties.Name="默认开始时"
+                                                      IsChecked="{Binding IsDefaultRemindStart, Mode=OneWay}"
+                                                      Click="SettingsDefaultRemind_Click"/>
+                                        <ToggleButton Style="{StaticResource FlagChip}" Content="结束时" Tag="end" Margin="0,0,6,4"
+                                                      AutomationProperties.Name="默认结束时"
+                                                      IsChecked="{Binding IsDefaultRemindEnd, Mode=OneWay}"
+                                                      Click="SettingsDefaultRemind_Click"/>
+                                    </WrapPanel>
                                 </StackPanel>
-                                <ToggleButton Grid.Column="1" Style="{StaticResource SwitchToggle}"
-                                              VerticalAlignment="Center"
-                                              IsChecked="{Binding NotifyEnabled, Mode=TwoWay}"
-                                              AutomationProperties.Name="系统通知推送"
-                                              AutomationProperties.AutomationId="NotifyEnabledToggle"/>
-                            </Grid>
-                        </Border>
-                    </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </ScrollViewer>
+                </DockPanel>
+            </Border>
+        </Grid>
+
+        <!-- ================= 快捷卡片管理浮层 ================= -->
+        <Grid x:Name="PresetManagerLayer" Grid.RowSpan="2" Visibility="Collapsed">
+            <Border x:Name="PresetManagerScrim" Background="{DynamicResource Scrim}" Opacity="0"
+                    MouseLeftButtonDown="PresetManagerScrim_Click"/>
+            <Border x:Name="PresetManagerDialog" Width="560" MaxHeight="660"
+                    VerticalAlignment="Center" HorizontalAlignment="Center"
+                    Background="{DynamicResource Surface4}"
+                    BorderBrush="{DynamicResource BorderStrong}" BorderThickness="1"
+                    CornerRadius="12" ClipToBounds="True"
+                    Opacity="0" RenderTransformOrigin="0.5,0.5"
+                    KeyDown="PresetManager_KeyDown">
+                <Border.RenderTransform>
+                    <TransformGroup>
+                        <ScaleTransform x:Name="PresetManagerScale" ScaleX="0.97" ScaleY="0.97"/>
+                        <TranslateTransform x:Name="PresetManagerShift" Y="10"/>
+                    </TransformGroup>
+                </Border.RenderTransform>
+                <Border.Effect>
+                    <DropShadowEffect Color="Black" BlurRadius="24" ShadowDepth="8" Direction="270" Opacity="0.28"/>
+                </Border.Effect>
+                <DockPanel>
+                    <Grid DockPanel.Dock="Top" Margin="20,16,14,10">
+                        <TextBlock Text="管理快捷日程卡片" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                        <Button Style="{StaticResource GhostButton}" Content="&#xE711;"
+                                FontFamily="{StaticResource IconFont}" FontSize="11"
+                                HorizontalAlignment="Right" ToolTip="关闭（Esc）"
+                                AutomationProperties.Name="关闭"
+                                AutomationProperties.AutomationId="PresetManagerCloseButton"
+                                Click="PresetManagerClose_Click"/>
+                    </Grid>
+
+                    <Border DockPanel.Dock="Bottom" BorderBrush="{DynamicResource BorderSubtle}"
+                            BorderThickness="0,1,0,0" Padding="20,10,16,12">
+                        <Grid>
+                            <TextBlock Text="拖到时间轴格子即可直接创建日程" Style="{StaticResource Caption}"
+                                       VerticalAlignment="Center"/>
+                            <Button Style="{StaticResource GhostButton}" Content="完成"
+                                    Padding="14,6" HorizontalAlignment="Right"
+                                    AutomationProperties.Name="完成"
+                                    Click="PresetManagerClose_Click"/>
+                        </Grid>
+                    </Border>
+
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                                  Padding="20,0,14,0">
+                        <StackPanel Margin="0,0,0,16">
+
+                            <!-- 新增 / 编辑预设卡片表单 -->
+                            <Border Background="{DynamicResource Surface3}" CornerRadius="8"
+                                    BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="1"
+                                    Padding="14,12" Margin="0,0,0,14">
+                                <StackPanel>
+                                    <Grid Margin="0,0,0,10">
+                                        <TextBlock Text="{Binding PresetManager.FormHeader}"
+                                                   FontSize="13.5" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                        <Button Style="{StaticResource GhostButton}" Content="取消编辑"
+                                                Padding="8,3" FontSize="11.5" HorizontalAlignment="Right"
+                                                Visibility="{Binding PresetManager.IsEditing, Converter={StaticResource BoolToVisible}}"
+                                                Click="PresetCancelEdit_Click"/>
+                                    </Grid>
+
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="52"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="名称" Style="{StaticResource EditorLabel}"/>
+                                        <TextBox x:Name="PresetTitleBox" Grid.Column="1" Style="{StaticResource SubtleInput}"
+                                                 Height="32" VerticalContentAlignment="Center"
+                                                 FontSize="13" FontWeight="SemiBold"
+                                                 AutomationProperties.Name="快捷卡片名称"
+                                                 AutomationProperties.AutomationId="PresetTitleBox"
+                                                 Text="{Binding PresetManager.Title, UpdateSourceTrigger=PropertyChanged}"/>
+                                    </Grid>
+
+                                    <Grid Margin="0,8,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="52"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="时长" Style="{StaticResource EditorLabel}"/>
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                            <TextBox x:Name="PresetDurationBox" Style="{StaticResource SubtleInput}"
+                                                     Width="68" Height="32"
+                                                     HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                                                     AutomationProperties.Name="快捷卡片时长"
+                                                     AutomationProperties.AutomationId="PresetDurationBox"
+                                                     Text="{Binding PresetManager.DurationText, UpdateSourceTrigger=PropertyChanged}"/>
+                                            <TextBlock Text="分钟" Style="{StaticResource Caption}"
+                                                       Margin="6,0,10,0" VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                        <ItemsControl Grid.Column="2" ItemsSource="{Binding PresetManager.DurationQuickPicks}"
+                                                      VerticalAlignment="Center">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate>
+                                                    <WrapPanel/>
+                                                </ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Button Style="{StaticResource GhostButton}"
+                                                            Padding="7,3" Margin="0,0,4,0" FontSize="11.5"
+                                                            Content="{Binding}"
+                                                            ContentStringFormat="{}{0}分"
+                                                            Tag="{Binding}"
+                                                            Click="PresetDurationChip_Click"/>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </Grid>
+
+                                    <Grid Margin="0,8,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="52"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="标签" Style="{StaticResource EditorLabel}"/>
+                                        <StackPanel Grid.Column="1">
+                                            <ItemsControl ItemsSource="{Binding PresetManager.TagPicks}">
+                                                <ItemsControl.ItemsPanel>
+                                                    <ItemsPanelTemplate>
+                                                        <WrapPanel/>
+                                                    </ItemsPanelTemplate>
+                                                </ItemsControl.ItemsPanel>
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate DataType="{x:Type vm:TagPickVM}">
+                                                        <ToggleButton Style="{StaticResource FlagChip}" Margin="0,0,6,5"
+                                                                      IsChecked="{Binding IsSelected, Mode=TwoWay}">
+                                                            <StackPanel Orientation="Horizontal">
+                                                                <Ellipse Width="6" Height="6" Fill="{Binding Color}"
+                                                                         VerticalAlignment="Center" Margin="0,0,5,0"/>
+                                                                <TextBlock Text="{Binding Name}" FontSize="11.5" FontWeight="Medium"
+                                                                           VerticalAlignment="Center"/>
+                                                            </StackPanel>
+                                                        </ToggleButton>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                            <Grid Width="140" HorizontalAlignment="Left" Margin="0,1,0,0">
+                                                <TextBox x:Name="PresetNewTag" Style="{StaticResource SubtleInput}" Height="28"
+                                                         Text="{Binding PresetManager.NewTagText, UpdateSourceTrigger=PropertyChanged}"
+                                                         KeyDown="PresetNewTag_KeyDown" ToolTip="回车新建并勾上"/>
+                                                <TextBlock Text="+ 新标签" IsHitTestVisible="False" FontSize="11.5" FontWeight="Medium"
+                                                           Margin="8,0,0,0" VerticalAlignment="Center"
+                                                           Foreground="{DynamicResource TextTertiary}"
+                                                           Visibility="{Binding Text, ElementName=PresetNewTag, UpdateSourceTrigger=PropertyChanged, Converter={StaticResource EmptyToVisible}}"/>
+                                            </Grid>
+                                        </StackPanel>
+                                    </Grid>
+
+                                    <Grid Margin="0,8,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="52"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="目标" Style="{StaticResource EditorLabel}"/>
+                                        <ItemsControl Grid.Column="1" ItemsSource="{Binding PresetManager.GoalPicks}">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate>
+                                                    <WrapPanel/>
+                                                </ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate DataType="{x:Type vm:GoalPickVM}">
+                                                    <ToggleButton Style="{StaticResource FlagChip}" Margin="0,0,6,5"
+                                                                  IsChecked="{Binding IsSelected, Mode=OneWay}"
+                                                                  Click="PresetGoal_Click">
+                                                        <StackPanel Orientation="Horizontal">
+                                                            <Ellipse Width="6" Height="6" Fill="{Binding Color}"
+                                                                     VerticalAlignment="Center" Margin="0,0,5,0"
+                                                                     Visibility="{Binding HasGoal, Converter={StaticResource BoolToVisible}}"/>
+                                                            <TextBlock Text="{Binding Title}" FontSize="11.5" FontWeight="Medium"
+                                                                       VerticalAlignment="Center"/>
+                                                        </StackPanel>
+                                                    </ToggleButton>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </Grid>
+
+                                    <Grid Margin="0,6,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="52"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="提醒" Style="{StaticResource EditorLabel}"/>
+                                        <WrapPanel Grid.Column="1">
+                                            <ToggleButton Style="{StaticResource FlagChip}" Content="不提醒" Tag="none" Margin="0,0,6,4"
+                                                          AutomationProperties.Name="预设不提醒"
+                                                          IsChecked="{Binding PresetManager.IsRemindNone, Mode=OneWay}"
+                                                          Click="PresetRemind_Click"/>
+                                            <ToggleButton Style="{StaticResource FlagChip}" Content="提前15分" Tag="pre15" Margin="0,0,6,4"
+                                                          AutomationProperties.Name="预设提前15分"
+                                                          IsChecked="{Binding PresetManager.IsRemindPre15, Mode=OneWay}"
+                                                          Click="PresetRemind_Click"/>
+                                            <ToggleButton Style="{StaticResource FlagChip}" Content="提前5分" Tag="pre5" Margin="0,0,6,4"
+                                                          AutomationProperties.Name="预设提前5分"
+                                                          IsChecked="{Binding PresetManager.IsRemindPre5, Mode=OneWay}"
+                                                          Click="PresetRemind_Click"/>
+                                            <ToggleButton Style="{StaticResource FlagChip}" Content="开始时" Tag="start" Margin="0,0,6,4"
+                                                          AutomationProperties.Name="预设开始时"
+                                                          IsChecked="{Binding PresetManager.IsRemindStart, Mode=OneWay}"
+                                                          Click="PresetRemind_Click"/>
+                                            <ToggleButton Style="{StaticResource FlagChip}" Content="结束时" Tag="end" Margin="0,0,6,4"
+                                                          AutomationProperties.Name="预设结束时"
+                                                          IsChecked="{Binding PresetManager.IsRemindEnd, Mode=OneWay}"
+                                                          Click="PresetRemind_Click"/>
+                                        </WrapPanel>
+                                    </Grid>
+
+                                    <Grid Margin="0,6,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="52"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="标记" Style="{StaticResource EditorLabel}"/>
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                            <ToggleButton Style="{StaticResource FlagChip}" Content="紧急"
+                                                          IsChecked="{Binding PresetManager.IsUrgent, Mode=TwoWay}"/>
+                                            <ToggleButton Style="{StaticResource FlagChip}" Content="重要"
+                                                          IsChecked="{Binding PresetManager.IsImportant, Mode=TwoWay}"/>
+                                        </StackPanel>
+                                        <Button Grid.Column="2" Style="{StaticResource PrimaryButton}"
+                                                Padding="14,6" FontSize="12.5"
+                                                Content="{Binding PresetManager.SubmitText}"
+                                                AutomationProperties.Name="{Binding PresetManager.SubmitText}"
+                                                AutomationProperties.AutomationId="SavePresetButton"
+                                                Click="PresetSave_Click"/>
+                                    </Grid>
+
+                                    <TextBlock Text="{Binding PresetManager.ErrorText}" Margin="52,6,0,0"
+                                               FontSize="12" FontWeight="Medium" TextWrapping="Wrap"
+                                               Foreground="{DynamicResource Danger}"
+                                               Visibility="{Binding PresetManager.ErrorText, Converter={StaticResource EmptyToCollapsed}}"/>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- 已有快捷卡片列表 -->
+                            <TextBlock Text="已有快捷卡片" Style="{StaticResource Eyebrow}" Margin="0,0,0,8"/>
+
+                            <ItemsControl ItemsSource="{Binding Presets}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate DataType="{x:Type vm:SchedulePresetVM}">
+                                        <Border Background="{DynamicResource Surface3}"
+                                                BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="1"
+                                                CornerRadius="8" Padding="12,9" Margin="0,0,0,8">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                </Grid.ColumnDefinitions>
+
+                                                <StackPanel VerticalAlignment="Center" Margin="0,0,10,0">
+                                                    <StackPanel Orientation="Horizontal">
+                                                        <Ellipse Width="6" Height="6" Fill="{Binding DotBrush}"
+                                                                 VerticalAlignment="Center" Margin="0,0,6,0"
+                                                                 Visibility="{Binding HasDot, Converter={StaticResource BoolToVisible}}"/>
+                                                        <TextBlock Text="{Binding DisplayTitle}"
+                                                                   FontSize="13.5" FontWeight="SemiBold"/>
+                                                    </StackPanel>
+                                                    <Grid Margin="0,3,0,0">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="Auto"/>
+                                                            <ColumnDefinition Width="*"/>
+                                                        </Grid.ColumnDefinitions>
+                                                        <TextBlock Grid.Column="0" Text="&#xEA8F;"
+                                                                   FontFamily="{StaticResource IconFont}" FontSize="10"
+                                                                   Foreground="{DynamicResource TextTertiary}"
+                                                                   VerticalAlignment="Center" Margin="0,0,5,0"
+                                                                   ToolTip="{Binding RemindTooltip}"
+                                                                   Visibility="{Binding HasRemind, Converter={StaticResource BoolToVisible}}"/>
+                                                        <TextBlock Grid.Column="1" Text="{Binding SummaryText}"
+                                                                   Style="{StaticResource Caption}"
+                                                                   VerticalAlignment="Center"/>
+                                                    </Grid>
+                                                </StackPanel>
+
+                                                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                                    <Button Style="{StaticResource GhostButton}" Content="编辑"
+                                                            Padding="9,4" Margin="0,0,4,0"
+                                                            Tag="{Binding}" Click="PresetEdit_Click"/>
+                                                    <Button Style="{StaticResource GhostButton}" Content="删除"
+                                                            Padding="9,4" Foreground="{DynamicResource Danger}"
+                                                            Tag="{Binding}" Click="PresetDelete_Click"/>
+                                                </StackPanel>
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+
+                            <TextBlock Text="还没有快捷卡片，在上方填个名称和时长就可以添加"
+                                       Style="{StaticResource Caption}"
+                                       HorizontalAlignment="Center" Margin="0,10,0,4"
+                                       Visibility="{Binding Presets.Count, Converter={StaticResource ZeroToVisible}}"/>
+                        </StackPanel>
+                    </ScrollViewer>
                 </DockPanel>
             </Border>
         </Grid>

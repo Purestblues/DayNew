@@ -65,11 +65,15 @@ public sealed class TaskVM : ObservableObject
         set { if (Set(ref _due, value)) RaiseMeta(); }
     }
 
-    /// <summary>HH:mm，空 = 不提醒。</summary>
+    /// <summary>相对起止时刻的提醒节点组合（逗号分隔），空 = 不提醒。</summary>
     public string Remind
     {
         get => _remind;
-        set { if (Set(ref _remind, value)) { RaiseMeta(); OnPropertyChanged(nameof(RemindLabel)); } }
+        set
+        {
+            var normalized = RemindRules.Normalize(value);
+            if (Set(ref _remind, normalized)) RaiseMeta();
+        }
     }
 
     /// <summary>原型阶段只是显示文本：每天 / 每周 / 每月。</summary>
@@ -154,7 +158,23 @@ public sealed class TaskVM : ObservableObject
         _ => Repeat
     };
 
-    public string RemindLabel => string.IsNullOrEmpty(Remind) ? "不提醒" : Remind;
+    public bool HasRemind => RemindRules.HasAny(_remind);
+
+    public bool ShowRemindBell => HasTime && HasRemind;
+
+    public bool IsRemindNone => !HasRemind;
+
+    public bool IsRemindPre15 => RemindRules.HasNode(_remind, RemindRules.Pre15);
+
+    public bool IsRemindPre5 => RemindRules.HasNode(_remind, RemindRules.Pre5);
+
+    public bool IsRemindStart => RemindRules.HasNode(_remind, RemindRules.Start);
+
+    public bool IsRemindEnd => RemindRules.HasNode(_remind, RemindRules.End);
+
+    public string RemindLabel => RemindRules.FormatLabel(_remind);
+
+    public string RemindTooltip => RemindRules.FormatTooltip(_remind, HasTime);
 
     public string MetaText
     {
@@ -162,8 +182,6 @@ public sealed class TaskVM : ObservableObject
         {
             var parts = new List<string>(4);
             if (HasTime) parts.Add(TimeLabel);
-            // 有了时间段，提醒时间就不写了，否则同一行出现两个 19:30
-            if (!HasTime && !string.IsNullOrEmpty(Remind) && Remind != "09:00") parts.Add(Remind);
             var date = DateLabel();
             if (date.Length > 0) parts.Add(date);
             if (!string.IsNullOrEmpty(Repeat)) parts.Add(Repeat);
@@ -212,7 +230,20 @@ public sealed class TaskVM : ObservableObject
     {
         OnPropertyChanged(nameof(MetaText));
         OnPropertyChanged(nameof(RepeatLabel));
+        RaiseRemindProperties();
+    }
+
+    private void RaiseRemindProperties()
+    {
+        OnPropertyChanged(nameof(HasRemind));
+        OnPropertyChanged(nameof(ShowRemindBell));
+        OnPropertyChanged(nameof(IsRemindNone));
+        OnPropertyChanged(nameof(IsRemindPre15));
+        OnPropertyChanged(nameof(IsRemindPre5));
+        OnPropertyChanged(nameof(IsRemindStart));
+        OnPropertyChanged(nameof(IsRemindEnd));
         OnPropertyChanged(nameof(RemindLabel));
+        OnPropertyChanged(nameof(RemindTooltip));
     }
 
     /// <summary>外部改了会影响卡片文字的东西（比如目标改名）时手动刷一下。</summary>

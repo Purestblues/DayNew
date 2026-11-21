@@ -37,8 +37,16 @@ public sealed class MainViewModel : ObservableObject
     /// <summary>新建 / 编辑日程的弹窗状态。打开时 IsEditorOpen 为 true，界面盖一层浮层。</summary>
     public ScheduleEditorVM Editor { get; }
 
+    /// <summary>快捷日程预设管理弹窗状态。</summary>
+    public PresetManagerVM PresetManager { get; }
+
     private bool _isEditorOpen;
     private bool _isSettingsOpen;
+    private bool _isPresetManagerOpen;
+    private bool _isTagDetailOpen;
+    private TagVM? _selectedTagDetail;
+    private GoalVM? _selectedGoalDetail;
+    private int _tagDetailTodayIndex;
 
     public bool IsEditorOpen
     {
@@ -50,6 +58,69 @@ public sealed class MainViewModel : ObservableObject
     {
         get => _isSettingsOpen;
         private set => Set(ref _isSettingsOpen, value);
+    }
+
+    public bool IsPresetManagerOpen
+    {
+        get => _isPresetManagerOpen;
+        private set => Set(ref _isPresetManagerOpen, value);
+    }
+
+    public bool IsTagDetailOpen
+    {
+        get => _isTagDetailOpen;
+        private set => Set(ref _isTagDetailOpen, value);
+    }
+
+    public TagVM? SelectedTagDetail
+    {
+        get => _selectedTagDetail;
+        private set
+        {
+            if (Set(ref _selectedTagDetail, value))
+                RaiseDetailHeaderProperties();
+        }
+    }
+
+    public GoalVM? SelectedGoalDetail
+    {
+        get => _selectedGoalDetail;
+        private set
+        {
+            if (Set(ref _selectedGoalDetail, value))
+                RaiseDetailHeaderProperties();
+        }
+    }
+
+    public Brush DetailColor => SelectedGoalDetail?.Color ?? SelectedTagDetail?.Color ?? Brushes.Transparent;
+
+    public string DetailTitle => SelectedGoalDetail?.Title ?? SelectedTagDetail?.Name ?? "";
+
+    public ObservableCollection<TagDayColumnVM> TagDetailDays { get; } = new();
+
+    public int TagDetailTodayIndex => _tagDetailTodayIndex;
+
+    public string TagDetailTotalText
+    {
+        get
+        {
+            if (SelectedGoalDetail is not null)
+            {
+                var goalCount = _all.Count(t => ReferenceEquals(t.Goal, SelectedGoalDetail));
+                return goalCount == 0 ? "暂无日程" : $"共 {goalCount} 条日程 · {SelectedGoalDetail.ProgressText}";
+            }
+
+            if (SelectedTagDetail is null) return "";
+            var count = _all.Count(t => t.Tags.Contains(SelectedTagDetail));
+            return count == 0 ? "暂无日程" : $"共 {count} 条日程";
+        }
+    }
+
+    private void RaiseDetailHeaderProperties()
+    {
+        OnPropertyChanged(nameof(DetailColor));
+        OnPropertyChanged(nameof(DetailTitle));
+        OnPropertyChanged(nameof(TagDetailTotalText));
     }
 
     public bool AutoStartEnabled
@@ -92,6 +163,43 @@ public sealed class MainViewModel : ObservableObject
             OnPropertyChanged();
             Notify(value ? "已开启系统通知" : "已暂停系统通知");
         }
+    }
+
+    public bool DailyDigestEnabled
+    {
+        get => Settings.DailyDigestEnabled;
+        set
+        {
+            if (Settings.DailyDigestEnabled == value) return;
+            Settings.DailyDigestEnabled = value;
+            Settings.Save();
+            OnPropertyChanged();
+            Notify(value ? "已开启每日待办摘要" : "已关闭每日待办摘要");
+        }
+    }
+
+    public bool IsDefaultRemindNone => !RemindRules.HasAny(Settings.DefaultRemind);
+
+    public bool IsDefaultRemindPre15 => RemindRules.HasNode(Settings.DefaultRemind, RemindRules.Pre15);
+
+    public bool IsDefaultRemindPre5 => RemindRules.HasNode(Settings.DefaultRemind, RemindRules.Pre5);
+
+    public bool IsDefaultRemindStart => RemindRules.HasNode(Settings.DefaultRemind, RemindRules.Start);
+
+    public bool IsDefaultRemindEnd => RemindRules.HasNode(Settings.DefaultRemind, RemindRules.End);
+
+    public void ToggleDefaultRemindNode(string node)
+    {
+        var next = RemindRules.ToggleNode(Settings.DefaultRemind, node);
+        if (Settings.DefaultRemind == next) return;
+
+        Settings.DefaultRemind = next;
+        Settings.Save();
+        OnPropertyChanged(nameof(IsDefaultRemindNone));
+        OnPropertyChanged(nameof(IsDefaultRemindPre15));
+        OnPropertyChanged(nameof(IsDefaultRemindPre5));
+        OnPropertyChanged(nameof(IsDefaultRemindStart));
+        OnPropertyChanged(nameof(IsDefaultRemindEnd));
     }
 
     public string DataFolderPath => StoreFile.Folder;
@@ -144,6 +252,7 @@ public sealed class MainViewModel : ObservableObject
     public MainViewModel()
     {
         Editor = new ScheduleEditorVM(this);
+        PresetManager = new PresetManagerVM(this);
 
         Lanes = new ObservableCollection<LaneVM>
         {
@@ -201,6 +310,8 @@ public sealed class MainViewModel : ObservableObject
     public ObservableCollection<GoalVM> Goals => _store.Goals;
 
     public ObservableCollection<TagVM> Tags => _store.Tags;
+
+    public ObservableCollection<SchedulePresetVM> Presets => _store.Presets;
 
     public ObservableCollection<TagRowVM> TagRows { get; } = new();
 
@@ -273,7 +384,12 @@ public sealed class MainViewModel : ObservableObject
 
     private void LoadOrSeed()
     {
-        if (_file.TryLoad(_store)) return;
+        if (_file.TryLoad(_store))
+        {
+            if (!_store.HasLoadedPresets) SeedDefaultPresets();
+            return;
+        }
+
         Seed();
     }
 
@@ -369,6 +485,7 @@ public sealed class MainViewModel : ObservableObject
         _file.MarkDirty(_store);
 
         RebuildTimeline();
+        if (IsTagDetailOpen) RebuildTagDetail();
 
         var (todayPending, overdueCount) = GetSummaryCounts();
         SummaryChanged?.Invoke(todayPending, overdueCount);
@@ -457,9 +574,14 @@ public sealed class MainViewModel : ObservableObject
         };
     }
 
-    public void ToggleRemind(TaskVM task)
+    public void ToggleTaskRemindNode(TaskVM task, string node)
     {
-        task.Remind = string.IsNullOrEmpty(task.Remind) ? "09:00" : "";
+        var next = RemindRules.ToggleNode(task.Remind, node);
+        if (task.Remind == next) return;
+
+        task.Remind = next;
+        _file.MarkDirty(_store);
+        TaskTouched?.Invoke(task);
     }
 
     public void AddTag(TaskVM task, string tag)
@@ -493,6 +615,98 @@ public sealed class MainViewModel : ObservableObject
         _store.RemoveTag(tag);
         Rebuild();
         Notify($"已移除标签「#{tag.Name}」");
+    }
+
+    public void OpenTagDetail(TagVM tag)
+    {
+        SelectedGoalDetail = null;
+        SelectedTagDetail = tag;
+        RebuildTagDetail();
+        IsTagDetailOpen = true;
+    }
+
+    public void OpenGoalDetail(GoalVM goal)
+    {
+        SelectedTagDetail = null;
+        SelectedGoalDetail = goal;
+        RebuildTagDetail();
+        IsTagDetailOpen = true;
+    }
+
+    public void CloseTagDetail() => IsTagDetailOpen = false;
+
+    public void RebuildTagDetail()
+    {
+        TagDetailDays.Clear();
+
+        List<TaskVM> detailTasks;
+        if (SelectedGoalDetail is not null)
+        {
+            if (!Goals.Contains(SelectedGoalDetail))
+            {
+                _tagDetailTodayIndex = 0;
+                SelectedGoalDetail = null;
+                IsTagDetailOpen = false;
+                RaiseDetailHeaderProperties();
+                return;
+            }
+
+            detailTasks = _all.Where(t => ReferenceEquals(t.Goal, SelectedGoalDetail)).ToList();
+        }
+        else if (SelectedTagDetail is not null && _store.Tags.Contains(SelectedTagDetail))
+        {
+            detailTasks = _all.Where(t => t.Tags.Contains(SelectedTagDetail)).ToList();
+        }
+        else
+        {
+            _tagDetailTodayIndex = 0;
+            SelectedTagDetail = null;
+            SelectedGoalDetail = null;
+            IsTagDetailOpen = false;
+            RaiseDetailHeaderProperties();
+            return;
+        }
+
+        var baseStart = TimelineStart();
+        var baseEnd = baseStart.AddDays(DayCount - 1);
+
+        var minDate = baseStart;
+        var maxDate = baseEnd;
+
+        foreach (var task in detailTasks)
+        {
+            if (task.Due is not { } due) continue;
+            var d = due.Date;
+            if (d < minDate) minDate = d;
+            if (d > maxDate) maxDate = d;
+        }
+
+        var today = DateTime.Today;
+        var byDate = detailTasks
+            .GroupBy(t => t.Due?.Date ?? today)
+            .ToDictionary(
+                g => g.Key,
+                g => g.OrderBy(t => t.StartTime ?? TimeSpan.MaxValue)
+                      .ThenBy(t => t.EndTime ?? TimeSpan.MaxValue)
+                      .ThenBy(t => t.Order)
+                      .ToList());
+
+        _tagDetailTodayIndex = 0;
+        var index = 0;
+
+        for (var d = minDate; d <= maxDate; d = d.AddDays(1))
+        {
+            if (d == today) _tagDetailTodayIndex = index;
+
+            var col = new TagDayColumnVM(d);
+            if (byDate.TryGetValue(d, out var list))
+                foreach (var task in list) col.Items.Add(task);
+
+            TagDetailDays.Add(col);
+            index++;
+        }
+
+        RaiseDetailHeaderProperties();
     }
 
     // ---------------- 四象限 ----------------
@@ -533,10 +747,15 @@ public sealed class MainViewModel : ObservableObject
         var duration = Math.Max(1, (int)(end - start).TotalMinutes);
         var free = FindFreeStart(date, (int)start.TotalMinutes, duration, task);
 
+        var newStart = TimeSpan.FromMinutes(free);
+        var newEnd = TimeSpan.FromMinutes(free + duration);
+        var changed = task.Due?.Date != date || task.StartTime != newStart || task.EndTime != newEnd;
+
         task.Due = date;
-        task.StartTime = TimeSpan.FromMinutes(free);
-        task.EndTime = TimeSpan.FromMinutes(free + duration);
+        task.StartTime = newStart;
+        task.EndTime = newEnd;
         Rebuild();
+        if (changed) TaskTouched?.Invoke(task);
 
         if (free != (int)start.TotalMinutes)
             Notify($"已避开冲突，调整到 {Clock(free)}–{Clock(free + duration)}", highlight: true);
@@ -1076,7 +1295,7 @@ public sealed class MainViewModel : ObservableObject
 
         task.Title = title;
         task.Note = Editor.Note ?? "";
-        task.Remind = NormalizeRemind(Editor.RemindText);
+        task.Remind = Editor.Remind;
         task.Repeat = Editor.Repeat == ScheduleEditorVM.NoRepeat ? "" : Editor.Repeat;
         task.IsUrgent = Editor.IsUrgent;
         task.IsImportant = Editor.IsImportant;
@@ -1086,7 +1305,7 @@ public sealed class MainViewModel : ObservableObject
         task.EndTime = TimeSpan.FromMinutes(free + duration);
 
         task.Tags.Clear();
-        foreach (var tag in ResolveEditorTags()) task.Tags.Add(tag);
+        foreach (var tag in ResolveSelectedTags(Editor.SelectedTagPicks)) task.Tags.Add(tag);
 
         IsEditorOpen = false;
         Rebuild();
@@ -1108,11 +1327,20 @@ public sealed class MainViewModel : ObservableObject
 
     /// <summary>弹窗里当场建的标签先只是草稿，保存时才真正进 store。</summary>
     public void AddEditorTag(string name)
+        => AddProvisionalOrExistingTag(Editor.TagPicks, Editor.AddTagPick, name);
+
+    public void AddPresetManagerTag(string name)
+        => AddProvisionalOrExistingTag(PresetManager.TagPicks, PresetManager.AddTagPick, name);
+
+    private void AddProvisionalOrExistingTag(
+        ObservableCollection<TagPickVM> picks,
+        Action<TagPickVM> addPick,
+        string name)
     {
         var trimmed = (name ?? "").Trim().TrimStart('#');
         if (trimmed.Length == 0) return;
 
-        var existing = Editor.TagPicks.FirstOrDefault(
+        var existing = picks.FirstOrDefault(
             p => string.Equals(p.Name, trimmed, StringComparison.OrdinalIgnoreCase));
 
         if (existing is not null)
@@ -1124,25 +1352,116 @@ public sealed class MainViewModel : ObservableObject
         var entity = _store.FindTag(trimmed);
         if (entity is not null)
         {
-            Editor.AddTagPick(new TagPickVM(entity, true));
+            addPick(new TagPickVM(entity, true));
             return;
         }
 
         var draft = new TagVM(trimmed) { Color = DayStore.TagPaletteColor(_store.Tags.Count) };
-        Editor.AddTagPick(new TagPickVM(draft, true) { IsProvisional = true });
+        addPick(new TagPickVM(draft, true) { IsProvisional = true });
     }
 
-    private List<TagVM> ResolveEditorTags()
+    private List<TagVM> ResolveSelectedTags(IEnumerable<TagPickVM> selectedPicks)
     {
         var result = new List<TagVM>();
 
-        foreach (var pick in Editor.SelectedTagPicks)
+        foreach (var pick in selectedPicks)
         {
             var tag = pick.IsProvisional ? _store.GetOrCreateTag(pick.Name) : pick.Tag;
             if (!result.Contains(tag)) result.Add(tag);
         }
 
         return result;
+    }
+
+    // ---------------- 快捷日程预设 ----------------
+
+    public void OpenPresetManager()
+    {
+        PresetManager.StartNew();
+        IsPresetManagerOpen = true;
+    }
+
+    public void ClosePresetManager() => IsPresetManagerOpen = false;
+
+    public void StartEditPreset(SchedulePresetVM preset) => PresetManager.StartEdit(preset);
+
+    public void CancelEditPreset() => PresetManager.StartNew();
+
+    public void SavePreset()
+    {
+        var title = (PresetManager.Title ?? "").Trim();
+        if (title.Length == 0)
+        {
+            PresetManager.SetError("写个卡片名称，比如「休息」");
+            return;
+        }
+
+        if (!PresetManager.TryReadDuration(out var duration))
+        {
+            PresetManager.SetError("时长请填 5–1440 之间的分钟数");
+            return;
+        }
+
+        var isNew = PresetManager.EditingPreset is null;
+        var preset = PresetManager.EditingPreset ?? _store.AddPreset();
+
+        preset.Title = title;
+        preset.DurationMinutes = duration;
+        preset.Remind = PresetManager.Remind;
+        preset.Note = PresetManager.Note ?? "";
+        preset.IsUrgent = PresetManager.IsUrgent;
+        preset.IsImportant = PresetManager.IsImportant;
+        preset.Goal = PresetManager.SelectedGoal;
+
+        preset.Tags.Clear();
+        foreach (var tag in ResolveSelectedTags(PresetManager.SelectedTagPicks))
+            preset.Tags.Add(tag);
+
+        Rebuild();
+        PresetManager.StartNew();
+        Notify(isNew ? $"已添加快捷卡片「{title}」" : $"已保存快捷卡片「{title}」");
+    }
+
+    public void DeletePreset(SchedulePresetVM preset)
+    {
+        if (ReferenceEquals(PresetManager.EditingPreset, preset))
+            PresetManager.StartNew();
+
+        _store.RemovePreset(preset);
+        _file.MarkDirty(_store);
+        Notify($"已删除快捷卡片「{preset.DisplayTitle}」");
+    }
+
+    /// <summary>把快捷卡片拖到时间轴松手：直接落盘生成一条日程（撞到别人自动让开）。</summary>
+    public void CreateScheduleFromPreset(SchedulePresetVM preset, DateTime date, int desiredStartMinutes)
+    {
+        var duration = Math.Clamp(preset.DurationMinutes, 5, 24 * 60);
+        var free = FindFreeStart(date, desiredStartMinutes, duration);
+        var title = string.IsNullOrWhiteSpace(preset.Title) ? "未命名" : preset.Title.Trim();
+
+        var task = _store.AddSchedule(s =>
+        {
+            s.Title = title;
+            s.Note = preset.Note;
+            s.Remind = preset.Remind;
+            s.Due = date.Date;
+            s.StartTime = TimeSpan.FromMinutes(free);
+            s.EndTime = TimeSpan.FromMinutes(free + duration);
+            s.IsUrgent = preset.IsUrgent;
+            s.IsImportant = preset.IsImportant;
+            s.Goal = preset.Goal;
+        });
+
+        foreach (var tag in preset.Tags)
+            if (!task.Tags.Contains(tag)) task.Tags.Add(tag);
+
+        Rebuild();
+        TaskTouched?.Invoke(task);
+
+        if (free != desiredStartMinutes)
+            Notify($"已避开冲突，添加「{title}」至 {Clock(free)}–{Clock(free + duration)}", highlight: true);
+        else
+            Notify($"已添加「{title}」 {Clock(free)}–{Clock(free + duration)}");
     }
 
     /// <summary>「9」「9:30」「09:30」都认；读不出来返回 false。</summary>
@@ -1171,9 +1490,6 @@ public sealed class MainViewModel : ObservableObject
         return false;
     }
 
-    private static string NormalizeRemind(string? text)
-        => TryParseClock(text ?? "", out var minutes) ? Clock(minutes) : "";
-
     private static string Clock(int minutes)
     {
         minutes = Math.Clamp(minutes, 0, 24 * 60);
@@ -1185,6 +1501,7 @@ public sealed class MainViewModel : ObservableObject
     public void DeleteGoal(GoalVM goal)
     {
         foreach (var task in _all.Where(t => ReferenceEquals(t.Goal, goal))) task.Goal = null;
+        foreach (var preset in _store.Presets.Where(p => ReferenceEquals(p.Goal, goal))) preset.Goal = null;
         Goals.Remove(goal);
         Rebuild();
         Notify($"已删除目标「{goal.Title}」");
@@ -1224,7 +1541,7 @@ public sealed class MainViewModel : ObservableObject
         var tidy = CreateGoal("生活整理");
 
         void Add(string title, DateTime? due, string note = "", string[]? tags = null,
-                 string repeat = "", string remind = "09:00", bool done = false, GoalVM? goal = null,
+                 string repeat = "", string remind = RemindRules.Default, bool done = false, GoalVM? goal = null,
                  string? time = null)
         {
             var t = _store.AddSchedule(s =>
@@ -1251,7 +1568,7 @@ public sealed class MainViewModel : ObservableObject
 
         Add("交电费", today.AddDays(-1), "户号记在手机备忘录里（在发票右上角）", new[] { "生活" }, time: "19:00-19:15");
         Add("写方案", today, "先把档位的边界定死，再动代码", new[] { "工作" }, time: "09:00-10:30");
-        Add("跑步", today, "", new[] { "习惯" }, repeat: "每天", remind: "19:30", time: "19:30-20:10");
+        Add("跑步", today, "", new[] { "习惯" }, repeat: "每天", remind: RemindRules.Default, time: "19:30-20:10");
         Add("回邮件", today, "", new[] { "工作" }, time: "11:00-11:40");
         Add("吃药", today, "", new[] { "生活" }, repeat: "每天", done: true, time: "08:00-08:10");
         Add("体检预约", today.AddDays(1), "上午空腹", new[] { "生活" }, time: "08:30-09:30");
@@ -1261,5 +1578,24 @@ public sealed class MainViewModel : ObservableObject
         Add("读官方教程前四章", today.AddDays(2), "", new[] { "学习" }, remind: "", goal: python, time: "20:00-21:30");
         Add("写一个爬虫小脚本", today.AddDays(10), "", new[] { "学习" }, remind: "", goal: python, time: "20:00-21:00");
         Add("换手机", today.AddDays(5), "", new[] { "生活" }, remind: "", goal: tidy, time: "15:00-15:30");
+
+        SeedDefaultPresets();
+    }
+
+    private void SeedDefaultPresets()
+    {
+        void AddPreset(string title, int durationMinutes)
+        {
+            _store.AddPreset(p =>
+            {
+                p.Title = title;
+                p.DurationMinutes = durationMinutes;
+                p.Remind = RemindRules.Default;
+            });
+        }
+
+        AddPreset("休息", 10);
+        AddPreset("专注", 25);
+        AddPreset("整理", 15);
     }
 }

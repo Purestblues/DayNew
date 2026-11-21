@@ -83,7 +83,7 @@ public sealed class ScheduleEditorVM : ObservableObject
 
     private string _title = "";
     private string _note = "";
-    private string _remindText = "";
+    private string _remind = RemindRules.Default;
     private string _repeat = "";
     private bool _isUrgent;
     private bool _isImportant;
@@ -106,11 +106,27 @@ public sealed class ScheduleEditorVM : ObservableObject
         set => Set(ref _note, value);
     }
 
-    public string RemindText
+    public string Remind
     {
-        get => _remindText;
-        set => Set(ref _remindText, value);
+        get => _remind;
+        set
+        {
+            var normalized = RemindRules.Normalize(value);
+            if (Set(ref _remind, normalized)) RaiseRemindProperties();
+        }
     }
+
+    public bool IsRemindNone => !RemindRules.HasAny(_remind);
+
+    public bool IsRemindPre15 => RemindRules.HasNode(_remind, RemindRules.Pre15);
+
+    public bool IsRemindPre5 => RemindRules.HasNode(_remind, RemindRules.Pre5);
+
+    public bool IsRemindStart => RemindRules.HasNode(_remind, RemindRules.Start);
+
+    public bool IsRemindEnd => RemindRules.HasNode(_remind, RemindRules.End);
+
+    public void ToggleRemindNode(string node) => Remind = RemindRules.ToggleNode(_remind, node);
 
     public string Repeat
     {
@@ -186,7 +202,7 @@ public sealed class ScheduleEditorVM : ObservableObject
         Task = null;
         _title = "";
         _note = "";
-        _remindText = "";
+        _remind = RemindRules.Normalize(_owner.Settings.DefaultRemind);
         _repeat = NoRepeat;
         _isUrgent = false;
         _isImportant = false;
@@ -207,7 +223,7 @@ public sealed class ScheduleEditorVM : ObservableObject
         Task = task;
         _title = task.Title;
         _note = task.Note;
-        _remindText = task.Remind;
+        _remind = RemindRules.Normalize(task.Remind);
         _repeat = string.IsNullOrEmpty(task.Repeat) ? NoRepeat : task.Repeat;
         _isUrgent = task.IsUrgent;
         _isImportant = task.IsImportant;
@@ -284,7 +300,8 @@ public sealed class ScheduleEditorVM : ObservableObject
         OnPropertyChanged(nameof(Header));
         OnPropertyChanged(nameof(Title));
         OnPropertyChanged(nameof(Note));
-        OnPropertyChanged(nameof(RemindText));
+        OnPropertyChanged(nameof(Remind));
+        RaiseRemindProperties();
         OnPropertyChanged(nameof(Repeat));
         OnPropertyChanged(nameof(IsUrgent));
         OnPropertyChanged(nameof(IsImportant));
@@ -297,6 +314,15 @@ public sealed class ScheduleEditorVM : ObservableObject
         OnPropertyChanged(nameof(NewTagText));
         OnPropertyChanged(nameof(TagPicks));
         OnPropertyChanged(nameof(GoalPicks));
+    }
+
+    private void RaiseRemindProperties()
+    {
+        OnPropertyChanged(nameof(IsRemindNone));
+        OnPropertyChanged(nameof(IsRemindPre15));
+        OnPropertyChanged(nameof(IsRemindPre5));
+        OnPropertyChanged(nameof(IsRemindStart));
+        OnPropertyChanged(nameof(IsRemindEnd));
     }
 
     private static string Clock(int minutes)

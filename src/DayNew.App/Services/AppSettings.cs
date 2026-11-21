@@ -1,6 +1,7 @@
 using System.IO;
 using System.Text.Encodings.Web;
 using System.Text.Json;
+using DayNew.Core;
 
 namespace DayNew.Services;
 
@@ -24,6 +25,11 @@ public sealed class AppSettings
 
     public bool NotifyEnabled { get; set; } = true;
 
+    public bool DailyDigestEnabled { get; set; } = true;
+
+    /// <summary>新建日程/快捷卡片时的默认提醒节点组合；空字符串 = 默认不提醒。</summary>
+    public string DefaultRemind { get; set; } = RemindRules.Default;
+
     /// <summary>yyyy-MM-dd；记录「今日待办摘要」已推送的日期，当日不再重复检测。</summary>
     public string LastDigestDate { get; set; } = "";
 
@@ -37,7 +43,11 @@ public sealed class AppSettings
             {
                 if (!File.Exists(SettingsPath)) return new AppSettings();
                 var json = File.ReadAllText(SettingsPath);
-                return JsonSerializer.Deserialize<AppSettings>(json, JsonOptions) ?? new AppSettings();
+                var loaded = JsonSerializer.Deserialize<AppSettings>(json, JsonOptions) ?? new AppSettings();
+                loaded.DefaultRemind = loaded.DefaultRemind is null
+                    ? RemindRules.Default
+                    : RemindRules.Normalize(loaded.DefaultRemind);
+                return loaded;
             }
             catch
             {

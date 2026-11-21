@@ -19,6 +19,11 @@ public sealed class DayStore
 
     public ObservableCollection<TagVM> Tags { get; } = new();
 
+    public ObservableCollection<SchedulePresetVM> Presets { get; } = new();
+
+    /// <summary>加载旧版 data.json 时未包含 presets 字段，由上层决定是否补默认预设。</summary>
+    public bool HasLoadedPresets { get; set; }
+
     private int _scheduleOrder;
     private int _goalColorIndex;
     private int _tagColorIndex;
@@ -44,10 +49,11 @@ public sealed class DayStore
         return tag;
     }
 
-    /// <summary>删标签：先从所有日程上摘掉，再删实体。</summary>
+    /// <summary>删标签：先从所有日程和快捷预设上摘掉，再删实体。</summary>
     public void RemoveTag(TagVM tag)
     {
         foreach (var schedule in Schedules) schedule.Tags.Remove(tag);
+        foreach (var preset in Presets) preset.Tags.Remove(tag);
         Tags.Remove(tag);
     }
 
@@ -119,4 +125,16 @@ public sealed class DayStore
         foreach (var schedule in ordered) schedule.Order = ++i * 1024;
         _scheduleOrder = Math.Max(_scheduleOrder, i);
     }
+
+    // ---------------- 快捷预设 ----------------
+
+    public SchedulePresetVM AddPreset(Action<SchedulePresetVM>? configure = null)
+    {
+        var preset = new SchedulePresetVM();
+        configure?.Invoke(preset);
+        Presets.Add(preset);
+        return preset;
+    }
+
+    public void RemovePreset(SchedulePresetVM preset) => Presets.Remove(preset);
 }
