@@ -62,6 +62,7 @@ public sealed class DayStore
     public GoalVM AddGoal(string title)
     {
         var goal = new GoalVM { Title = title, Color = NextGoalColor() };
+        goal.AutoLayout();
         Goals.Add(goal);
         return goal;
     }

@@ -113,6 +113,8 @@ public sealed class TimelineBlockVM : ObservableObject
 
     public string Title => string.IsNullOrWhiteSpace(Task.Title) ? "未命名" : Task.Title;
 
+    public string BlockToolTip => Task.HasGoal ? $"目标：{Task.GoalLabel}\n双击编辑" : "双击编辑";
+
     public bool HasMeta => Task.Tags.Count > 0 || Task.HasGoal;
 
     /// <summary>块够不够高再写标签和目标；太矮就只写标题和时间，不留半行。</summary>

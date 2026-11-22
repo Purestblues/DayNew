@@ -16,13 +16,14 @@ public sealed class SchedulePresetVM : ObservableObject
     private int _durationMinutes = 10;
     private string _remind = RemindRules.Default;
     private string _note = "";
-    private GoalVM? _goal;
     private bool _isUrgent;
     private bool _isImportant;
+    private bool _suppressBindingEvents;
 
     public SchedulePresetVM()
     {
         Tags.CollectionChanged += OnTagsChanged;
+        GoalBindings.CollectionChanged += OnGoalBindingsChanged;
     }
 
     public string Id
@@ -84,22 +85,56 @@ public sealed class SchedulePresetVM : ObservableObject
         set => Set(ref _note, value);
     }
 
+    public ObservableCollection<GoalBindingVM> GoalBindings { get; } = new();
+
     public GoalVM? Goal
     {
-        get => _goal;
+        get => GoalBindings.FirstOrDefault()?.Goal;
         set
         {
-            if (ReferenceEquals(_goal, value)) return;
-            if (_goal is not null) _goal.PropertyChanged -= OnGoalPropertyChanged;
-            _goal = value;
-            if (_goal is not null) _goal.PropertyChanged += OnGoalPropertyChanged;
-            OnPropertyChanged();
-            OnPropertyChanged(nameof(HasGoal));
-            RaiseSummary();
+            if (value is null)
+            {
+                if (GoalBindings.Count == 0) return;
+                SetGoalBindings(Array.Empty<GoalBindingVM>());
+                return;
+            }
+
+            SetGoalBindings(new[] { new GoalBindingVM(value, null) });
         }
     }
 
-    public bool HasGoal => Goal is not null;
+    public bool HasGoal => GoalBindings.Count > 0;
+
+    public void SetGoalBindings(IEnumerable<GoalBindingVM> bindings)
+    {
+        _suppressBindingEvents = true;
+        try
+        {
+            foreach (var oldGoal in GoalBindings.Select(b => b.Goal).Distinct())
+                oldGoal.PropertyChanged -= OnGoalPropertyChanged;
+
+            GoalBindings.Clear();
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var b in bindings)
+            {
+                if (seen.Add(b.TargetKey))
+                    GoalBindings.Add(b);
+            }
+
+            foreach (var newGoal in GoalBindings.Select(b => b.Goal).Distinct())
+                newGoal.PropertyChanged += OnGoalPropertyChanged;
+        }
+        finally
+        {
+            _suppressBindingEvents = false;
+        }
+
+        OnPropertyChanged(nameof(Goal));
+        OnPropertyChanged(nameof(HasGoal));
+        RaiseSummary();
+    }
+
+    public bool HasGoalRef(GoalVM goal) => GoalBindings.Any(b => ReferenceEquals(b.Goal, goal));
 
     public bool IsUrgent
     {
@@ -115,11 +150,11 @@ public sealed class SchedulePresetVM : ObservableObject
 
     public ObservableCollection<TagVM> Tags { get; } = new();
 
-    public bool HasDot => Tags.Count > 0 || Goal is not null;
+    public bool HasDot => Tags.Count > 0 || GoalBindings.Count > 0;
 
     public Brush DotBrush => Tags.Count > 0
         ? Tags[0].Color
-        : Goal?.Color ?? Brushes.Transparent;
+        : GoalBindings.FirstOrDefault()?.Goal.Color ?? Brushes.Transparent;
 
     public string SummaryText
     {
@@ -127,7 +162,11 @@ public sealed class SchedulePresetVM : ObservableObject
         {
             var parts = new List<string>(4) { DurationLabel };
             if (Tags.Count > 0) parts.Add(string.Join(" · ", Tags.Select(t => $"#{t.Name}")));
-            if (Goal is not null) parts.Add(Goal.Title);
+            if (GoalBindings.Count > 0)
+            {
+                var chips = TaskVM.BuildGoalChips(GoalBindings, compact: true);
+                parts.Add(string.Join(" · ", chips.Select(c => c.DisplayText)));
+            }
             if (IsUrgent && IsImportant) parts.Add("紧急·重要");
             else if (IsUrgent) parts.Add("紧急");
             else if (IsImportant) parts.Add("重要");
@@ -156,6 +195,14 @@ public sealed class SchedulePresetVM : ObservableObject
         RaiseSummary();
     }
 
+    private void OnGoalBindingsChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        if (_suppressBindingEvents) return;
+        OnPropertyChanged(nameof(Goal));
+        OnPropertyChanged(nameof(HasGoal));
+        RaiseSummary();
+    }
+
     private void OnTagPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(TagVM.Name)) RaiseSummary();
@@ -180,6 +227,7 @@ public sealed class SchedulePresetVM : ObservableObject
 public sealed class PresetManagerVM : ObservableObject
 {
     private readonly MainViewModel _owner;
+    private readonly GoalBindingDraft _goalDraft = new();
 
     public PresetManagerVM(MainViewModel owner) => _owner = owner;
 
@@ -196,6 +244,10 @@ public sealed class PresetManagerVM : ObservableObject
     public ObservableCollection<TagPickVM> TagPicks { get; } = new();
 
     public ObservableCollection<GoalPickVM> GoalPicks { get; } = new();
+
+    public IReadOnlyList<GoalChipVM> SelectedGoalChips => _goalDraft.BuildPreviewChips();
+
+    public bool HasSelectedGoals => _goalDraft.Bindings.Count > 0;
 
     private string _title = "";
     private string _durationText = "10";
@@ -287,7 +339,7 @@ public sealed class PresetManagerVM : ObservableObject
         _isImportant = false;
         _newTagText = "";
         _errorText = "";
-        BuildPicks(Array.Empty<TagVM>(), null);
+        BuildPicks(Array.Empty<TagVM>(), Array.Empty<GoalBindingVM>());
         RaiseAll();
     }
 
@@ -302,23 +354,43 @@ public sealed class PresetManagerVM : ObservableObject
         _isImportant = preset.IsImportant;
         _newTagText = "";
         _errorText = "";
-        BuildPicks(preset.Tags, preset.Goal);
+        BuildPicks(preset.Tags, preset.GoalBindings);
         RaiseAll();
     }
 
     public void RefreshPicksPreservingSelection()
     {
         var selectedTags = SelectedTagPicks.Select(p => p.Tag).ToList();
-        var selectedGoal = SelectedGoal;
-        BuildPicks(selectedTags, selectedGoal);
+        var currentBindings = _goalDraft.Bindings.ToList();
+        BuildPicks(selectedTags, currentBindings);
     }
 
-    public void SelectGoal(GoalPickVM? pick)
+    public void ClickGoalPick(GoalPickVM? pick)
     {
-        foreach (var option in GoalPicks) option.IsSelected = ReferenceEquals(option, pick);
+        if (pick is null) return;
+
+        if (pick.Goal is null)
+        {
+            _goalDraft.ClearAll(GoalPicks);
+            RaiseGoalSelectionChanged();
+            return;
+        }
+
+        if (pick.Goal.HasSubGoals)
+        {
+            _owner.OpenGoalPickerForDraft(pick.Goal, _goalDraft.Bindings, nodes =>
+            {
+                _goalDraft.ApplyGoalNodes(pick.Goal, nodes, GoalPicks);
+                RaiseGoalSelectionChanged();
+            });
+            return;
+        }
+
+        _goalDraft.ToggleDirectGoal(pick.Goal, GoalPicks);
+        RaiseGoalSelectionChanged();
     }
 
-    public GoalVM? SelectedGoal => GoalPicks.FirstOrDefault(g => g.IsSelected)?.Goal;
+    public IReadOnlyList<GoalBindingVM> SelectedGoalBindings => _goalDraft.Bindings;
 
     public IEnumerable<TagPickVM> SelectedTagPicks => TagPicks.Where(p => p.IsSelected);
 
@@ -342,16 +414,19 @@ public sealed class PresetManagerVM : ObservableObject
         return true;
     }
 
-    private void BuildPicks(IList<TagVM> selected, GoalVM? goal)
+    private void BuildPicks(IList<TagVM> selectedTags, IEnumerable<GoalBindingVM> selectedGoals)
     {
         TagPicks.Clear();
         foreach (var tag in _owner.Tags)
-            TagPicks.Add(new TagPickVM(tag, selected.Contains(tag)));
+            TagPicks.Add(new TagPickVM(tag, selectedTags.Contains(tag)));
 
-        GoalPicks.Clear();
-        GoalPicks.Add(new GoalPickVM(null, goal is null));
-        foreach (var entity in _owner.Goals)
-            GoalPicks.Add(new GoalPickVM(entity, ReferenceEquals(entity, goal)));
+        _goalDraft.Reset(selectedGoals, _owner.ActiveGoals, GoalPicks);
+    }
+
+    private void RaiseGoalSelectionChanged()
+    {
+        OnPropertyChanged(nameof(SelectedGoalChips));
+        OnPropertyChanged(nameof(HasSelectedGoals));
     }
 
     private void RaiseAll()
@@ -371,6 +446,7 @@ public sealed class PresetManagerVM : ObservableObject
         OnPropertyChanged(nameof(ErrorText));
         OnPropertyChanged(nameof(TagPicks));
         OnPropertyChanged(nameof(GoalPicks));
+        RaiseGoalSelectionChanged();
     }
 
     private void RaiseRemindProperties()

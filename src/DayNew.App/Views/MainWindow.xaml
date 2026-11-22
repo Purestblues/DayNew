@@ -61,6 +61,20 @@
             <Setter Property="AutomationProperties.Name" Value="移除标签"/>
         </Style>
 
+        <!-- 日程卡片上的目标胶囊（两层：总目标 + 直属子目标） -->
+        <DataTemplate x:Key="CompactGoalChipTemplate" DataType="{x:Type vm:GoalChipVM}">
+            <Border Background="{DynamicResource Surface3}" CornerRadius="4"
+                    Padding="5,1" Margin="0,0,4,3" ToolTip="{Binding ToolTipText}">
+                <StackPanel Orientation="Horizontal">
+                    <Ellipse Width="5" Height="5" Fill="{Binding Color}"
+                             VerticalAlignment="Center" Margin="0,0,4,0"
+                             Visibility="{Binding IsRoot, Converter={StaticResource BoolToVisible}}"/>
+                    <TextBlock Text="{Binding DisplayText}" FontSize="11" FontWeight="Medium"
+                               Foreground="{DynamicResource TextSecondary}" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Border>
+        </DataTemplate>
+
         <!-- 概览 / 逾期 共用的任务卡片模板 -->
         <DataTemplate x:Key="TaskCardTemplate" DataType="{x:Type vm:TaskVM}">
             <Border x:Name="card" Tag="card" Style="{StaticResource CardBorder}"
@@ -92,7 +106,7 @@
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
 
-                        <Ellipse Width="6" Height="6" Fill="{Binding Goal.Color}"
+                        <Ellipse Width="6" Height="6" Fill="{Binding PrimaryGoalColor}"
                                  VerticalAlignment="Top" Margin="0,7,6,0"
                                  Visibility="{Binding HasGoal, Converter={StaticResource BoolToVisible}}"/>
 
@@ -118,12 +132,44 @@
                                            Style="{StaticResource Caption}"
                                            VerticalAlignment="Center"/>
                             </Grid>
+                            <ItemsControl x:Name="compactGoalChips" ItemsSource="{Binding CompactGoalChips}"
+                                          ItemTemplate="{StaticResource CompactGoalChipTemplate}"
+                                          Margin="0,4,0,0"
+                                          Visibility="{Binding HasGoal, Converter={StaticResource BoolToVisible}}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <WrapPanel/>
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                            </ItemsControl>
 
                             <StackPanel x:Name="editor" Visibility="Collapsed"
                                         Opacity="0" Margin="0,9,0,0">
                                 <StackPanel.RenderTransform>
                                     <TranslateTransform x:Name="editorShift" Y="-4"/>
                                 </StackPanel.RenderTransform>
+                                <ItemsControl ItemsSource="{Binding FullGoalChips}" Margin="0,0,0,6"
+                                              Visibility="{Binding HasGoal, Converter={StaticResource BoolToVisible}}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <WrapPanel/>
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate DataType="{x:Type vm:GoalChipVM}">
+                                            <Border Background="{DynamicResource Surface3}" CornerRadius="4"
+                                                    BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="1"
+                                                    Padding="6,2" Margin="0,0,4,4" ToolTip="{Binding ToolTipText}">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <Ellipse Width="5" Height="5" Fill="{Binding Color}"
+                                                             VerticalAlignment="Center" Margin="0,0,4,0"/>
+                                                    <TextBlock Text="{Binding DisplayText}" FontSize="11.5" FontWeight="Medium"
+                                                               Foreground="{DynamicResource TextSecondary}" VerticalAlignment="Center"/>
+                                                </StackPanel>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
                                 <Grid>
                                     <TextBox x:Name="noteBox" Style="{StaticResource SubtleInput}"
                                              Text="{Binding Note, UpdateSourceTrigger=PropertyChanged}"
@@ -254,6 +300,7 @@
                     <Setter TargetName="titleBox" Property="Visibility" Value="Visible"/>
                     <Setter TargetName="titleText" Property="Visibility" Value="Collapsed"/>
                     <Setter TargetName="metaRow" Property="Visibility" Value="Collapsed"/>
+                    <Setter TargetName="compactGoalChips" Property="Visibility" Value="Collapsed"/>
                     <Setter TargetName="card" Property="BorderBrush" Value="{DynamicResource BorderStrong}"/>
                     <Setter TargetName="card" Property="Cursor" Value="Arrow"/>
                     <DataTrigger.EnterActions>
@@ -575,7 +622,7 @@
                                             <ColumnDefinition Width="Auto"/>
                                         </Grid.ColumnDefinitions>
                                         <TextBlock Text="目标" Style="{StaticResource Eyebrow}"/>
-                                        <TextBlock Grid.Column="1" Text="{Binding Goals.Count}"
+                                        <TextBlock Grid.Column="1" Text="{Binding ActiveGoals.Count}"
                                                    Style="{StaticResource Eyebrow}"
                                                    Foreground="{DynamicResource TextTertiary}"/>
                                     </Grid>
@@ -584,7 +631,7 @@
                                 <Grid>
                                     <ScrollViewer VerticalScrollBarVisibility="Auto"
                                                   HorizontalScrollBarVisibility="Disabled" Padding="0,0,2,0">
-                                        <ItemsControl x:Name="GoalsHost" ItemsSource="{Binding Goals}" Margin="4,0,4,2">
+                                        <ItemsControl x:Name="GoalsHost" ItemsSource="{Binding ActiveGoals}" Margin="4,0,4,2">
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate DataType="{x:Type vm:GoalVM}">
                                                     <Border x:Name="goalCard" Tag="goal" Style="{StaticResource CardBorder}"
@@ -594,12 +641,23 @@
                                                                     BorderBrush="{DynamicResource Accent}" BorderThickness="1"
                                                                     CornerRadius="8" Margin="-10,-8" Opacity="0" IsHitTestVisible="False"/>
                                                             <StackPanel>
-                                                            <StackPanel Orientation="Horizontal">
+                                                            <Grid>
+                                                                <Grid.ColumnDefinitions>
+                                                                    <ColumnDefinition Width="Auto"/>
+                                                                    <ColumnDefinition Width="*"/>
+                                                                    <ColumnDefinition Width="Auto"/>
+                                                                </Grid.ColumnDefinitions>
                                                                 <Ellipse Width="6" Height="6" Fill="{Binding Color}"
                                                                          VerticalAlignment="Center" Margin="0,0,7,0"/>
-                                                                <TextBlock Text="{Binding Title}"
+                                                                <TextBlock Grid.Column="1" Text="{Binding Title}"
                                                                            Style="{StaticResource CardTitle}"/>
-                                                            </StackPanel>
+                                                                <TextBlock Grid.Column="2" Text="&#xE8A1;"
+                                                                           FontFamily="{StaticResource IconFont}" FontSize="10"
+                                                                           Foreground="{DynamicResource TextTertiary}"
+                                                                           VerticalAlignment="Center" Margin="6,0,0,0"
+                                                                           ToolTip="包含子目标，拖入日程可选择具体子目标"
+                                                                           Visibility="{Binding HasSubGoals, Converter={StaticResource BoolToVisible}}"/>
+                                                            </Grid>
 
                                                             <Grid x:Name="bar" Height="3" Margin="0,7,0,0">
                                                                 <Border Background="{DynamicResource Surface3}" CornerRadius="2"/>
@@ -681,7 +739,7 @@
                                     </ScrollViewer>
 
                                     <StackPanel VerticalAlignment="Top" IsHitTestVisible="False" Margin="4,0,4,0"
-                                                Visibility="{Binding Goals.Count, Converter={StaticResource ZeroToVisible}}">
+                                                Visibility="{Binding ActiveGoals.Count, Converter={StaticResource ZeroToVisible}}">
                                         <Rectangle Height="52" RadiusX="8" RadiusY="8"
                                                    Stroke="{DynamicResource BorderStrong}" StrokeThickness="1"
                                                    StrokeDashArray="3 3" Opacity="0.55"/>
@@ -928,7 +986,7 @@
                                                                         BorderThickness="1" CornerRadius="4"
                                                                         Cursor="Hand"
                                                                         RenderTransformOrigin="0.5,0.5"
-                                                                        ToolTip="双击编辑">
+                                                                        ToolTip="{Binding BlockToolTip}">
                                                                     <Grid>
                                                                         <Border x:Name="blkHover" Background="{DynamicResource HoverOverlay}"
                                                                                 CornerRadius="3" Opacity="0" IsHitTestVisible="False"/>
@@ -960,10 +1018,21 @@
                                                                                         </DataTemplate>
                                                                                     </ItemsControl.ItemTemplate>
                                                                                 </ItemsControl>
-                                                                                <Ellipse Width="4" Height="4" Fill="{Binding Task.Goal.Color}"
-                                                                                         VerticalAlignment="Center" Margin="1,0,0,0"
-                                                                                         Visibility="{Binding Task.HasGoal, Converter={StaticResource BoolToVisible}}"
-                                                                                         ToolTip="{Binding Task.Goal.Title}"/>
+                                                                                <ItemsControl ItemsSource="{Binding Task.DistinctGoals}" VerticalAlignment="Center"
+                                                                                              Visibility="{Binding Task.HasGoal, Converter={StaticResource BoolToVisible}}">
+                                                                                    <ItemsControl.ItemsPanel>
+                                                                                        <ItemsPanelTemplate>
+                                                                                            <StackPanel Orientation="Horizontal"/>
+                                                                                        </ItemsPanelTemplate>
+                                                                                    </ItemsControl.ItemsPanel>
+                                                                                    <ItemsControl.ItemTemplate>
+                                                                                        <DataTemplate DataType="{x:Type vm:GoalVM}">
+                                                                                            <Ellipse Width="4" Height="4" Fill="{Binding Color}"
+                                                                                                     VerticalAlignment="Center" Margin="1,0,1,0"
+                                                                                                     ToolTip="{Binding Title}"/>
+                                                                                        </DataTemplate>
+                                                                                    </ItemsControl.ItemTemplate>
+                                                                                </ItemsControl>
                                                                             </StackPanel>
                                                                             <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Margin="5,0,0,0">
                                                                                 <TextBlock Text="&#xEA8F;"
@@ -1006,7 +1075,7 @@
 
                                                                             <!-- 右侧：所属标签 + 目标。和标题/时间左右并排，短块也能完整展示 -->
                                                                             <StackPanel x:Name="blkMeta" Grid.Column="1"
-                                                                                        MaxWidth="76" Margin="6,1,0,0"
+                                                                                        MaxWidth="82" Margin="6,1,0,0"
                                                                                         VerticalAlignment="Top" HorizontalAlignment="Right"
                                                                                         Visibility="{Binding HasSideMeta, Converter={StaticResource BoolToVisible}}">
                                                                                 <ItemsControl ItemsSource="{Binding Task.Tags}" HorizontalAlignment="Right">
@@ -1028,14 +1097,27 @@
                                                                                     </ItemsControl.ItemTemplate>
                                                                                 </ItemsControl>
 
-                                                                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,1,0,0"
-                                                                                            Visibility="{Binding Task.HasGoal, Converter={StaticResource BoolToVisible}}">
-                                                                                    <Ellipse Width="4" Height="4" Fill="{Binding Task.Goal.Color}"
-                                                                                             VerticalAlignment="Center" Margin="0,0,3,0"/>
-                                                                                    <TextBlock Text="{Binding Task.Goal.Title}" FontSize="10" FontWeight="Medium"
-                                                                                               MaxWidth="64" TextTrimming="CharacterEllipsis"
-                                                                                               Foreground="{DynamicResource TextSecondary}"/>
-                                                                                </StackPanel>
+                                                                                <ItemsControl ItemsSource="{Binding Task.CompactGoalChips}" HorizontalAlignment="Right"
+                                                                                              Margin="0,1,0,0"
+                                                                                              Visibility="{Binding Task.HasGoal, Converter={StaticResource BoolToVisible}}">
+                                                                                    <ItemsControl.ItemsPanel>
+                                                                                        <ItemsPanelTemplate>
+                                                                                            <WrapPanel HorizontalAlignment="Right"/>
+                                                                                        </ItemsPanelTemplate>
+                                                                                    </ItemsControl.ItemsPanel>
+                                                                                    <ItemsControl.ItemTemplate>
+                                                                                        <DataTemplate DataType="{x:Type vm:GoalChipVM}">
+                                                                                            <StackPanel Orientation="Horizontal" Margin="3,0,0,1" ToolTip="{Binding ToolTipText}">
+                                                                                                <Ellipse Width="4" Height="4" Fill="{Binding Color}"
+                                                                                                         VerticalAlignment="Center" Margin="0,0,2,0"
+                                                                                                         Visibility="{Binding IsRoot, Converter={StaticResource BoolToVisible}}"/>
+                                                                                                <TextBlock Text="{Binding DisplayText}" FontSize="10" FontWeight="Medium"
+                                                                                                           MaxWidth="64" TextTrimming="CharacterEllipsis"
+                                                                                                           Foreground="{DynamicResource TextSecondary}"/>
+                                                                                            </StackPanel>
+                                                                                        </DataTemplate>
+                                                                                    </ItemsControl.ItemTemplate>
+                                                                                </ItemsControl>
                                                                             </StackPanel>
                                                                         </Grid>
 
@@ -1123,7 +1205,7 @@
                         </ScrollViewer>
                     </Grid>
 
-                    <!-- 目标页：矩形卡片，窗口越宽列越多 -->
+                    <!-- 目标页：小卡与导图大卡错落 Bento 网格 + 下方已完成目标区 -->
                     <Grid x:Name="PageGoals" Margin="24,14,24,0"
                           Visibility="{Binding IsGoals, Converter={StaticResource BoolToVisible}}">
                         <Grid.RenderTransform>
@@ -1135,80 +1217,391 @@
                                          VerticalContentAlignment="Center"
                                          Text="{Binding GoalInput, UpdateSourceTrigger=PropertyChanged}"
                                          KeyDown="GoalInput_KeyDown"/>
-                                <TextBlock Text="新建目标，回车确认（比如「学 Python」）"
+                                <TextBlock Text="新建目标，回车确认（比如「学 Python」或「发小论文」）"
                                            IsHitTestVisible="False" VerticalAlignment="Center"
                                            Margin="9,0,0,0" FontSize="13" FontWeight="Medium"
                                            Foreground="{DynamicResource TextDisabled}"
                                            Visibility="{Binding Text, ElementName=GoalInput, UpdateSourceTrigger=PropertyChanged, Converter={StaticResource EmptyToVisible}}"/>
                             </Grid>
 
-                            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                                <ItemsControl ItemsSource="{Binding Goals}">
-                                    <ItemsControl.ItemsPanel>
-                                        <ItemsPanelTemplate>
-                                            <core:ResponsiveGridPanel MinColumnWidth="268" ColumnGap="12" RowGap="12"/>
-                                        </ItemsPanelTemplate>
-                                    </ItemsControl.ItemsPanel>
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate DataType="{x:Type vm:GoalVM}">
-                                            <Border x:Name="goalPageCard" Tag="goalpagecard"
-                                                    Style="{StaticResource GridCard}" Height="138"
-                                                    Cursor="Hand" RenderTransformOrigin="0.5,0.5"
-                                                    ToolTip="点击查看该目标下的日程"
-                                                    AutomationProperties.Name="{Binding Title}">
-                                                <Grid>
-                                                    <Grid.RowDefinitions>
-                                                        <RowDefinition Height="Auto"/>
-                                                        <RowDefinition Height="*"/>
-                                                        <RowDefinition Height="Auto"/>
-                                                    </Grid.RowDefinitions>
-
+                            <ScrollViewer x:Name="GoalsPageScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                <StackPanel Margin="0,0,0,20">
+                                    <ItemsControl x:Name="ActiveGoalsHost" ItemsSource="{Binding ActiveGoals}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <core:ResponsiveGridPanel MinColumnWidth="268" ColumnGap="12" RowGap="12"/>
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemContainerStyle>
+                                            <Style TargetType="ContentPresenter">
+                                                <Setter Property="core:ResponsiveGridPanel.ColumnSpan" Value="{Binding CardColumnSpan}"/>
+                                            </Style>
+                                        </ItemsControl.ItemContainerStyle>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate DataType="{x:Type vm:GoalVM}">
+                                                <Border x:Name="goalPageCard" Tag="goalpagecard"
+                                                        Style="{StaticResource GridCard}"
+                                                        Height="{Binding CardHeight}"
+                                                        MaxWidth="{Binding CardMaxWidth}"
+                                                        HorizontalAlignment="Stretch"
+                                                        Cursor="Hand" RenderTransformOrigin="0.5,0.5"
+                                                        AutomationProperties.Name="{Binding Title}">
                                                     <Grid>
-                                                        <Grid.ColumnDefinitions>
-                                                            <ColumnDefinition Width="Auto"/>
-                                                            <ColumnDefinition Width="*"/>
-                                                            <ColumnDefinition Width="Auto"/>
-                                                        </Grid.ColumnDefinitions>
-                                                        <Ellipse Width="8" Height="8" Fill="{Binding Color}"
-                                                                 VerticalAlignment="Center" Margin="0,1,8,0"/>
-                                                        <TextBox Grid.Column="1" Style="{StaticResource TitleEditor}"
-                                                                 HorizontalAlignment="Left" MinWidth="32"
-                                                                 VerticalAlignment="Center" Cursor="IBeam"
-                                                                 ToolTip="点击名称可重命名"
-                                                                 Text="{Binding Title, UpdateSourceTrigger=PropertyChanged}"/>
-                                                        <TextBlock Grid.Column="2" Text="&#xE76C;"
-                                                                   FontFamily="{StaticResource IconFont}" FontSize="10"
-                                                                   Foreground="{DynamicResource TextDisabled}"
-                                                                   VerticalAlignment="Center" Margin="8,0,0,0"/>
-                                                    </Grid>
+                                                        <Grid.RowDefinitions>
+                                                            <RowDefinition Height="Auto"/>
+                                                            <RowDefinition Height="*"/>
+                                                            <RowDefinition Height="Auto"/>
+                                                        </Grid.RowDefinitions>
 
-                                                    <Grid x:Name="bar" Grid.Row="1" Height="4" VerticalAlignment="Center"
-                                                          Margin="0,8,0,8">
-                                                        <Border Background="{DynamicResource BorderSubtle}" CornerRadius="2"/>
-                                                        <Border Background="{DynamicResource Accent}" CornerRadius="2"
-                                                                HorizontalAlignment="Left">
-                                                            <Border.Width>
-                                                                <MultiBinding Converter="{StaticResource RatioToWidth}">
-                                                                    <Binding ElementName="bar" Path="ActualWidth"/>
-                                                                    <Binding Path="Progress"/>
-                                                                </MultiBinding>
-                                                            </Border.Width>
-                                                        </Border>
-                                                    </Grid>
+                                                        <!-- 卡片头部：色点 + 标题 + 结构编辑/重置/查看按钮 -->
+                                                        <Grid>
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="Auto"/>
+                                                                <ColumnDefinition Width="*"/>
+                                                                <ColumnDefinition Width="Auto"/>
+                                                            </Grid.ColumnDefinitions>
+                                                            <Ellipse Width="8" Height="8" Fill="{Binding Color}"
+                                                                     VerticalAlignment="Center" Margin="0,1,8,0"/>
+                                                            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                                                <TextBox Style="{StaticResource TitleEditor}"
+                                                                         HorizontalAlignment="Left" MinWidth="32"
+                                                                         VerticalAlignment="Center" Cursor="IBeam"
+                                                                         ToolTip="点击名称可重命名"
+                                                                         Text="{Binding Title, UpdateSourceTrigger=PropertyChanged}"/>
+                                                                <Border x:Name="subGoalBadge" Visibility="Collapsed"
+                                                                        Background="{DynamicResource Surface3}" CornerRadius="4"
+                                                                        Padding="6,1" Margin="8,0,0,0" VerticalAlignment="Center">
+                                                                    <TextBlock Text="{Binding Nodes.Count, StringFormat={}{0} 个子目标}"
+                                                                               FontSize="10.5" FontWeight="Medium"
+                                                                               Foreground="{DynamicResource TextTertiary}"
+                                                                               Typography.NumeralAlignment="Tabular"/>
+                                                                </Border>
+                                                            </StackPanel>
 
-                                                    <Grid Grid.Row="2">
-                                                        <TextBlock Text="{Binding ProgressText}"
-                                                                   Style="{StaticResource Caption}"
-                                                                   VerticalAlignment="Center"/>
-                                                        <Button Style="{StaticResource GhostButton}" HorizontalAlignment="Right"
-                                                                Content="删除" Foreground="{DynamicResource TextTertiary}"
-                                                                Tag="{Binding}" Click="DeleteGoal_Click"/>
+                                                            <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Margin="8,0,0,0">
+                                                                <Button Style="{StaticResource GhostButton}"
+                                                                        Padding="7,3" FontSize="11.5" Margin="0,0,2,0"
+                                                                        ToolTip="编辑子目标结构树"
+                                                                        Tag="{Binding}" Click="OpenGoalTreeEditor_Click">
+                                                                    <StackPanel Orientation="Horizontal">
+                                                                        <TextBlock Text="&#xE8A1;" FontFamily="{StaticResource IconFont}"
+                                                                                   FontSize="10" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                                                                        <TextBlock Text="编辑目标树" VerticalAlignment="Center"/>
+                                                                    </StackPanel>
+                                                                </Button>
+                                                                <Button x:Name="resetViewBtn" Style="{StaticResource GhostButton}"
+                                                                        Padding="7,3" FontSize="11.5" Margin="0,0,2,0"
+                                                                        Content="重置视图" Visibility="Collapsed"
+                                                                        ToolTip="回到 100% 初始视角"
+                                                                        Tag="{Binding}" Click="ResetGoalCanvas_Click"/>
+                                                                <Button Style="{StaticResource GhostButton}"
+                                                                        Padding="7,3" FontSize="11.5"
+                                                                        Content="查看日程" ToolTip="查看该目标下的全部日程"
+                                                                        Tag="{Binding}" Click="OpenGoalDetail_Click"/>
+                                                            </StackPanel>
+                                                        </Grid>
+
+                                                        <!-- 简单卡片：仅显示居中进度条 -->
+                                                        <Grid x:Name="simpleProgressBar" Grid.Row="1" Height="4" VerticalAlignment="Center"
+                                                              Margin="0,8,0,8">
+                                                            <Border Background="{DynamicResource BorderSubtle}" CornerRadius="2"/>
+                                                            <Border Background="{DynamicResource Accent}" CornerRadius="2"
+                                                                    HorizontalAlignment="Left">
+                                                                <Border.Width>
+                                                                    <MultiBinding Converter="{StaticResource RatioToWidth}">
+                                                                        <Binding ElementName="simpleProgressBar" Path="ActualWidth"/>
+                                                                        <Binding Path="Progress"/>
+                                                                    </MultiBinding>
+                                                                </Border.Width>
+                                                            </Border>
+                                                        </Grid>
+
+                                                        <!-- 导图大卡片：内嵌可缩放拖拽的目标结构树 -->
+                                                        <Grid x:Name="goalCanvasSection" Grid.Row="1" Margin="0,8,0,8" Visibility="Collapsed">
+                                                            <Grid.RowDefinitions>
+                                                                <RowDefinition Height="3"/>
+                                                                <RowDefinition Height="*"/>
+                                                            </Grid.RowDefinitions>
+
+                                                            <Grid x:Name="treeProgressBar" Grid.Row="0" Height="3" Margin="0,0,0,0">
+                                                                <Border Background="{DynamicResource BorderSubtle}" CornerRadius="2"/>
+                                                                <Border Background="{DynamicResource Accent}" CornerRadius="2"
+                                                                        HorizontalAlignment="Left">
+                                                                    <Border.Width>
+                                                                        <MultiBinding Converter="{StaticResource RatioToWidth}">
+                                                                            <Binding ElementName="treeProgressBar" Path="ActualWidth"/>
+                                                                            <Binding Path="Progress"/>
+                                                                        </MultiBinding>
+                                                                    </Border.Width>
+                                                                </Border>
+                                                            </Grid>
+
+                                                            <Border x:Name="goalCanvasViewport" Grid.Row="1" Tag="goalcanvas"
+                                                                    Margin="0,6,0,0" CornerRadius="8"
+                                                                    Background="{DynamicResource Surface3}"
+                                                                    BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="1"
+                                                                    ClipToBounds="True" Cursor="Hand"
+                                                                    PreviewMouseWheel="GoalCardCanvas_PreviewMouseWheel"
+                                                                    MouseLeave="GoalCardCanvas_MouseLeave">
+                                                                <Grid>
+                                                                    <Canvas Width="{Binding CanvasWidth}" Height="{Binding CanvasHeight}"
+                                                                            HorizontalAlignment="Left" VerticalAlignment="Top">
+                                                                        <Canvas.RenderTransform>
+                                                                            <TransformGroup>
+                                                                                <ScaleTransform ScaleX="{Binding ViewZoom}" ScaleY="{Binding ViewZoom}"/>
+                                                                                <TranslateTransform X="{Binding ViewPanX}" Y="{Binding ViewPanY}"/>
+                                                                            </TransformGroup>
+                                                                        </Canvas.RenderTransform>
+
+                                                                        <!-- 有向边（归属实线 / 递进虚线箭头） -->
+                                                                        <ItemsControl ItemsSource="{Binding Edges}" IsHitTestVisible="False">
+                                                                            <ItemsControl.ItemsPanel>
+                                                                                <ItemsPanelTemplate>
+                                                                                    <Canvas/>
+                                                                                </ItemsPanelTemplate>
+                                                                            </ItemsControl.ItemsPanel>
+                                                                            <ItemsControl.ItemTemplate>
+                                                                                <DataTemplate DataType="{x:Type vm:GoalEdgeVM}">
+                                                                                    <Canvas>
+                                                                                        <Path x:Name="edgeLine" Data="{Binding LineGeometry}"
+                                                                                              Stroke="{DynamicResource BorderStrong}" StrokeThickness="1.5"/>
+                                                                                        <Path x:Name="edgeArrow" Data="{Binding ArrowGeometry}"
+                                                                                              Fill="{DynamicResource Accent}" Visibility="Collapsed"/>
+                                                                                    </Canvas>
+                                                                                    <DataTemplate.Triggers>
+                                                                                        <DataTrigger Binding="{Binding IsProgress}" Value="True">
+                                                                                            <Setter TargetName="edgeLine" Property="Stroke" Value="{DynamicResource Accent}"/>
+                                                                                            <Setter TargetName="edgeLine" Property="StrokeDashArray" Value="4 2"/>
+                                                                                            <Setter TargetName="edgeArrow" Property="Visibility" Value="Visible"/>
+                                                                                        </DataTrigger>
+                                                                                    </DataTemplate.Triggers>
+                                                                                </DataTemplate>
+                                                                            </ItemsControl.ItemTemplate>
+                                                                        </ItemsControl>
+
+                                                                        <!-- 节点 -->
+                                                                        <ItemsControl ItemsSource="{Binding AllCanvasNodes}">
+                                                                            <ItemsControl.ItemsPanel>
+                                                                                <ItemsPanelTemplate>
+                                                                                    <Canvas/>
+                                                                                </ItemsPanelTemplate>
+                                                                            </ItemsControl.ItemsPanel>
+                                                                            <ItemsControl.ItemContainerStyle>
+                                                                                <Style TargetType="ContentPresenter">
+                                                                                    <Setter Property="Canvas.Left" Value="{Binding X}"/>
+                                                                                    <Setter Property="Canvas.Top" Value="{Binding Y}"/>
+                                                                                </Style>
+                                                                            </ItemsControl.ItemContainerStyle>
+                                                                            <ItemsControl.ItemTemplate>
+                                                                                <DataTemplate DataType="{x:Type vm:GoalNodeVM}">
+                                                                                    <Border x:Name="nodeBox" Tag="goalcardnode"
+                                                                                            Width="{Binding Width}" Height="{Binding Height}"
+                                                                                            Background="{DynamicResource Surface2}"
+                                                                                            BorderBrush="{DynamicResource BorderStrong}" BorderThickness="1"
+                                                                                            CornerRadius="6" Padding="8,4" Cursor="Hand"
+                                                                                            MouseEnter="GoalCardNode_MouseEnter"
+                                                                                            MouseLeave="GoalCardNode_MouseLeave">
+                                                                                        <Grid>
+                                                                                            <Grid.ColumnDefinitions>
+                                                                                                <ColumnDefinition Width="Auto"/>
+                                                                                                <ColumnDefinition Width="*"/>
+                                                                                                <ColumnDefinition Width="Auto"/>
+                                                                                            </Grid.ColumnDefinitions>
+                                                                                            <Border x:Name="nodeTint" Grid.ColumnSpan="3"
+                                                                                                    CornerRadius="5" Margin="-8,-4"
+                                                                                                    Background="Transparent" IsHitTestVisible="False"/>
+                                                                                            <Ellipse x:Name="rootDot" Width="6" Height="6" Fill="{Binding Owner.Color}"
+                                                                                                     VerticalAlignment="Center" Margin="0,0,6,0" Visibility="Collapsed"/>
+                                                                                            <TextBlock x:Name="doneTick" Grid.Column="0" Text="&#xE73E;"
+                                                                                                       FontFamily="{StaticResource IconFont}" FontSize="10"
+                                                                                                       Foreground="{DynamicResource Success}"
+                                                                                                       VerticalAlignment="Center" Margin="0,0,5,0" Visibility="Collapsed"/>
+                                                                                            <TextBlock x:Name="nodeTitle" Grid.Column="1" Text="{Binding DisplayTitle}"
+                                                                                                       FontSize="12" FontWeight="SemiBold"
+                                                                                                       TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                                                                                                       Foreground="{DynamicResource TextPrimary}"/>
+                                                                                            <Border Grid.Column="2" Background="{DynamicResource Surface3}" CornerRadius="4"
+                                                                                                    Padding="4,1" Margin="4,0,0,0" VerticalAlignment="Center"
+                                                                                                    Visibility="{Binding HasTasks, Converter={StaticResource BoolToVisible}}">
+                                                                                                <TextBlock Text="{Binding TaskBadgeText}" FontSize="10" FontWeight="Medium"
+                                                                                                           Foreground="{DynamicResource TextTertiary}"
+                                                                                                           Typography.NumeralAlignment="Tabular"/>
+                                                                                            </Border>
+                                                                                        </Grid>
+                                                                                    </Border>
+                                                                                    <DataTemplate.Triggers>
+                                                                                        <DataTrigger Binding="{Binding IsRoot}" Value="True">
+                                                                                            <Setter TargetName="rootDot" Property="Visibility" Value="Visible"/>
+                                                                                            <Setter TargetName="nodeBox" Property="BorderBrush" Value="{DynamicResource Accent}"/>
+                                                                                        </DataTrigger>
+                                                                                        <DataTrigger Binding="{Binding IsCompleted}" Value="True">
+                                                                                            <Setter TargetName="doneTick" Property="Visibility" Value="Visible"/>
+                                                                                            <Setter TargetName="nodeTint" Property="Background" Value="{DynamicResource SuccessTint}"/>
+                                                                                            <Setter TargetName="nodeBox" Property="BorderBrush" Value="{DynamicResource Success}"/>
+                                                                                            <Setter TargetName="nodeTitle" Property="TextDecorations" Value="Strikethrough"/>
+                                                                                            <Setter TargetName="nodeTitle" Property="Opacity" Value="0.72"/>
+                                                                                        </DataTrigger>
+                                                                                        <DataTrigger Binding="{Binding IsHovered}" Value="True">
+                                                                                            <Setter TargetName="nodeBox" Property="BorderBrush" Value="{DynamicResource Accent}"/>
+                                                                                        </DataTrigger>
+                                                                                    </DataTemplate.Triggers>
+                                                                                </DataTemplate>
+                                                                            </ItemsControl.ItemTemplate>
+                                                                        </ItemsControl>
+                                                                    </Canvas>
+
+                                                                    <!-- 节点悬停具体信息浮层（固定视口字号，不随画布缩放失真） -->
+                                                                    <Canvas>
+                                                                        <Border x:Name="goalHoverPopover" Tag="goalhoverpopover"
+                                                                                Canvas.Left="{Binding HoverAnchorX}" Canvas.Top="{Binding HoverAnchorY}"
+                                                                                Width="216" Padding="10,8" CornerRadius="8"
+                                                                                Background="{DynamicResource Surface4}"
+                                                                                BorderBrush="{DynamicResource BorderStrong}" BorderThickness="1"
+                                                                                Visibility="{Binding HasHoveredNode, Converter={StaticResource BoolToVisible}}"
+                                                                                MouseEnter="GoalCardHoverPopover_MouseEnter"
+                                                                                MouseLeave="GoalCardHoverPopover_MouseLeave">
+                                                                            <Border.Effect>
+                                                                                <DropShadowEffect Color="Black" BlurRadius="14" ShadowDepth="4" Direction="270" Opacity="0.22"/>
+                                                                            </Border.Effect>
+                                                                            <StackPanel>
+                                                                                <TextBlock Text="{Binding HoveredNode.DisplayTitle}"
+                                                                                           FontSize="12.5" FontWeight="SemiBold"
+                                                                                           TextTrimming="CharacterEllipsis"
+                                                                                           Foreground="{DynamicResource TextPrimary}"/>
+                                                                                <TextBlock Text="{Binding HoveredNode.HoverStatusText}"
+                                                                                           Style="{StaticResource Caption}" Margin="0,2,0,6"/>
+                                                                                <StackPanel Orientation="Horizontal">
+                                                                                    <Button Style="{StaticResource GhostButton}"
+                                                                                            Padding="7,3" FontSize="11.5" Margin="0,0,6,0"
+                                                                                            Foreground="{DynamicResource Accent}"
+                                                                                            Content="{Binding HoveredNode.CompleteActionText}"
+                                                                                            Tag="{Binding HoveredNode}"
+                                                                                            Click="GoalCardNodeToggleComplete_Click"/>
+                                                                                    <Button Style="{StaticResource GhostButton}"
+                                                                                            Padding="7,3" FontSize="11.5"
+                                                                                            Content="查看日程"
+                                                                                            Tag="{Binding HoveredNode}"
+                                                                                            Click="GoalCardNodeDetail_Click"/>
+                                                                                </StackPanel>
+                                                                            </StackPanel>
+                                                                        </Border>
+                                                                    </Canvas>
+
+                                                                    <!-- 缩放与操作提示 -->
+                                                                    <Border HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                                                                            Margin="0,0,8,6" Padding="7,2" CornerRadius="4"
+                                                                            Background="{DynamicResource Surface4}"
+                                                                            BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="1"
+                                                                            Opacity="0.88" IsHitTestVisible="False">
+                                                                        <TextBlock FontSize="10.5" FontWeight="Medium" Foreground="{DynamicResource TextTertiary}"
+                                                                                   Typography.NumeralAlignment="Tabular">
+                                                                            <Run Text="{Binding ZoomLabel, Mode=OneWay}"/>
+                                                                            <Run Text=" · 滚轮缩放 · 右键/空格拖拽"/>
+                                                                        </TextBlock>
+                                                                    </Border>
+                                                                </Grid>
+                                                            </Border>
+                                                        </Grid>
+
+                                                        <!-- 卡片底部：进度 + 标记完成 + 删除 -->
+                                                        <Grid Grid.Row="2">
+                                                            <TextBlock Text="{Binding ProgressText}"
+                                                                       Style="{StaticResource Caption}"
+                                                                       VerticalAlignment="Center"/>
+                                                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                                                <Button Style="{StaticResource GhostButton}" Content="标记完成"
+                                                                        Padding="8,4" Margin="0,0,2,0"
+                                                                        Foreground="{DynamicResource Accent}"
+                                                                        Tag="{Binding}" Click="ToggleGoalComplete_Click"/>
+                                                                <Button Style="{StaticResource GhostButton}"
+                                                                        Content="删除" Foreground="{DynamicResource TextTertiary}"
+                                                                        Tag="{Binding}" Click="DeleteGoal_Click"/>
+                                                            </StackPanel>
+                                                        </Grid>
                                                     </Grid>
-                                                </Grid>
-                                            </Border>
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
+                                                </Border>
+                                                <DataTemplate.Triggers>
+                                                    <DataTrigger Binding="{Binding HasSubGoals}" Value="True">
+                                                        <Setter TargetName="simpleProgressBar" Property="Visibility" Value="Collapsed"/>
+                                                        <Setter TargetName="goalCanvasSection" Property="Visibility" Value="Visible"/>
+                                                        <Setter TargetName="resetViewBtn" Property="Visibility" Value="Visible"/>
+                                                        <Setter TargetName="subGoalBadge" Property="Visibility" Value="Visible"/>
+                                                        <Setter TargetName="goalPageCard" Property="Cursor" Value="Arrow"/>
+                                                    </DataTrigger>
+                                                </DataTemplate.Triggers>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+
+                                    <!-- 下方独立区域：已完成目标 -->
+                                    <StackPanel Margin="0,24,0,0"
+                                                Visibility="{Binding HasCompletedGoals, Converter={StaticResource BoolToVisible}}">
+                                        <Border BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="0,1,0,0"
+                                                Padding="0,16,0,10">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="已完成目标" Style="{StaticResource Eyebrow}" FontSize="13"/>
+                                                <TextBlock Text="{Binding CompletedGoals.Count}" Style="{StaticResource Eyebrow}"
+                                                           Foreground="{DynamicResource TextTertiary}" Margin="8,0,0,0"/>
+                                            </StackPanel>
+                                        </Border>
+
+                                        <ItemsControl ItemsSource="{Binding CompletedGoals}">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate>
+                                                    <core:ResponsiveGridPanel MinColumnWidth="268" ColumnGap="12" RowGap="12"/>
+                                                </ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate DataType="{x:Type vm:GoalVM}">
+                                                    <Border Style="{StaticResource GridCard}" Height="116" Opacity="0.82"
+                                                            AutomationProperties.Name="{Binding Title}">
+                                                        <Grid>
+                                                            <Grid.RowDefinitions>
+                                                                <RowDefinition Height="Auto"/>
+                                                                <RowDefinition Height="*"/>
+                                                                <RowDefinition Height="Auto"/>
+                                                            </Grid.RowDefinitions>
+
+                                                            <Grid>
+                                                                <Grid.ColumnDefinitions>
+                                                                    <ColumnDefinition Width="Auto"/>
+                                                                    <ColumnDefinition Width="Auto"/>
+                                                                    <ColumnDefinition Width="*"/>
+                                                                </Grid.ColumnDefinitions>
+                                                                <Ellipse Width="8" Height="8" Fill="{Binding Color}"
+                                                                         VerticalAlignment="Center" Margin="0,0,7,0"/>
+                                                                <TextBlock Grid.Column="1" Text="&#xE73E;"
+                                                                           FontFamily="{StaticResource IconFont}" FontSize="11"
+                                                                           Foreground="{DynamicResource Success}"
+                                                                           VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                                                <TextBlock Grid.Column="2" Text="{Binding Title}"
+                                                                           Style="{StaticResource CardTitle}"
+                                                                           TextDecorations="Strikethrough"
+                                                                           TextTrimming="CharacterEllipsis"
+                                                                           VerticalAlignment="Center"/>
+                                                            </Grid>
+
+                                                            <TextBlock Grid.Row="1" Text="{Binding ProgressText}"
+                                                                       Style="{StaticResource Caption}" VerticalAlignment="Center"/>
+
+                                                            <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right">
+                                                                <Button Style="{StaticResource GhostButton}" Content="恢复未完成"
+                                                                        Padding="8,3" Margin="0,0,2,0"
+                                                                        Tag="{Binding}" Click="ToggleGoalComplete_Click"/>
+                                                                <Button Style="{StaticResource GhostButton}" Content="查看日程"
+                                                                        Padding="8,3" Margin="0,0,2,0"
+                                                                        Tag="{Binding}" Click="OpenGoalDetail_Click"/>
+                                                                <Button Style="{StaticResource GhostButton}" Content="删除"
+                                                                        Padding="8,3" Foreground="{DynamicResource TextTertiary}"
+                                                                        Tag="{Binding}" Click="DeleteGoal_Click"/>
+                                                            </StackPanel>
+                                                        </Grid>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </StackPanel>
+                                </StackPanel>
                             </ScrollViewer>
                         </DockPanel>
                     </Grid>
@@ -1341,7 +1734,7 @@
                                                                         <ColumnDefinition Width="Auto"/>
                                                                         <ColumnDefinition Width="*"/>
                                                                     </Grid.ColumnDefinitions>
-                                                                    <Ellipse Width="6" Height="6" Fill="{Binding Goal.Color}"
+                                                                    <Ellipse Width="6" Height="6" Fill="{Binding PrimaryGoalColor}"
                                                                              VerticalAlignment="Top" Margin="0,7,7,0"
                                                                              Visibility="{Binding HasGoal, Converter={StaticResource BoolToVisible}}"/>
                                                                     <StackPanel Grid.Column="1">
@@ -1363,6 +1756,16 @@
                                                                                        Style="{StaticResource Caption}"
                                                                                        VerticalAlignment="Center"/>
                                                                         </Grid>
+                                                                        <ItemsControl ItemsSource="{Binding CompactGoalChips}"
+                                                                                      ItemTemplate="{StaticResource CompactGoalChipTemplate}"
+                                                                                      Margin="0,4,0,0"
+                                                                                      Visibility="{Binding HasGoal, Converter={StaticResource BoolToVisible}}">
+                                                                            <ItemsControl.ItemsPanel>
+                                                                                <ItemsPanelTemplate>
+                                                                                    <WrapPanel/>
+                                                                                </ItemsPanelTemplate>
+                                                                            </ItemsControl.ItemsPanel>
+                                                                        </ItemsControl>
                                                                     </StackPanel>
                                                                 </Grid>
                                                             </Border>
@@ -1637,7 +2040,7 @@
                                                                                     <ColumnDefinition Width="Auto"/>
                                                                                     <ColumnDefinition Width="*"/>
                                                                                 </Grid.ColumnDefinitions>
-                                                                                <Ellipse Width="6" Height="6" Fill="{Binding Goal.Color}"
+                                                                                <Ellipse Width="6" Height="6" Fill="{Binding PrimaryGoalColor}"
                                                                                          VerticalAlignment="Top" Margin="0,6,6,0"
                                                                                          Visibility="{Binding HasGoal, Converter={StaticResource BoolToVisible}}"/>
                                                                                 <TextBlock x:Name="tagTaskTitle" Grid.Column="1"
@@ -1645,6 +2048,17 @@
                                                                                            Style="{StaticResource CardTitle}"
                                                                                            FontSize="13"/>
                                                                             </Grid>
+
+                                                                            <ItemsControl ItemsSource="{Binding CompactGoalChips}"
+                                                                                          ItemTemplate="{StaticResource CompactGoalChipTemplate}"
+                                                                                          Margin="0,4,0,0"
+                                                                                          Visibility="{Binding HasGoal, Converter={StaticResource BoolToVisible}}">
+                                                                                <ItemsControl.ItemsPanel>
+                                                                                    <ItemsPanelTemplate>
+                                                                                        <WrapPanel/>
+                                                                                    </ItemsPanelTemplate>
+                                                                                </ItemsControl.ItemsPanel>
+                                                                            </ItemsControl>
 
                                                                             <TextBlock Text="{Binding Note}"
                                                                                        Style="{StaticResource Caption}"
@@ -1844,35 +2258,55 @@
                                 </StackPanel>
                             </Grid>
 
-                            <!-- 目标（单选，第一枚是无目标） -->
+                            <!-- 目标（仅展示总目标胶囊；有子目标者带标记，点击弹目标树多选） -->
                             <Grid Margin="0,12,0,0">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="58"/>
                                     <ColumnDefinition Width="*"/>
                                 </Grid.ColumnDefinitions>
                                 <TextBlock Text="目标" Style="{StaticResource EditorLabel}"/>
-                                <ItemsControl Grid.Column="1" ItemsSource="{Binding Editor.GoalPicks}">
-                                    <ItemsControl.ItemsPanel>
-                                        <ItemsPanelTemplate>
-                                            <WrapPanel/>
-                                        </ItemsPanelTemplate>
-                                    </ItemsControl.ItemsPanel>
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate DataType="{x:Type vm:GoalPickVM}">
-                                            <ToggleButton Style="{StaticResource FlagChip}" Margin="0,0,6,5"
-                                                          IsChecked="{Binding IsSelected, Mode=OneWay}"
-                                                          Click="EditorGoal_Click">
-                                                <StackPanel Orientation="Horizontal">
-                                                    <Ellipse Width="6" Height="6" Fill="{Binding Color}"
-                                                             VerticalAlignment="Center" Margin="0,0,5,0"
-                                                             Visibility="{Binding HasGoal, Converter={StaticResource BoolToVisible}}"/>
-                                                    <TextBlock Text="{Binding Title}" FontSize="12" FontWeight="Medium"
-                                                               VerticalAlignment="Center"/>
-                                                </StackPanel>
-                                            </ToggleButton>
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
+                                <StackPanel Grid.Column="1">
+                                    <ItemsControl ItemsSource="{Binding Editor.GoalPicks}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <WrapPanel/>
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate DataType="{x:Type vm:GoalPickVM}">
+                                                <ToggleButton Style="{StaticResource FlagChip}" Margin="0,0,6,5"
+                                                              IsChecked="{Binding IsSelected, Mode=OneWay}"
+                                                              Click="EditorGoal_Click">
+                                                    <StackPanel Orientation="Horizontal">
+                                                        <Ellipse Width="6" Height="6" Fill="{Binding Color}"
+                                                                 VerticalAlignment="Center" Margin="0,0,5,0"
+                                                                 Visibility="{Binding HasGoal, Converter={StaticResource BoolToVisible}}"/>
+                                                        <TextBlock Text="{Binding Title}" FontSize="12" FontWeight="Medium"
+                                                                   VerticalAlignment="Center"/>
+                                                        <Border Background="{DynamicResource Surface2}" CornerRadius="3"
+                                                                Padding="4,0" Margin="5,0,0,0" VerticalAlignment="Center"
+                                                                Visibility="{Binding HasBadge, Converter={StaticResource BoolToVisible}}">
+                                                            <TextBlock Text="{Binding BadgeText}" FontSize="10.5" FontWeight="SemiBold"
+                                                                       Foreground="{DynamicResource Accent}"
+                                                                       Typography.NumeralAlignment="Tabular"/>
+                                                        </Border>
+                                                    </StackPanel>
+                                                </ToggleButton>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+
+                                    <ItemsControl ItemsSource="{Binding Editor.SelectedGoalChips}"
+                                                  ItemTemplate="{StaticResource CompactGoalChipTemplate}"
+                                                  Margin="0,2,0,0"
+                                                  Visibility="{Binding Editor.HasSelectedGoals, Converter={StaticResource BoolToVisible}}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <WrapPanel/>
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                    </ItemsControl>
+                                </StackPanel>
                             </Grid>
 
                             <!-- 重复 -->
@@ -2294,28 +2728,48 @@
                                             <ColumnDefinition Width="*"/>
                                         </Grid.ColumnDefinitions>
                                         <TextBlock Text="目标" Style="{StaticResource EditorLabel}"/>
-                                        <ItemsControl Grid.Column="1" ItemsSource="{Binding PresetManager.GoalPicks}">
-                                            <ItemsControl.ItemsPanel>
-                                                <ItemsPanelTemplate>
-                                                    <WrapPanel/>
-                                                </ItemsPanelTemplate>
-                                            </ItemsControl.ItemsPanel>
-                                            <ItemsControl.ItemTemplate>
-                                                <DataTemplate DataType="{x:Type vm:GoalPickVM}">
-                                                    <ToggleButton Style="{StaticResource FlagChip}" Margin="0,0,6,5"
-                                                                  IsChecked="{Binding IsSelected, Mode=OneWay}"
-                                                                  Click="PresetGoal_Click">
-                                                        <StackPanel Orientation="Horizontal">
-                                                            <Ellipse Width="6" Height="6" Fill="{Binding Color}"
-                                                                     VerticalAlignment="Center" Margin="0,0,5,0"
-                                                                     Visibility="{Binding HasGoal, Converter={StaticResource BoolToVisible}}"/>
-                                                            <TextBlock Text="{Binding Title}" FontSize="11.5" FontWeight="Medium"
-                                                                       VerticalAlignment="Center"/>
-                                                        </StackPanel>
-                                                    </ToggleButton>
-                                                </DataTemplate>
-                                            </ItemsControl.ItemTemplate>
-                                        </ItemsControl>
+                                        <StackPanel Grid.Column="1">
+                                            <ItemsControl ItemsSource="{Binding PresetManager.GoalPicks}">
+                                                <ItemsControl.ItemsPanel>
+                                                    <ItemsPanelTemplate>
+                                                        <WrapPanel/>
+                                                    </ItemsPanelTemplate>
+                                                </ItemsControl.ItemsPanel>
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate DataType="{x:Type vm:GoalPickVM}">
+                                                        <ToggleButton Style="{StaticResource FlagChip}" Margin="0,0,6,5"
+                                                                      IsChecked="{Binding IsSelected, Mode=OneWay}"
+                                                                      Click="PresetGoal_Click">
+                                                            <StackPanel Orientation="Horizontal">
+                                                                <Ellipse Width="6" Height="6" Fill="{Binding Color}"
+                                                                         VerticalAlignment="Center" Margin="0,0,5,0"
+                                                                         Visibility="{Binding HasGoal, Converter={StaticResource BoolToVisible}}"/>
+                                                                <TextBlock Text="{Binding Title}" FontSize="11.5" FontWeight="Medium"
+                                                                           VerticalAlignment="Center"/>
+                                                                <Border Background="{DynamicResource Surface2}" CornerRadius="3"
+                                                                        Padding="4,0" Margin="4,0,0,0" VerticalAlignment="Center"
+                                                                        Visibility="{Binding HasBadge, Converter={StaticResource BoolToVisible}}">
+                                                                    <TextBlock Text="{Binding BadgeText}" FontSize="10" FontWeight="SemiBold"
+                                                                               Foreground="{DynamicResource Accent}"
+                                                                               Typography.NumeralAlignment="Tabular"/>
+                                                                </Border>
+                                                            </StackPanel>
+                                                        </ToggleButton>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+
+                                            <ItemsControl ItemsSource="{Binding PresetManager.SelectedGoalChips}"
+                                                          ItemTemplate="{StaticResource CompactGoalChipTemplate}"
+                                                          Margin="0,2,0,0"
+                                                          Visibility="{Binding PresetManager.HasSelectedGoals, Converter={StaticResource BoolToVisible}}">
+                                                <ItemsControl.ItemsPanel>
+                                                    <ItemsPanelTemplate>
+                                                        <WrapPanel/>
+                                                    </ItemsPanelTemplate>
+                                                </ItemsControl.ItemsPanel>
+                                            </ItemsControl>
+                                        </StackPanel>
                                     </Grid>
 
                                     <Grid Margin="0,6,0,0">
@@ -2436,6 +2890,405 @@
                                        Visibility="{Binding Presets.Count, Converter={StaticResource ZeroToVisible}}"/>
                         </StackPanel>
                     </ScrollViewer>
+                </DockPanel>
+            </Border>
+        </Grid>
+
+        <!-- ================= 目标树结构编辑浮层 ================= -->
+        <Grid x:Name="GoalTreeEditorLayer" Grid.RowSpan="2" Visibility="Collapsed">
+            <Border x:Name="GoalTreeEditorScrim" Background="{DynamicResource Scrim}" Opacity="0"
+                    MouseLeftButtonDown="GoalTreeEditorScrim_Click"/>
+            <Border x:Name="GoalTreeEditorDialog" Width="940" Height="630"
+                    VerticalAlignment="Center" HorizontalAlignment="Center"
+                    Background="{DynamicResource Surface4}"
+                    BorderBrush="{DynamicResource BorderStrong}" BorderThickness="1"
+                    CornerRadius="12" ClipToBounds="True"
+                    Opacity="0" RenderTransformOrigin="0.5,0.5">
+                <Border.RenderTransform>
+                    <TransformGroup>
+                        <ScaleTransform x:Name="GoalTreeEditorScale" ScaleX="0.97" ScaleY="0.97"/>
+                        <TranslateTransform x:Name="GoalTreeEditorShift" Y="10"/>
+                    </TransformGroup>
+                </Border.RenderTransform>
+                <Border.Effect>
+                    <DropShadowEffect Color="Black" BlurRadius="24" ShadowDepth="8" Direction="270" Opacity="0.28"/>
+                </Border.Effect>
+                <DockPanel>
+                    <!-- 顶部 -->
+                    <Border DockPanel.Dock="Top" Padding="20,14,14,10"
+                            BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="0,0,0,1">
+                        <Grid>
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <Ellipse Width="9" Height="9" Fill="{Binding GoalTreeEditor.Goal.Color}"
+                                         VerticalAlignment="Center" Margin="0,1,9,0"/>
+                                <TextBlock Text="{Binding GoalTreeEditor.HeaderTitle}"
+                                           FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                            </StackPanel>
+                            <Button Style="{StaticResource GhostButton}" Content="&#xE711;"
+                                    FontFamily="{StaticResource IconFont}" FontSize="11"
+                                    HorizontalAlignment="Right" ToolTip="关闭（Esc）"
+                                    AutomationProperties.Name="关闭目标树编辑器"
+                                    Click="GoalTreeEditorClose_Click"/>
+                        </Grid>
+                    </Border>
+
+                    <!-- 工具栏 -->
+                    <Border DockPanel.Dock="Top" Background="{DynamicResource Surface3}"
+                            BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="0,0,0,1"
+                            Padding="16,10">
+                        <StackPanel>
+                            <WrapPanel VerticalAlignment="Center">
+                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,12,4">
+                                    <TextBlock Text="当前节点" Style="{StaticResource Caption}"
+                                               VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                    <TextBox x:Name="TreeEditorNodeTitleBox" Style="{StaticResource SubtleInput}"
+                                             Width="152" Height="30" VerticalContentAlignment="Center"
+                                             FontSize="12.5" FontWeight="SemiBold"
+                                             IsEnabled="{Binding GoalTreeEditor.CanEditSelected}"
+                                             Text="{Binding GoalTreeEditor.SelectedNodeTitle, UpdateSourceTrigger=PropertyChanged}"/>
+                                    <TextBlock Text="{Binding GoalTreeEditor.SelectedKindHint}"
+                                               Style="{StaticResource Caption}"
+                                               VerticalAlignment="Center" Margin="6,0,0,0"/>
+                                </StackPanel>
+
+                                <Grid Width="130" Height="30" Margin="0,0,6,4">
+                                    <TextBox x:Name="TreeEditorNewNodeBox" Style="{StaticResource SubtleInput}" Height="30"
+                                             VerticalContentAlignment="Center"
+                                             Text="{Binding GoalTreeEditor.NewNodeTitle, UpdateSourceTrigger=PropertyChanged}"/>
+                                    <TextBlock Text="新子目标名(选填)" IsHitTestVisible="False"
+                                               FontSize="11.5" FontWeight="Medium" Margin="8,0,0,0"
+                                               VerticalAlignment="Center" Foreground="{DynamicResource TextDisabled}"
+                                               Visibility="{Binding Text, ElementName=TreeEditorNewNodeBox, UpdateSourceTrigger=PropertyChanged, Converter={StaticResource EmptyToVisible}}"/>
+                                </Grid>
+
+                                <Button Style="{StaticResource GhostButton}" Content="+ 归属子目标"
+                                        Padding="8,5" Margin="0,0,4,4"
+                                        ToolTip="在当前节点下新增归属关系子目标（实线）"
+                                        Click="TreeEditorAddBelong_Click"/>
+                                <Button Style="{StaticResource GhostButton}" Content="+ 并列子目标"
+                                        Padding="8,5" Margin="0,0,4,4"
+                                        IsEnabled="{Binding GoalTreeEditor.CanAddSibling}"
+                                        ToolTip="与当前子目标共享同一父节点，新增并列子目标"
+                                        Click="TreeEditorAddSibling_Click"/>
+                                <Button Style="{StaticResource GhostButton}" Content="+ 递进子目标"
+                                        Padding="8,5" Margin="0,0,8,4"
+                                        ToolTip="在当前节点后新增递进步骤子目标（虚线箭头）"
+                                        Click="TreeEditorAddProgress_Click"/>
+
+                                <ToggleButton Style="{StaticResource FlagChip}" Content="连线(归属)"
+                                              Padding="8,4" Margin="0,0,4,4"
+                                              IsChecked="{Binding GoalTreeEditor.IsLinkingBelong, Mode=OneWay}"
+                                              ToolTip="点选画布上另一个已有子目标建立归属关系（形成共有子目标）"
+                                              Click="TreeEditorLinkBelong_Click"/>
+                                <ToggleButton Style="{StaticResource FlagChip}" Content="连线(递进)"
+                                              Padding="8,4" Margin="0,0,8,4"
+                                              IsChecked="{Binding GoalTreeEditor.IsLinkingProgress, Mode=OneWay}"
+                                              ToolTip="点选画布上另一个已有子目标建立递进关系（形成共有下游节点）"
+                                              Click="TreeEditorLinkProgress_Click"/>
+
+                                <Button Style="{StaticResource GhostButton}" Content="自动排版"
+                                        Padding="8,5" Margin="0,0,4,4"
+                                        Click="TreeEditorAutoLayout_Click"/>
+                                <Button Style="{StaticResource GhostButton}" Content="删除节点"
+                                        Padding="8,5" Margin="0,0,0,4"
+                                        Foreground="{DynamicResource Danger}"
+                                        IsEnabled="{Binding GoalTreeEditor.CanDeleteSelected}"
+                                        Click="TreeEditorDeleteNode_Click"/>
+                            </WrapPanel>
+
+                            <Grid Margin="0,4,0,0">
+                                <TextBlock x:Name="treeEditorHintText" Text="{Binding GoalTreeEditor.LinkHint}"
+                                           Style="{StaticResource Caption}" VerticalAlignment="Center"/>
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                    <TextBlock Text="{Binding GoalTreeEditor.ZoomLabel}" Style="{StaticResource Caption}"
+                                               VerticalAlignment="Center" Margin="0,0,6,0"
+                                               Typography.NumeralAlignment="Tabular"/>
+                                    <Button Style="{StaticResource GhostButton}" Content="重置视图"
+                                            Padding="7,2" FontSize="11"
+                                            Click="TreeEditorResetView_Click"/>
+                                </StackPanel>
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- 底部 -->
+                    <Border DockPanel.Dock="Bottom" BorderBrush="{DynamicResource BorderSubtle}"
+                            BorderThickness="0,1,0,0" Padding="20,10,16,12">
+                        <Grid>
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <Border Width="18" Height="2" Background="{DynamicResource BorderStrong}" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                <TextBlock Text="归属/并列" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="0,0,14,0"/>
+                                <Border Width="18" Height="2" Background="{DynamicResource Accent}" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                <TextBlock Text="递进(箭头) · 多线汇聚=共有子目标" Style="{StaticResource Caption}" VerticalAlignment="Center"/>
+                            </StackPanel>
+                            <Button Style="{StaticResource PrimaryButton}" Content="完成"
+                                    Padding="16,6" HorizontalAlignment="Right"
+                                    Click="GoalTreeEditorClose_Click"/>
+                        </Grid>
+                    </Border>
+
+                    <!-- 编辑画布视口 -->
+                    <Border x:Name="TreeEditorViewport" Background="{DynamicResource Surface1}"
+                            ClipToBounds="True" Cursor="Arrow"
+                            PreviewMouseWheel="TreeEditorViewport_PreviewMouseWheel">
+                        <Canvas Width="{Binding GoalTreeEditor.Goal.CanvasWidth}"
+                                Height="{Binding GoalTreeEditor.Goal.CanvasHeight}"
+                                HorizontalAlignment="Left" VerticalAlignment="Top">
+                            <Canvas.RenderTransform>
+                                <TransformGroup>
+                                    <ScaleTransform ScaleX="{Binding GoalTreeEditor.Zoom}" ScaleY="{Binding GoalTreeEditor.Zoom}"/>
+                                    <TranslateTransform X="{Binding GoalTreeEditor.PanX}" Y="{Binding GoalTreeEditor.PanY}"/>
+                                </TransformGroup>
+                            </Canvas.RenderTransform>
+
+                            <ItemsControl ItemsSource="{Binding GoalTreeEditor.Goal.Edges}" IsHitTestVisible="False">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <Canvas/>
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate DataType="{x:Type vm:GoalEdgeVM}">
+                                        <Canvas>
+                                            <Path x:Name="edLine" Data="{Binding LineGeometry}"
+                                                  Stroke="{DynamicResource BorderStrong}" StrokeThickness="1.6"/>
+                                            <Path x:Name="edArrow" Data="{Binding ArrowGeometry}"
+                                                  Fill="{DynamicResource Accent}" Visibility="Collapsed"/>
+                                        </Canvas>
+                                        <DataTemplate.Triggers>
+                                            <DataTrigger Binding="{Binding IsProgress}" Value="True">
+                                                <Setter TargetName="edLine" Property="Stroke" Value="{DynamicResource Accent}"/>
+                                                <Setter TargetName="edLine" Property="StrokeDashArray" Value="4 2"/>
+                                                <Setter TargetName="edArrow" Property="Visibility" Value="Visible"/>
+                                            </DataTrigger>
+                                        </DataTemplate.Triggers>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+
+                            <ItemsControl ItemsSource="{Binding GoalTreeEditor.Goal.AllCanvasNodes}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <Canvas/>
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemContainerStyle>
+                                    <Style TargetType="ContentPresenter">
+                                        <Setter Property="Canvas.Left" Value="{Binding X}"/>
+                                        <Setter Property="Canvas.Top" Value="{Binding Y}"/>
+                                    </Style>
+                                </ItemsControl.ItemContainerStyle>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate DataType="{x:Type vm:GoalNodeVM}">
+                                        <Border x:Name="editorNodeBox" Tag="treeeditornode"
+                                                Width="{Binding Width}" Height="{Binding Height}"
+                                                Background="{DynamicResource Surface2}"
+                                                BorderBrush="{DynamicResource BorderStrong}" BorderThickness="1"
+                                                CornerRadius="6" Padding="8,4" Cursor="Hand">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <Border x:Name="editorNodeTint" Grid.ColumnSpan="2"
+                                                        CornerRadius="5" Margin="-8,-4"
+                                                        Background="Transparent" IsHitTestVisible="False"/>
+                                                <Ellipse x:Name="edRootDot" Width="6" Height="6" Fill="{Binding Owner.Color}"
+                                                         VerticalAlignment="Center" Margin="0,0,6,0" Visibility="Collapsed"/>
+                                                <TextBlock Grid.Column="1" Text="{Binding DisplayTitle}"
+                                                           FontSize="12" FontWeight="SemiBold"
+                                                           TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                                                           Foreground="{DynamicResource TextPrimary}"/>
+                                            </Grid>
+                                        </Border>
+                                        <DataTemplate.Triggers>
+                                            <DataTrigger Binding="{Binding IsRoot}" Value="True">
+                                                <Setter TargetName="edRootDot" Property="Visibility" Value="Visible"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding IsSelectedInEditor}" Value="True">
+                                                <Setter TargetName="editorNodeBox" Property="BorderBrush" Value="{DynamicResource Accent}"/>
+                                                <Setter TargetName="editorNodeBox" Property="BorderThickness" Value="1.5"/>
+                                                <Setter TargetName="editorNodeTint" Property="Background" Value="{DynamicResource AccentTint}"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding IsLinkSource}" Value="True">
+                                                <Setter TargetName="editorNodeBox" Property="BorderBrush" Value="{DynamicResource Warning}"/>
+                                                <Setter TargetName="editorNodeTint" Property="Background" Value="{DynamicResource WarningTint}"/>
+                                            </DataTrigger>
+                                        </DataTemplate.Triggers>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </Canvas>
+                    </Border>
+                </DockPanel>
+            </Border>
+        </Grid>
+
+        <!-- ================= 目标树多选浮层（置于编辑浮层之上） ================= -->
+        <Grid x:Name="GoalPickerLayer" Grid.RowSpan="2" Visibility="Collapsed">
+            <Border x:Name="GoalPickerScrim" Background="{DynamicResource Scrim}" Opacity="0"
+                    MouseLeftButtonDown="GoalPickerScrim_Click"/>
+            <Border x:Name="GoalPickerDialog" Width="780" Height="540"
+                    VerticalAlignment="Center" HorizontalAlignment="Center"
+                    Background="{DynamicResource Surface4}"
+                    BorderBrush="{DynamicResource BorderStrong}" BorderThickness="1"
+                    CornerRadius="12" ClipToBounds="True"
+                    Opacity="0" RenderTransformOrigin="0.5,0.5">
+                <Border.RenderTransform>
+                    <TransformGroup>
+                        <ScaleTransform x:Name="GoalPickerScale" ScaleX="0.97" ScaleY="0.97"/>
+                        <TranslateTransform x:Name="GoalPickerShift" Y="10"/>
+                    </TransformGroup>
+                </Border.RenderTransform>
+                <Border.Effect>
+                    <DropShadowEffect Color="Black" BlurRadius="24" ShadowDepth="8" Direction="270" Opacity="0.28"/>
+                </Border.Effect>
+                <DockPanel>
+                    <Border DockPanel.Dock="Top" Padding="20,14,14,10"
+                            BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="0,0,0,1">
+                        <Grid>
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <Ellipse Width="9" Height="9" Fill="{Binding GoalPicker.Goal.Color}"
+                                         VerticalAlignment="Center" Margin="0,1,9,0"/>
+                                <TextBlock Text="{Binding GoalPicker.HeaderTitle}"
+                                           FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                            </StackPanel>
+                            <Button Style="{StaticResource GhostButton}" Content="&#xE711;"
+                                    FontFamily="{StaticResource IconFont}" FontSize="11"
+                                    HorizontalAlignment="Right" ToolTip="取消（Esc）"
+                                    Click="GoalPickerCancel_Click"/>
+                        </Grid>
+                    </Border>
+
+                    <Border DockPanel.Dock="Top" Background="{DynamicResource Surface3}"
+                            BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="0,0,0,1"
+                            Padding="20,8">
+                        <Grid>
+                            <TextBlock Text="{Binding GoalPicker.SummaryText}"
+                                       Style="{StaticResource Caption}" VerticalAlignment="Center"/>
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                <TextBlock Text="{Binding GoalPicker.ZoomLabel}" Style="{StaticResource Caption}"
+                                           VerticalAlignment="Center" Margin="0,0,6,0"
+                                           Typography.NumeralAlignment="Tabular"/>
+                                <Button Style="{StaticResource GhostButton}" Content="重置视图"
+                                        Padding="7,2" FontSize="11"
+                                        Click="GoalPickerResetView_Click"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
+                    <Border DockPanel.Dock="Bottom" BorderBrush="{DynamicResource BorderSubtle}"
+                            BorderThickness="0,1,0,0" Padding="20,10,16,12">
+                        <Grid>
+                            <Button Style="{StaticResource GhostButton}" Content="清空该目标选择"
+                                    HorizontalAlignment="Left" Padding="10,5"
+                                    Foreground="{DynamicResource TextTertiary}"
+                                    Click="GoalPickerClear_Click"/>
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                <Button Style="{StaticResource GhostButton}" Content="取消"
+                                        Padding="14,6" Margin="0,0,8,0"
+                                        Click="GoalPickerCancel_Click"/>
+                                <Button Style="{StaticResource PrimaryButton}" Content="确定"
+                                        Padding="16,6"
+                                        Click="GoalPickerConfirm_Click"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
+                    <Border x:Name="GoalPickerViewport" Background="{DynamicResource Surface1}"
+                            ClipToBounds="True" Cursor="Arrow"
+                            PreviewMouseWheel="GoalPickerViewport_PreviewMouseWheel">
+                        <Canvas Width="{Binding GoalPicker.Goal.CanvasWidth}"
+                                Height="{Binding GoalPicker.Goal.CanvasHeight}"
+                                HorizontalAlignment="Left" VerticalAlignment="Top">
+                            <Canvas.RenderTransform>
+                                <TransformGroup>
+                                    <ScaleTransform ScaleX="{Binding GoalPicker.Zoom}" ScaleY="{Binding GoalPicker.Zoom}"/>
+                                    <TranslateTransform X="{Binding GoalPicker.PanX}" Y="{Binding GoalPicker.PanY}"/>
+                                </TransformGroup>
+                            </Canvas.RenderTransform>
+
+                            <ItemsControl ItemsSource="{Binding GoalPicker.Goal.Edges}" IsHitTestVisible="False">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <Canvas/>
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate DataType="{x:Type vm:GoalEdgeVM}">
+                                        <Canvas>
+                                            <Path x:Name="pkLine" Data="{Binding LineGeometry}"
+                                                  Stroke="{DynamicResource BorderStrong}" StrokeThickness="1.5"/>
+                                            <Path x:Name="pkArrow" Data="{Binding ArrowGeometry}"
+                                                  Fill="{DynamicResource Accent}" Visibility="Collapsed"/>
+                                        </Canvas>
+                                        <DataTemplate.Triggers>
+                                            <DataTrigger Binding="{Binding IsProgress}" Value="True">
+                                                <Setter TargetName="pkLine" Property="Stroke" Value="{DynamicResource Accent}"/>
+                                                <Setter TargetName="pkLine" Property="StrokeDashArray" Value="4 2"/>
+                                                <Setter TargetName="pkArrow" Property="Visibility" Value="Visible"/>
+                                            </DataTrigger>
+                                        </DataTemplate.Triggers>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+
+                            <ItemsControl ItemsSource="{Binding GoalPicker.Goal.AllCanvasNodes}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <Canvas/>
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemContainerStyle>
+                                    <Style TargetType="ContentPresenter">
+                                        <Setter Property="Canvas.Left" Value="{Binding X}"/>
+                                        <Setter Property="Canvas.Top" Value="{Binding Y}"/>
+                                    </Style>
+                                </ItemsControl.ItemContainerStyle>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate DataType="{x:Type vm:GoalNodeVM}">
+                                        <Border x:Name="pickerNodeBox" Tag="goalpickernode"
+                                                Width="{Binding Width}" Height="{Binding Height}"
+                                                Background="{DynamicResource Surface2}"
+                                                BorderBrush="{DynamicResource BorderStrong}" BorderThickness="1"
+                                                CornerRadius="6" Padding="8,4" Cursor="Hand">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                </Grid.ColumnDefinitions>
+                                                <Border x:Name="pickerNodeTint" Grid.ColumnSpan="3"
+                                                        CornerRadius="5" Margin="-8,-4"
+                                                        Background="Transparent" IsHitTestVisible="False"/>
+                                                <Ellipse x:Name="pkRootDot" Width="6" Height="6" Fill="{Binding Owner.Color}"
+                                                         VerticalAlignment="Center" Margin="0,0,6,0" Visibility="Collapsed"/>
+                                                <TextBlock Grid.Column="1" Text="{Binding DisplayTitle}"
+                                                           FontSize="12" FontWeight="SemiBold"
+                                                           TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                                                           Foreground="{DynamicResource TextPrimary}"/>
+                                                <TextBlock x:Name="pkTick" Grid.Column="2" Text="&#xE73E;"
+                                                           FontFamily="{StaticResource IconFont}" FontSize="10.5"
+                                                           Foreground="{DynamicResource Accent}"
+                                                           VerticalAlignment="Center" Margin="4,0,0,0" Visibility="Collapsed"/>
+                                            </Grid>
+                                        </Border>
+                                        <DataTemplate.Triggers>
+                                            <DataTrigger Binding="{Binding IsRoot}" Value="True">
+                                                <Setter TargetName="pkRootDot" Property="Visibility" Value="Visible"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding IsPicked}" Value="True">
+                                                <Setter TargetName="pickerNodeBox" Property="BorderBrush" Value="{DynamicResource Accent}"/>
+                                                <Setter TargetName="pickerNodeBox" Property="BorderThickness" Value="1.5"/>
+                                                <Setter TargetName="pickerNodeTint" Property="Background" Value="{DynamicResource AccentTint}"/>
+                                                <Setter TargetName="pkTick" Property="Visibility" Value="Visible"/>
+                                            </DataTrigger>
+                                        </DataTemplate.Triggers>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </Canvas>
+                    </Border>
                 </DockPanel>
             </Border>
         </Grid>

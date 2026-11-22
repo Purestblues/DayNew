@@ -412,8 +412,8 @@ public sealed class NotificationService : IDisposable
     private static string BuildBody(TaskVM task, string primary)
     {
         var parts = new List<string>(2) { primary };
-        if (task.Goal is { } goal && !string.IsNullOrWhiteSpace(goal.Title))
-            parts.Add(goal.Title);
+        if (task.HasGoal)
+            parts.Add(task.GoalLabel);
         else if (!string.IsNullOrWhiteSpace(task.Note))
             parts.Add(task.Note.Replace('\r', ' ').Replace('\n', ' ').Trim());
         return string.Join(" · ", parts);

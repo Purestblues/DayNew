@@ -193,7 +193,24 @@ public sealed class StoreFile
         {
             Id = g.Id,
             Title = g.Title,
-            Color = BrushToHex(g.Color)
+            Color = BrushToHex(g.Color),
+            IsCompleted = g.IsCompleted,
+            RootX = g.RootNode.X,
+            RootY = g.RootNode.Y,
+            Nodes = g.Nodes.Select(n => new GoalNodeDto
+            {
+                Id = n.Id,
+                Title = n.Title,
+                IsCompleted = n.IsCompleted,
+                X = n.X,
+                Y = n.Y
+            }).ToList(),
+            Edges = g.Edges.Select(e => new GoalEdgeDto
+            {
+                FromId = e.FromId,
+                ToId = e.ToId,
+                Kind = e.Kind == GoalEdgeKind.Progress ? "progress" : "belong"
+            }).ToList()
         }).ToList(),
 
         Tags = store.Tags.Select(t => new TagDto
@@ -217,6 +234,11 @@ public sealed class StoreFile
             Urgent = s.IsUrgent,
             Important = s.IsImportant,
             GoalId = s.Goal?.Id,
+            GoalRefs = s.GoalBindings.Select(b => new GoalRefDto
+            {
+                GoalId = b.Goal.Id,
+                NodeId = b.Node?.Id
+            }).ToList(),
             TagIds = s.Tags.Select(t => t.Id).ToList(),
             Order = s.Order
         }).ToList(),
@@ -231,6 +253,11 @@ public sealed class StoreFile
             Urgent = p.IsUrgent,
             Important = p.IsImportant,
             GoalId = p.Goal?.Id,
+            GoalRefs = p.GoalBindings.Select(b => new GoalRefDto
+            {
+                GoalId = b.Goal.Id,
+                NodeId = b.Node?.Id
+            }).ToList(),
             TagIds = p.Tags.Select(t => t.Id).ToList()
         }).ToList()
     };
@@ -245,12 +272,62 @@ public sealed class StoreFile
 
         foreach (var g in dto.Goals)
         {
-            store.Goals.Add(new GoalVM
+            var goal = new GoalVM
             {
                 Id = string.IsNullOrEmpty(g.Id) ? "" : g.Id,
                 Title = g.Title,
                 Color = DayStore.BrushFromHex(g.Color)
-            });
+            };
+
+            if (g.Nodes is { Count: > 0 })
+            {
+                foreach (var n in g.Nodes)
+                {
+                    var nodeId = string.IsNullOrWhiteSpace(n.Id) ? Guid.NewGuid().ToString("N")[..10] : n.Id;
+                    if (nodeId == GoalNodeVM.RootId) continue;
+
+                    var node = new GoalNodeVM(goal, nodeId, n.Title)
+                    {
+                        X = n.X,
+                        Y = n.Y
+                    };
+                    node.SetCompletedRaw(n.IsCompleted);
+                    goal.Nodes.Add(node);
+                    goal.AllCanvasNodes.Add(node);
+                }
+
+                if (g.Edges is not null)
+                {
+                    foreach (var e in g.Edges)
+                    {
+                        var kind = string.Equals(e.Kind, "progress", StringComparison.OrdinalIgnoreCase)
+                            ? GoalEdgeKind.Progress
+                            : GoalEdgeKind.Belong;
+                        goal.Edges.Add(new GoalEdgeVM(e.FromId, e.ToId, kind));
+                    }
+                }
+
+                var hasCoords = g.RootX.HasValue || g.Nodes.Any(n => Math.Abs(n.X) > 0.1 || Math.Abs(n.Y) > 0.1);
+                if (hasCoords)
+                {
+                    goal.RootNode.X = g.RootX ?? 20;
+                    goal.RootNode.Y = g.RootY ?? 18;
+                    goal.UpdateLayoutBoundsAndEdges();
+                }
+                else
+                {
+                    goal.AutoLayout();
+                }
+            }
+            else
+            {
+                goal.AutoLayout();
+            }
+
+            if (g.IsCompleted)
+                goal.SetGoalCompleted(true);
+
+            store.Goals.Add(goal);
         }
 
         var tagIndex = 0;
@@ -298,8 +375,7 @@ public sealed class StoreFile
                 Order = d.Order
             };
 
-            if (!string.IsNullOrEmpty(d.GoalId) && goalById.TryGetValue(d.GoalId, out var goal))
-                schedule.Goal = goal;
+            schedule.SetGoalBindings(ResolveGoalBindings(d.GoalRefs, d.GoalId, goalById));
 
             foreach (var tagId in d.TagIds)
                 if (tagById.TryGetValue(tagId, out var tag) && !schedule.Tags.Contains(tag))
@@ -323,8 +399,7 @@ public sealed class StoreFile
                 IsImportant = p.Important
             };
 
-            if (!string.IsNullOrEmpty(p.GoalId) && goalById.TryGetValue(p.GoalId, out var goal))
-                preset.Goal = goal;
+            preset.SetGoalBindings(ResolveGoalBindings(p.GoalRefs, p.GoalId, goalById));
 
             foreach (var tagId in p.TagIds)
                 if (tagById.TryGetValue(tagId, out var tag) && !preset.Tags.Contains(tag))
@@ -332,6 +407,36 @@ public sealed class StoreFile
 
             store.Presets.Add(preset);
         }
+    }
+
+    private static List<GoalBindingVM> ResolveGoalBindings(
+        List<GoalRefDto>? refs,
+        string? legacyGoalId,
+        Dictionary<string, GoalVM> goalById)
+    {
+        var list = new List<GoalBindingVM>();
+
+        if (refs is { Count: > 0 })
+        {
+            foreach (var r in refs)
+            {
+                if (string.IsNullOrEmpty(r.GoalId) || !goalById.TryGetValue(r.GoalId, out var goal))
+                    continue;
+
+                GoalNodeVM? node = null;
+                if (!string.IsNullOrEmpty(r.NodeId) && r.NodeId != GoalNodeVM.RootId)
+                    node = goal.Nodes.FirstOrDefault(n => n.Id == r.NodeId);
+
+                list.Add(new GoalBindingVM(goal, node));
+            }
+
+            return list;
+        }
+
+        if (!string.IsNullOrEmpty(legacyGoalId) && goalById.TryGetValue(legacyGoalId, out var legacyGoal))
+            list.Add(new GoalBindingVM(legacyGoal, null));
+
+        return list;
     }
 
     private static DateTime? ParseDate(string? text)

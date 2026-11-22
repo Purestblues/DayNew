@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.ComponentModel;
+using System.Windows.Media;
 using DayNew.Core;
 
 namespace DayNew.ViewModels;
@@ -23,15 +24,16 @@ public sealed class TaskVM : ObservableObject
     private DateTime? _due;
     private string _remind = "";
     private string _repeat = "";
-    private GoalVM? _goal;
     private bool _isUrgent;
     private bool _isImportant;
     private TimeSpan? _startTime;
     private TimeSpan? _endTime;
+    private bool _suppressBindingEvents;
 
     public TaskVM()
     {
         Tags.CollectionChanged += OnTagsChanged;
+        GoalBindings.CollectionChanged += OnGoalBindingsChanged;
     }
 
     public string Title
@@ -83,24 +85,206 @@ public sealed class TaskVM : ObservableObject
         set { if (Set(ref _repeat, value)) { RaiseMeta(); OnPropertyChanged(nameof(RepeatLabel)); } }
     }
 
-    /// <summary>所属远景目标，最多一个；空 = 不挂目标。</summary>
+    /// <summary>支持跨总目标、多子目标绑定。</summary>
+    public ObservableCollection<GoalBindingVM> GoalBindings { get; } = new();
+
+    /// <summary>兼容旧单目标访问：读写第一条关联的总目标。</summary>
     public GoalVM? Goal
     {
-        get => _goal;
+        get => GoalBindings.FirstOrDefault()?.Goal;
         set
         {
-            if (Set(ref _goal, value))
+            if (value is null)
             {
-                OnPropertyChanged(nameof(GoalLabel));
-                OnPropertyChanged(nameof(HasGoal));
-                RaiseMeta();
+                if (GoalBindings.Count == 0) return;
+                SetGoalBindings(Array.Empty<GoalBindingVM>());
+                return;
             }
+
+            if (GoalBindings.Count == 1 && ReferenceEquals(GoalBindings[0].Goal, value) && GoalBindings[0].Node is null)
+                return;
+
+            SetGoalBindings(new[] { new GoalBindingVM(value, null) });
         }
     }
 
-    public bool HasGoal => Goal is not null;
+    public bool HasGoal => GoalBindings.Count > 0;
 
-    public string GoalLabel => Goal is null ? "无目标" : Goal.Title;
+    public Brush PrimaryGoalColor => GoalBindings.FirstOrDefault()?.Goal.Color ?? Brushes.Transparent;
+
+    public IReadOnlyList<GoalVM> DistinctGoals => GoalBindings.Select(b => b.Goal).Distinct().ToList();
+
+    public string GoalLabel
+    {
+        get
+        {
+            if (GoalBindings.Count == 0) return "无目标";
+            return string.Join(" · ", FullGoalChips.Select(c => c.FullText));
+        }
+    }
+
+    public IReadOnlyList<GoalChipVM> CompactGoalChips => BuildGoalChips(GoalBindings, compact: true);
+
+    public IReadOnlyList<GoalChipVM> FullGoalChips => BuildGoalChips(GoalBindings, compact: false);
+
+    public void SetGoalBindings(IEnumerable<GoalBindingVM> bindings)
+    {
+        _suppressBindingEvents = true;
+        try
+        {
+            GoalBindings.Clear();
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var b in bindings)
+            {
+                if (seen.Add(b.TargetKey))
+                    GoalBindings.Add(b);
+            }
+        }
+        finally
+        {
+            _suppressBindingEvents = false;
+        }
+
+        NotifyGoalDisplayChanged();
+    }
+
+    public bool HasGoalRef(GoalVM goal) => GoalBindings.Any(b => ReferenceEquals(b.Goal, goal));
+
+    public bool HasGoalSubtreeRef(GoalVM goal, HashSet<string> subtreeIds)
+    {
+        foreach (var b in GoalBindings)
+        {
+            if (!ReferenceEquals(b.Goal, goal)) continue;
+            var id = b.Node?.Id ?? GoalNodeVM.RootId;
+            if (subtreeIds.Contains(id)) return true;
+        }
+
+        return false;
+    }
+
+    public void NotifyGoalDisplayChanged()
+    {
+        OnPropertyChanged(nameof(Goal));
+        OnPropertyChanged(nameof(HasGoal));
+        OnPropertyChanged(nameof(PrimaryGoalColor));
+        OnPropertyChanged(nameof(DistinctGoals));
+        OnPropertyChanged(nameof(GoalLabel));
+        OnPropertyChanged(nameof(CompactGoalChips));
+        OnPropertyChanged(nameof(FullGoalChips));
+        RaiseMeta();
+    }
+
+    /// <summary>
+    /// 按两层（总目标 + 直属子目标）构造显示胶囊：
+    /// 空间受限（compact=true）时：直属子目标最多 2 个；整体目标块 >= 3 个时最多 3 个且超 6 字头尾保留中间省略；
+    /// 空间充足（compact=false）时：全部完整展示。
+    /// </summary>
+    public static IReadOnlyList<GoalChipVM> BuildGoalChips(IEnumerable<GoalBindingVM> rawBindings, bool compact)
+    {
+        var bindings = rawBindings.ToList();
+        if (bindings.Count == 0) return Array.Empty<GoalChipVM>();
+
+        var distinctRoots = new List<GoalVM>();
+        var seenRoots = new HashSet<GoalVM>();
+        var distinctDirects = new List<GoalBindingVM>();
+        var seenDirectNodes = new HashSet<GoalNodeVM>();
+
+        foreach (var b in bindings)
+        {
+            if (seenRoots.Add(b.Goal)) distinctRoots.Add(b.Goal);
+            if (b.Node is not null && seenDirectNodes.Add(b.Node)) distinctDirects.Add(b);
+        }
+
+        if (!compact)
+        {
+            var full = new List<GoalChipVM>(distinctRoots.Count + distinctDirects.Count);
+            foreach (var root in distinctRoots)
+            {
+                full.Add(new GoalChipVM
+                {
+                    Color = root.Color,
+                    FullText = root.Title,
+                    DisplayText = root.Title,
+                    IsRoot = true,
+                    ToolTipText = $"总目标：{root.Title}"
+                });
+
+                foreach (var d in distinctDirects)
+                {
+                    if (!ReferenceEquals(d.Goal, root)) continue;
+                    full.Add(new GoalChipVM
+                    {
+                        Color = root.Color,
+                        FullText = d.Node!.DisplayTitle,
+                        DisplayText = d.Node!.DisplayTitle,
+                        IsRoot = false,
+                        ToolTipText = $"{root.Title} › {d.Node.DisplayTitle}"
+                    });
+                }
+            }
+            return full;
+        }
+
+        var totalUncapped = distinctRoots.Count + distinctDirects.Count;
+        var pickedDirects = distinctDirects.Count > 1
+            ? distinctDirects.Take(2).ToList()
+            : distinctDirects;
+
+        var maxRoots = Math.Max(0, 3 - pickedDirects.Count);
+        var orderedRoots = pickedDirects
+            .Select(d => d.Goal)
+            .Concat(distinctRoots)
+            .Distinct()
+            .Take(maxRoots)
+            .ToList();
+
+        var isCrowded = totalUncapped >= 3 || (orderedRoots.Count + pickedDirects.Count) >= 3;
+        string Format(string title) => isCrowded ? GoalChipVM.TruncateMiddle(title, 6) : title;
+
+        var result = new List<GoalChipVM>(3);
+        var emittedDirects = new HashSet<GoalNodeVM>();
+
+        foreach (var root in orderedRoots)
+        {
+            result.Add(new GoalChipVM
+            {
+                Color = root.Color,
+                FullText = root.Title,
+                DisplayText = Format(root.Title),
+                IsRoot = true,
+                ToolTipText = $"总目标：{root.Title}"
+            });
+
+            foreach (var d in pickedDirects)
+            {
+                if (!ReferenceEquals(d.Goal, root)) continue;
+                emittedDirects.Add(d.Node!);
+                result.Add(new GoalChipVM
+                {
+                    Color = root.Color,
+                    FullText = d.Node!.DisplayTitle,
+                    DisplayText = Format(d.Node!.DisplayTitle),
+                    IsRoot = false,
+                    ToolTipText = $"{root.Title} › {d.Node.DisplayTitle}"
+                });
+            }
+        }
+
+        foreach (var d in pickedDirects)
+        {
+            if (emittedDirects.Contains(d.Node!)) continue;
+            result.Add(new GoalChipVM
+            {
+                Color = d.Goal.Color,
+                FullText = d.Node!.DisplayTitle,
+                DisplayText = Format(d.Node!.DisplayTitle),
+                IsRoot = false,
+                ToolTipText = $"{d.Goal.Title} › {d.Node.DisplayTitle}"
+            });
+        }
+
+        return result;
+    }
 
     /// <summary>可选。填了就能落到视图页的时间轴上；只用时刻，日期由 Due 决定。</summary>
     public TimeSpan? StartTime
@@ -220,6 +404,12 @@ public sealed class TaskVM : ObservableObject
         RaiseMeta();
     }
 
+    private void OnGoalBindingsChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        if (_suppressBindingEvents) return;
+        NotifyGoalDisplayChanged();
+    }
+
     /// <summary>标签改名不需要遍历任务：日程里存的是引用，监听到就够了。</summary>
     private void OnTagPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
@@ -247,7 +437,10 @@ public sealed class TaskVM : ObservableObject
     }
 
     /// <summary>外部改了会影响卡片文字的东西（比如目标改名）时手动刷一下。</summary>
-    public void NotifyMetaChanged() => RaiseMeta();
+    public void NotifyMetaChanged()
+    {
+        NotifyGoalDisplayChanged();
+    }
 
     public override string ToString() => string.IsNullOrWhiteSpace(Title) ? "未命名" : Title;
 }

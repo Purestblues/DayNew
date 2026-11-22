@@ -4,8 +4,8 @@ using System.Windows.Controls;
 namespace DayNew.Core;
 
 /// <summary>
-/// 自适应等宽网格面板：按可用宽度与最小列宽计算列数，
-/// 并将剩余空间均分到每一列，消除右侧多余留白。
+/// 自适应 Bento 网格面板：按可用宽度与最小列宽计算总列数，
+/// 支持子项通过 ColumnSpan 跨越多列并按列水位线错落排布（单列等高时退化为常规等距网格）。
 /// </summary>
 public sealed class ResponsiveGridPanel : Panel
 {
@@ -29,6 +29,17 @@ public sealed class ResponsiveGridPanel : Panel
             typeof(double),
             typeof(ResponsiveGridPanel),
             new FrameworkPropertyMetadata(10.0, FrameworkPropertyMetadataOptions.AffectsMeasure));
+
+    public static readonly DependencyProperty ColumnSpanProperty =
+        DependencyProperty.RegisterAttached(
+            "ColumnSpan",
+            typeof(int),
+            typeof(ResponsiveGridPanel),
+            new FrameworkPropertyMetadata(1, FrameworkPropertyMetadataOptions.AffectsParentMeasure));
+
+    public static int GetColumnSpan(DependencyObject obj) => (int)obj.GetValue(ColumnSpanProperty);
+
+    public static void SetColumnSpan(DependencyObject obj, int value) => obj.SetValue(ColumnSpanProperty, value);
 
     public double MinColumnWidth
     {
@@ -72,40 +83,28 @@ public sealed class ResponsiveGridPanel : Panel
         var colGap = Math.Max(0.0, ColumnGap);
         var rowGap = Math.Max(0.0, RowGap);
         var (cols, itemWidth) = ComputeLayout(availableSize.Width);
-        var childConstraint = new Size(itemWidth, double.PositiveInfinity);
-
-        var col = 0;
-        var rowHeight = 0.0;
-        var totalHeight = 0.0;
-        var rowCount = 0;
+        var colHeights = new double[cols];
+        var anyPlaced = false;
 
         foreach (UIElement child in InternalChildren)
         {
             if (child.Visibility == Visibility.Collapsed) continue;
 
-            child.Measure(childConstraint);
-            rowHeight = Math.Max(rowHeight, child.DesiredSize.Height);
-            col++;
+            var span = Math.Clamp(GetColumnSpan(child), 1, cols);
+            var slotWidth = span * itemWidth + Math.Max(0, span - 1) * colGap;
+            child.Measure(new Size(slotWidth, double.PositiveInfinity));
 
-            if (col == cols)
-            {
-                if (rowCount > 0) totalHeight += rowGap;
-                totalHeight += rowHeight;
-                rowCount++;
-                col = 0;
-                rowHeight = 0.0;
-            }
+            var (bestCol, bestY) = FindBestSlot(colHeights, span);
+            var nextY = bestY + child.DesiredSize.Height + rowGap;
+            for (var k = 0; k < span; k++)
+                colHeights[bestCol + k] = nextY;
+
+            anyPlaced = true;
         }
 
-        if (col > 0)
-        {
-            if (rowCount > 0) totalHeight += rowGap;
-            totalHeight += rowHeight;
-        }
-
-        var usedCols = double.IsInfinity(availableSize.Width) ? Math.Min(cols, visibleCount) : cols;
+        var totalHeight = anyPlaced ? Math.Max(0.0, colHeights.Max() - rowGap) : 0.0;
         var totalWidth = double.IsInfinity(availableSize.Width)
-            ? usedCols * itemWidth + Math.Max(0, usedCols - 1) * colGap
+            ? cols * itemWidth + Math.Max(0, cols - 1) * colGap
             : availableSize.Width;
 
         return new Size(totalWidth, totalHeight);
@@ -116,38 +115,47 @@ public sealed class ResponsiveGridPanel : Panel
         var colGap = Math.Max(0.0, ColumnGap);
         var rowGap = Math.Max(0.0, RowGap);
         var (cols, itemWidth) = ComputeLayout(finalSize.Width);
-
-        var rowChildren = new List<UIElement>(cols);
-        var y = 0.0;
-
-        void FlushRow()
-        {
-            if (rowChildren.Count == 0) return;
-
-            var rowHeight = 0.0;
-            foreach (var item in rowChildren)
-                rowHeight = Math.Max(rowHeight, item.DesiredSize.Height);
-
-            for (var i = 0; i < rowChildren.Count; i++)
-            {
-                var item = rowChildren[i];
-                var x = i * (itemWidth + colGap);
-                item.Arrange(new Rect(x, y, itemWidth, item.DesiredSize.Height));
-            }
-
-            y += rowHeight + rowGap;
-            rowChildren.Clear();
-        }
+        var colHeights = new double[cols];
 
         foreach (UIElement child in InternalChildren)
         {
             if (child.Visibility == Visibility.Collapsed) continue;
 
-            rowChildren.Add(child);
-            if (rowChildren.Count == cols) FlushRow();
+            var span = Math.Clamp(GetColumnSpan(child), 1, cols);
+            var slotWidth = span * itemWidth + Math.Max(0, span - 1) * colGap;
+            var (bestCol, bestY) = FindBestSlot(colHeights, span);
+
+            var x = bestCol * (itemWidth + colGap);
+            var h = child.DesiredSize.Height;
+            child.Arrange(new Rect(x, bestY, slotWidth, h));
+
+            var nextY = bestY + h + rowGap;
+            for (var k = 0; k < span; k++)
+                colHeights[bestCol + k] = nextY;
         }
 
-        FlushRow();
         return finalSize;
+    }
+
+    private static (int BestCol, double BestY) FindBestSlot(double[] colHeights, int span)
+    {
+        var bestCol = 0;
+        var bestY = double.PositiveInfinity;
+        var limit = Math.Max(0, colHeights.Length - span);
+
+        for (var c = 0; c <= limit; c++)
+        {
+            var maxH = 0.0;
+            for (var k = 0; k < span; k++)
+                maxH = Math.Max(maxH, colHeights[c + k]);
+
+            if (maxH < bestY - 0.5)
+            {
+                bestY = maxH;
+                bestCol = c;
+            }
+        }
+
+        return (bestCol, double.IsInfinity(bestY) ? 0.0 : bestY);
     }
 }

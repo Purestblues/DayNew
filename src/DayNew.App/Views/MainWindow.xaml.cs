@@ -111,6 +111,27 @@ public partial class MainWindow : Window
     private int _resizeCurrentStartMin, _resizeCurrentEndMin;
     private Border? _resizePill;
 
+    // 目标导图画布交互（卡片内画布 / 结构编辑弹窗 / 目标树多选弹窗共用一套平移状态）
+    private enum GoalCanvasTarget { None, Card, TreeEditor, Picker }
+    private GoalCanvasTarget _goalPanTarget;
+    private GoalVM? _goalPanCard;
+    private bool _goalPanRightButton;
+    private Point _goalPanStartPoint;
+    private double _goalPanStartX, _goalPanStartY;
+
+    // 目标卡片节点悬停信息防闪烁延时隐藏
+    private readonly DispatcherTimer _goalHoverHideTimer = new() { Interval = TimeSpan.FromMilliseconds(140) };
+    private GoalVM? _hoveredGoalCard;
+    private bool _hoveringGoalPopover;
+
+    // 目标树结构编辑器节点拖动 / 点击选择
+    private GoalNodeVM? _pressedEditorNode;
+    private bool _draggingEditorNode;
+    private double _editorNodeStartX, _editorNodeStartY;
+
+    // 目标树多选弹窗节点点击
+    private GoalNodeVM? _pressedPickerNode;
+
     public MainWindow()
     {
         InitializeComponent();
@@ -149,7 +170,8 @@ public partial class MainWindow : Window
         Deactivated += (_, _) => CancelActiveInteractions();
         LostMouseCapture += (_, _) =>
         {
-            if (_dragging || _draggingBlock || _draggingPreset || _panning || _resizingBlock) CancelActiveInteractions();
+            if (_dragging || _draggingBlock || _draggingPreset || _panning || _resizingBlock || _goalPanTarget != GoalCanvasTarget.None || _draggingEditorNode)
+                CancelActiveInteractions();
         };
         StateChanged += (_, _) => OnWindowStateChanged();
         Closing += OnWindowClosing;
@@ -172,6 +194,15 @@ public partial class MainWindow : Window
         _vm.SummaryChanged += _tray.UpdateTooltip;
         _toastTimer.Tick += (_, _) => HideToast();
         _expandTimer.Tick += (_, _) => CommitPendingExpand();
+        _goalHoverHideTimer.Tick += (_, _) =>
+        {
+            _goalHoverHideTimer.Stop();
+            if (!_hoveringGoalPopover)
+            {
+                _hoveredGoalCard?.ClearHoverNode();
+                _hoveredGoalCard = null;
+            }
+        };
         _nowLineTimer.Tick += (_, _) => _vm.RefreshCurrentTime();
         _nowLineTimer.Start();
 
@@ -200,6 +231,12 @@ public partial class MainWindow : Window
         else if (e.PropertyName == nameof(MainViewModel.IsTagDetailOpen))
             AnimateModalVisibility(TagDetailLayer, TagDetailScrim, TagDetailDialog, TagDetailScale, TagDetailShift,
                 _vm.IsTagDetailOpen, () => _vm.IsTagDetailOpen);
+        else if (e.PropertyName == nameof(MainViewModel.IsGoalTreeEditorOpen))
+            AnimateModalVisibility(GoalTreeEditorLayer, GoalTreeEditorScrim, GoalTreeEditorDialog, GoalTreeEditorScale, GoalTreeEditorShift,
+                _vm.IsGoalTreeEditorOpen, () => _vm.IsGoalTreeEditorOpen);
+        else if (e.PropertyName == nameof(MainViewModel.IsGoalPickerOpen))
+            AnimateModalVisibility(GoalPickerLayer, GoalPickerScrim, GoalPickerDialog, GoalPickerScale, GoalPickerShift,
+                _vm.IsGoalPickerOpen, () => _vm.IsGoalPickerOpen);
     }
 
     // ==================== 标题栏 ====================
@@ -267,7 +304,7 @@ public partial class MainWindow : Window
 
     private bool HandleHorizontalWheel(int delta)
     {
-        if (_vm.IsEditorOpen || _vm.IsSettingsOpen || _vm.IsPresetManagerOpen) return false;
+        if (_vm.IsGoalPickerOpen || _vm.IsGoalTreeEditorOpen || _vm.IsEditorOpen || _vm.IsSettingsOpen || _vm.IsPresetManagerOpen) return false;
 
         var pos = Mouse.GetPosition(this);
         ScrollViewer? target = null;
@@ -420,6 +457,8 @@ public partial class MainWindow : Window
     private void HideToTray()
     {
         CancelActiveInteractions();
+        _vm.CloseGoalPicker();
+        _vm.CloseGoalTreeEditor();
         _vm.CloseSettings();
         _vm.ClosePresetManager();
         _vm.CloseTagDetail();
@@ -592,6 +631,157 @@ public partial class MainWindow : Window
     private void DeleteGoal_Click(object sender, RoutedEventArgs e)
     {
         if (sender is FrameworkElement { Tag: GoalVM goal }) _vm.DeleteGoal(goal);
+    }
+
+    private void OpenGoalDetail_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: GoalVM goal }) OpenGoalDetailModal(goal);
+    }
+
+    private void OpenGoalTreeEditor_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: GoalVM goal }) _vm.OpenGoalTreeEditor(goal);
+    }
+
+    private void ResetGoalCanvas_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: GoalVM goal }) goal.ResetViewport();
+    }
+
+    private void ToggleGoalComplete_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: GoalVM goal }) _vm.ToggleGoalCompleted(goal);
+    }
+
+    private void GoalCardCanvas_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        if (sender is not FrameworkElement viewport || viewport.DataContext is not GoalVM goal) return;
+        e.Handled = true;
+        goal.ClearHoverNode();
+        var factor = Math.Pow(1.14, e.Delta / 120.0);
+        goal.ZoomAt(factor, e.GetPosition(viewport));
+    }
+
+    private void GoalCardNode_MouseEnter(object sender, MouseEventArgs e)
+    {
+        if (_goalPanTarget != GoalCanvasTarget.None || _dragging) return;
+        if (sender is not FrameworkElement { DataContext: GoalNodeVM node } el) return;
+        if (FindAncestorTag(el, "goalcanvas") is not FrameworkElement viewport) return;
+
+        _goalHoverHideTimer.Stop();
+        _hoveringGoalPopover = false;
+
+        if (_hoveredGoalCard is not null && !ReferenceEquals(_hoveredGoalCard, node.Owner))
+            _hoveredGoalCard.ClearHoverNode();
+
+        _hoveredGoalCard = node.Owner;
+        node.Owner.SetHoverNode(node, viewport.ActualWidth, viewport.ActualHeight);
+    }
+
+    private void GoalCardNode_MouseLeave(object sender, MouseEventArgs e) => _goalHoverHideTimer.Start();
+
+    private void GoalCardHoverPopover_MouseEnter(object sender, MouseEventArgs e)
+    {
+        _hoveringGoalPopover = true;
+        _goalHoverHideTimer.Stop();
+    }
+
+    private void GoalCardHoverPopover_MouseLeave(object sender, MouseEventArgs e)
+    {
+        _hoveringGoalPopover = false;
+        _goalHoverHideTimer.Start();
+    }
+
+    private void GoalCardCanvas_MouseLeave(object sender, MouseEventArgs e)
+    {
+        if (!_hoveringGoalPopover) _goalHoverHideTimer.Start();
+    }
+
+    private void GoalCardNodeToggleComplete_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: GoalNodeVM node })
+            _vm.ToggleGoalNodeCompleted(node.Owner, node);
+    }
+
+    private void GoalCardNodeDetail_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: GoalNodeVM node }) return;
+        node.Owner.ClearHoverNode();
+        OpenDetailModal(() => _vm.OpenGoalNodeDetail(node.Owner, node));
+    }
+
+    // ==================== 目标树结构编辑弹窗 ====================
+
+    private void GoalTreeEditorClose_Click(object sender, RoutedEventArgs e) => _vm.CloseGoalTreeEditor();
+
+    private void GoalTreeEditorScrim_Click(object sender, MouseButtonEventArgs e) => _vm.CloseGoalTreeEditor();
+
+    private void TreeEditorAddBelong_Click(object sender, RoutedEventArgs e)
+    {
+        if (_vm.GoalTreeEditor.AddChild(GoalEdgeKind.Belong, out var focus) is not null && focus)
+            FocusTreeEditorNodeTitle();
+    }
+
+    private void TreeEditorAddSibling_Click(object sender, RoutedEventArgs e)
+    {
+        if (_vm.GoalTreeEditor.AddSibling(out var focus) is not null && focus)
+            FocusTreeEditorNodeTitle();
+    }
+
+    private void TreeEditorAddProgress_Click(object sender, RoutedEventArgs e)
+    {
+        if (_vm.GoalTreeEditor.AddChild(GoalEdgeKind.Progress, out var focus) is not null && focus)
+            FocusTreeEditorNodeTitle();
+    }
+
+    private void TreeEditorLinkBelong_Click(object sender, RoutedEventArgs e)
+        => _vm.GoalTreeEditor.ToggleLinkMode(GoalEdgeKind.Belong);
+
+    private void TreeEditorLinkProgress_Click(object sender, RoutedEventArgs e)
+        => _vm.GoalTreeEditor.ToggleLinkMode(GoalEdgeKind.Progress);
+
+    private void TreeEditorAutoLayout_Click(object sender, RoutedEventArgs e)
+        => _vm.GoalTreeEditor.AutoLayout();
+
+    private void TreeEditorDeleteNode_Click(object sender, RoutedEventArgs e)
+        => _vm.GoalTreeEditor.DeleteSelected();
+
+    private void TreeEditorResetView_Click(object sender, RoutedEventArgs e)
+        => _vm.GoalTreeEditor.ResetViewport();
+
+    private void TreeEditorViewport_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        e.Handled = true;
+        var factor = Math.Pow(1.14, e.Delta / 120.0);
+        _vm.GoalTreeEditor.ZoomAt(factor, e.GetPosition(TreeEditorViewport));
+    }
+
+    private void FocusTreeEditorNodeTitle()
+    {
+        Dispatcher.BeginInvoke(new Action(() =>
+        {
+            TreeEditorNodeTitleBox.Focus();
+            TreeEditorNodeTitleBox.SelectAll();
+        }), DispatcherPriority.Input);
+    }
+
+    // ==================== 目标树多选弹窗 ====================
+
+    private void GoalPickerConfirm_Click(object sender, RoutedEventArgs e) => _vm.ConfirmGoalPicker();
+
+    private void GoalPickerCancel_Click(object sender, RoutedEventArgs e) => _vm.CloseGoalPicker();
+
+    private void GoalPickerScrim_Click(object sender, MouseButtonEventArgs e) => _vm.CloseGoalPicker();
+
+    private void GoalPickerClear_Click(object sender, RoutedEventArgs e) => _vm.GoalPicker.ClearPicks();
+
+    private void GoalPickerResetView_Click(object sender, RoutedEventArgs e) => _vm.GoalPicker.ResetViewport();
+
+    private void GoalPickerViewport_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        e.Handled = true;
+        var factor = Math.Pow(1.14, e.Delta / 120.0);
+        _vm.GoalPicker.ZoomAt(factor, e.GetPosition(GoalPickerViewport));
     }
 
     // ==================== 标签 / 四象限 ====================
@@ -934,6 +1124,23 @@ public partial class MainWindow : Window
 
         if (e.Key == Key.Escape)
         {
+            if (_vm.IsGoalPickerOpen)
+            {
+                _vm.CloseGoalPicker();
+                e.Handled = true;
+                return;
+            }
+
+            if (_vm.IsGoalTreeEditorOpen)
+            {
+                if (_vm.GoalTreeEditor.IsLinking)
+                    _vm.GoalTreeEditor.ClearLinkMode();
+                else
+                    _vm.CloseGoalTreeEditor();
+                e.Handled = true;
+                return;
+            }
+
             if (_vm.IsSettingsOpen)
             {
                 _vm.CloseSettings();
@@ -963,7 +1170,7 @@ public partial class MainWindow : Window
                 return;
             }
 
-            if (_panning || _resizingBlock || _dragging || _draggingBlock || _draggingPreset || _creating)
+            if (_panning || _goalPanTarget != GoalCanvasTarget.None || _resizingBlock || _dragging || _draggingBlock || _draggingPreset || _creating || _draggingEditorNode)
             {
                 CancelActiveInteractions();
                 e.Handled = true;
@@ -974,10 +1181,11 @@ public partial class MainWindow : Window
             return;
         }
 
-        // 弹窗开着就别再响应全局快捷键
-        if (_vm.IsEditorOpen || _vm.IsSettingsOpen || _vm.IsPresetManagerOpen || _vm.IsTagDetailOpen) return;
+        var modalBlocksGlobal = _vm.IsEditorOpen || _vm.IsSettingsOpen || _vm.IsPresetManagerOpen || _vm.IsTagDetailOpen;
+        var canSpacePan = (_vm.IsGoalPickerOpen || _vm.IsGoalTreeEditorOpen || (!modalBlocksGlobal && (_vm.IsTimeline || _vm.IsGoals)))
+                          && Keyboard.FocusedElement is not TextBoxBase;
 
-        if (e.Key == Key.Space && _vm.IsTimeline && Keyboard.FocusedElement is not TextBoxBase)
+        if (e.Key == Key.Space && canSpacePan)
         {
             if (!_spacePanKeyDown)
             {
@@ -987,6 +1195,9 @@ public partial class MainWindow : Window
             e.Handled = true;
             return;
         }
+
+        // 弹窗开着就别再响应全局快捷键
+        if (modalBlocksGlobal || _vm.IsGoalPickerOpen || _vm.IsGoalTreeEditorOpen) return;
 
         if (e.Key == Key.N && Keyboard.Modifiers == ModifierKeys.Control)
         {
@@ -1008,17 +1219,42 @@ public partial class MainWindow : Window
         if (e.Key != Key.Space) return;
 
         _spacePanKeyDown = false;
-        if (!_panning) UpdatePanCursor();
+        if (!_panning && _goalPanTarget == GoalCanvasTarget.None) UpdatePanCursor();
     }
 
-    // ==================== 视图画布自由拖动（右键 / 空格+左键） ====================
+    // ==================== 视图 / 目标导图画布自由拖动（右键 / 空格+左键） ====================
 
     private void OnPreviewRightDown(object sender, MouseButtonEventArgs e)
     {
-        if (!_vm.IsTimeline || _vm.IsEditorOpen || _vm.IsSettingsOpen || _vm.IsPresetManagerOpen || _vm.IsTagDetailOpen) return;
-        if (IsInteractive(e.OriginalSource as DependencyObject)) return;
-
         var p = e.GetPosition(this);
+        var src = e.OriginalSource as DependencyObject;
+
+        if (_vm.IsGoalPickerOpen && IsInsideElement(p, GoalPickerViewport))
+        {
+            BeginGoalCanvasPan(GoalCanvasTarget.Picker, null, p, rightButton: true);
+            e.Handled = true;
+            return;
+        }
+
+        if (_vm.IsGoalTreeEditorOpen && IsInsideElement(p, TreeEditorViewport))
+        {
+            BeginGoalCanvasPan(GoalCanvasTarget.TreeEditor, null, p, rightButton: true);
+            e.Handled = true;
+            return;
+        }
+
+        if (_vm.IsEditorOpen || _vm.IsSettingsOpen || _vm.IsPresetManagerOpen || _vm.IsTagDetailOpen || _vm.IsGoalPickerOpen || _vm.IsGoalTreeEditorOpen)
+            return;
+
+        if (_vm.IsGoals && FindAncestorTag(src, "goalcanvas") is FrameworkElement { DataContext: GoalVM goalCard } && !IsInteractive(src))
+        {
+            BeginGoalCanvasPan(GoalCanvasTarget.Card, goalCard, p, rightButton: true);
+            e.Handled = true;
+            return;
+        }
+
+        if (!_vm.IsTimeline) return;
+        if (IsInteractive(src)) return;
         if (!IsInsideBody(p)) return;
 
         BeginPan(p, rightButton: true);
@@ -1027,10 +1263,78 @@ public partial class MainWindow : Window
 
     private void OnPreviewRightUp(object sender, MouseButtonEventArgs e)
     {
+        if (_goalPanTarget != GoalCanvasTarget.None && _goalPanRightButton)
+        {
+            EndGoalCanvasPan();
+            e.Handled = true;
+            return;
+        }
+
         if (!_panning || !_panWithRightButton) return;
 
         EndPan();
         e.Handled = true;
+    }
+
+    private void BeginGoalCanvasPan(GoalCanvasTarget target, GoalVM? card, Point p, bool rightButton)
+    {
+        _goalPanTarget = target;
+        _goalPanCard = card;
+        _goalPanRightButton = rightButton;
+        _goalPanStartPoint = p;
+
+        switch (target)
+        {
+            case GoalCanvasTarget.Card when card is not null:
+                card.ClearHoverNode();
+                _goalPanStartX = card.ViewPanX;
+                _goalPanStartY = card.ViewPanY;
+                break;
+            case GoalCanvasTarget.TreeEditor:
+                _goalPanStartX = _vm.GoalTreeEditor.PanX;
+                _goalPanStartY = _vm.GoalTreeEditor.PanY;
+                break;
+            case GoalCanvasTarget.Picker:
+                _goalPanStartX = _vm.GoalPicker.PanX;
+                _goalPanStartY = _vm.GoalPicker.PanY;
+                break;
+        }
+
+        Mouse.OverrideCursor = Cursors.SizeAll;
+        Mouse.Capture(this, CaptureMode.SubTree);
+    }
+
+    private void UpdateGoalCanvasPan(Point p)
+    {
+        var dx = p.X - _goalPanStartPoint.X;
+        var dy = p.Y - _goalPanStartPoint.Y;
+
+        switch (_goalPanTarget)
+        {
+            case GoalCanvasTarget.Card when _goalPanCard is not null:
+                _goalPanCard.ViewPanX = _goalPanStartX + dx;
+                _goalPanCard.ViewPanY = _goalPanStartY + dy;
+                break;
+            case GoalCanvasTarget.TreeEditor:
+                _vm.GoalTreeEditor.PanX = _goalPanStartX + dx;
+                _vm.GoalTreeEditor.PanY = _goalPanStartY + dy;
+                break;
+            case GoalCanvasTarget.Picker:
+                _vm.GoalPicker.PanX = _goalPanStartX + dx;
+                _vm.GoalPicker.PanY = _goalPanStartY + dy;
+                break;
+        }
+    }
+
+    private void EndGoalCanvasPan()
+    {
+        if (_goalPanTarget == GoalCanvasTarget.None) return;
+
+        _goalPanTarget = GoalCanvasTarget.None;
+        _goalPanCard = null;
+        UpdatePanCursor();
+        if (IsMouseCaptured) ReleaseMouseCapture();
+        Mouse.Capture(null);
     }
 
     private void BeginPan(Point p, bool rightButton)
@@ -1066,17 +1370,23 @@ public partial class MainWindow : Window
 
     private void UpdatePanCursor()
     {
-        if (_panning)
+        if (_panning || _goalPanTarget != GoalCanvasTarget.None)
         {
-            BodyScroll.Cursor = Cursors.SizeAll;
-            BodyScroll.ForceCursor = true;
+            if (_panning)
+            {
+                BodyScroll.Cursor = Cursors.SizeAll;
+                BodyScroll.ForceCursor = true;
+            }
             Mouse.OverrideCursor = Cursors.SizeAll;
         }
-        else if (_spacePanKeyDown && _vm.IsTimeline && !_vm.IsEditorOpen)
+        else if (_spacePanKeyDown && (_vm.IsGoalPickerOpen || _vm.IsGoalTreeEditorOpen || _vm.IsGoals || (_vm.IsTimeline && !_vm.IsEditorOpen)))
         {
-            Mouse.OverrideCursor = null;
-            BodyScroll.Cursor = Cursors.SizeAll;
-            BodyScroll.ForceCursor = true;
+            Mouse.OverrideCursor = Cursors.SizeAll;
+            if (_vm.IsTimeline)
+            {
+                BodyScroll.Cursor = Cursors.SizeAll;
+                BodyScroll.ForceCursor = true;
+            }
         }
         else
         {
@@ -1101,11 +1411,60 @@ public partial class MainWindow : Window
         _resizeCandidateBlock = null;
         _pendingOpen = null;
         _clickedPageBlank = false;
+        _pressedEditorNode = null;
+        _draggingEditorNode = false;
+        _pressedPickerNode = null;
+
+        var src = e.OriginalSource as DependencyObject;
+        var p = e.GetPosition(this);
+
+        if (_vm.IsGoalPickerOpen)
+        {
+            if (IsInteractive(src)) return;
+
+            if (_spacePanKeyDown && IsInsideElement(p, GoalPickerViewport))
+            {
+                BeginGoalCanvasPan(GoalCanvasTarget.Picker, null, p, rightButton: false);
+                e.Handled = true;
+                return;
+            }
+
+            if (FindAncestorTag(src, "goalpickernode") is FrameworkElement { DataContext: GoalNodeVM pickerNode })
+            {
+                _pressedPickerNode = pickerNode;
+                _pressPoint = p;
+            }
+            return;
+        }
+
+        if (_vm.IsGoalTreeEditorOpen)
+        {
+            if (IsInteractive(src)) return;
+
+            // 点击画布区域时让出文本框焦点，确保随后直接按空格可平移画布
+            if (IsInsideElement(p, TreeEditorViewport))
+                Keyboard.ClearFocus();
+
+            if (_spacePanKeyDown && IsInsideElement(p, TreeEditorViewport))
+            {
+                BeginGoalCanvasPan(GoalCanvasTarget.TreeEditor, null, p, rightButton: false);
+                e.Handled = true;
+                return;
+            }
+
+            if (FindAncestorTag(src, "treeeditornode") is FrameworkElement { DataContext: GoalNodeVM editorNode })
+            {
+                _pressedEditorNode = editorNode;
+                _pressPoint = p;
+                _editorNodeStartX = editorNode.X;
+                _editorNodeStartY = editorNode.Y;
+            }
+            return;
+        }
 
         // 弹窗开着时，底下的东西一概不接鼠标
         if (_vm.IsEditorOpen || _vm.IsSettingsOpen || _vm.IsPresetManagerOpen) return;
 
-        var src = e.OriginalSource as DependencyObject;
         if (IsInteractive(src))
         {
             _pressedTask = null;
@@ -1127,7 +1486,15 @@ public partial class MainWindow : Window
             return;
         }
 
-        _pressPoint = e.GetPosition(this);
+        _pressPoint = p;
+
+        // 空格 + 左键拖动目标卡片内画布
+        if (_spacePanKeyDown && _vm.IsGoals && FindAncestorTag(src, "goalcanvas") is FrameworkElement { DataContext: GoalVM goalCard })
+        {
+            BeginGoalCanvasPan(GoalCanvasTarget.Card, goalCard, _pressPoint, rightButton: false);
+            e.Handled = true;
+            return;
+        }
 
         // 空格 + 左键拖动视图画布：优先于建日程 / 拖块
         if (_spacePanKeyDown && _vm.IsTimeline && IsInsideBody(_pressPoint))
@@ -1155,10 +1522,10 @@ public partial class MainWindow : Window
             if (_pressedPreset is null)
                 _pressedGoal = (FindAncestorTag(src, "goal") as FrameworkElement)?.DataContext as GoalVM;
 
-            if (_pressedPreset is null && _pressedGoal is null)
+            if (_pressedPreset is null && _pressedGoal is null && FindAncestorTag(src, "goalcanvas") is null)
             {
                 var goalPageCard = FindAncestorTag(src, "goalpagecard") as Border;
-                if (goalPageCard?.DataContext is GoalVM goalItem)
+                if (goalPageCard?.DataContext is GoalVM goalItem && !goalItem.HasSubGoals)
                 {
                     _pressedGoalPageCard = goalPageCard;
                     _pressedGoalPageItem = goalItem;
@@ -1226,6 +1593,53 @@ public partial class MainWindow : Window
 
     private void OnPreviewMove(object sender, MouseEventArgs e)
     {
+        if (_goalPanTarget != GoalCanvasTarget.None)
+        {
+            var pressed = _goalPanRightButton
+                ? e.RightButton == MouseButtonState.Pressed
+                : e.LeftButton == MouseButtonState.Pressed;
+            if (!pressed)
+            {
+                EndGoalCanvasPan();
+                return;
+            }
+
+            UpdateGoalCanvasPan(e.GetPosition(this));
+            return;
+        }
+
+        if (_pressedEditorNode is not null)
+        {
+            if (e.LeftButton != MouseButtonState.Pressed)
+            {
+                if (_draggingEditorNode)
+                {
+                    _draggingEditorNode = false;
+                    if (IsMouseCaptured) ReleaseMouseCapture();
+                    Mouse.Capture(null);
+                    _vm.GoalTreeEditor.CommitNodeDrag();
+                }
+                _pressedEditorNode = null;
+                return;
+            }
+
+            var ep = e.GetPosition(this);
+            if (!_draggingEditorNode)
+            {
+                if (_vm.GoalTreeEditor.IsLinking || (Math.Abs(ep.X - _pressPoint.X) < 5 && Math.Abs(ep.Y - _pressPoint.Y) < 5))
+                    return;
+
+                _draggingEditorNode = true;
+                Mouse.Capture(this, CaptureMode.SubTree);
+            }
+
+            var zoom = Math.Max(0.1, _vm.GoalTreeEditor.Zoom);
+            _pressedEditorNode.X = Math.Max(8, _editorNodeStartX + (ep.X - _pressPoint.X) / zoom);
+            _pressedEditorNode.Y = Math.Max(8, _editorNodeStartY + (ep.Y - _pressPoint.Y) / zoom);
+            _vm.GoalTreeEditor.Goal?.RefreshEdgeGeometries();
+            return;
+        }
+
         if (_panning)
         {
             var pressed = _panWithRightButton
@@ -1346,6 +1760,43 @@ public partial class MainWindow : Window
 
     private void OnPreviewUp(object sender, MouseButtonEventArgs e)
     {
+        if (_goalPanTarget != GoalCanvasTarget.None && !_goalPanRightButton)
+        {
+            EndGoalCanvasPan();
+            e.Handled = true;
+            return;
+        }
+
+        if (_pressedPickerNode is not null)
+        {
+            var pNode = _pressedPickerNode;
+            _pressedPickerNode = null;
+            var upPos = e.GetPosition(this);
+            if (Math.Abs(upPos.X - _pressPoint.X) < 6 && Math.Abs(upPos.Y - _pressPoint.Y) < 6)
+                _vm.GoalPicker.TogglePick(pNode);
+            e.Handled = true;
+            return;
+        }
+
+        if (_pressedEditorNode is not null)
+        {
+            var eNode = _pressedEditorNode;
+            _pressedEditorNode = null;
+            if (_draggingEditorNode)
+            {
+                _draggingEditorNode = false;
+                if (IsMouseCaptured) ReleaseMouseCapture();
+                Mouse.Capture(null);
+                _vm.GoalTreeEditor.CommitNodeDrag();
+            }
+            else
+            {
+                _vm.GoalTreeEditor.HandleNodeClick(eNode);
+            }
+            e.Handled = true;
+            return;
+        }
+
         if (_panning && !_panWithRightButton)
         {
             EndPan();
@@ -1859,9 +2310,7 @@ public partial class MainWindow : Window
         => HandleRemindChipClick(sender, _vm.Editor.ToggleRemindNode);
 
     private void EditorGoal_Click(object sender, RoutedEventArgs e)
-    {
-        if ((sender as FrameworkElement)?.DataContext is GoalPickVM pick) _vm.Editor.SelectGoal(pick);
-    }
+        => HandleGoalPickClick(sender, _vm.Editor.ClickGoalPick);
 
     private void EditorNewTag_KeyDown(object sender, KeyEventArgs e)
     {
@@ -1917,8 +2366,14 @@ public partial class MainWindow : Window
     }
 
     private void PresetGoal_Click(object sender, RoutedEventArgs e)
+        => HandleGoalPickClick(sender, _vm.PresetManager.ClickGoalPick);
+
+    private static void HandleGoalPickClick(object sender, Action<GoalPickVM> onPick)
     {
-        if ((sender as FrameworkElement)?.DataContext is GoalPickVM pick) _vm.PresetManager.SelectGoal(pick);
+        if (sender is not ToggleButton btn || btn.DataContext is not GoalPickVM pick) return;
+        onPick(pick);
+        // ToggleButton.OnToggle 会在触发 Click 前本地改写 IsChecked，需同步回数据源状态
+        btn.GetBindingExpression(ToggleButton.IsCheckedProperty)?.UpdateTarget();
     }
 
     private void PresetRemind_Click(object sender, RoutedEventArgs e)
@@ -2369,7 +2824,7 @@ public partial class MainWindow : Window
     {
         if (!GoalsHost.IsVisible) return null;
 
-        foreach (var goal in _vm.Goals)
+        foreach (var goal in _vm.ActiveGoals)
         {
             if (GoalsHost.ItemContainerGenerator.ContainerFromItem(goal) is not FrameworkElement el) continue;
             if (!el.IsVisible) continue;
@@ -2575,6 +3030,15 @@ public partial class MainWindow : Window
         StopZoomAnimation();
         StopTagDetailScrollAnimation();
         _spacePanKeyDown = false;
+        if (_goalPanTarget != GoalCanvasTarget.None) EndGoalCanvasPan();
+        if (_draggingEditorNode)
+        {
+            _draggingEditorNode = false;
+            _pressedEditorNode = null;
+            if (IsMouseCaptured) ReleaseMouseCapture();
+            Mouse.Capture(null);
+        }
+        _pressedPickerNode = null;
         if (_panning) EndPan();
         else UpdatePanCursor();
         if (_resizingBlock) EndBlockResize(restoreVisual: true);

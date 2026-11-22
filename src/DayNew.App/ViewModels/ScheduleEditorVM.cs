@@ -29,18 +29,22 @@ public sealed class TagPickVM : ObservableObject
         get => _isSelected;
         set => Set(ref _isSelected, value);
     }
+
+    public override string ToString() => Name;
 }
 
-/// <summary>弹窗里的一枚目标：单选。第一节是「无目标」（Goal 为 null）。</summary>
+/// <summary>弹窗里的一枚总目标胶囊：无子目标可直接多选切换；下设子目标时带标记，点击弹目标树多选。</summary>
 public sealed class GoalPickVM : ObservableObject
 {
     private bool _isSelected;
+    private int _selectedCount;
 
     /// <summary>null = 「无目标」那一枚。</summary>
-    public GoalPickVM(GoalVM? goal, bool selected)
+    public GoalPickVM(GoalVM? goal, bool selected, int selectedCount = 0)
     {
         Goal = goal;
         _isSelected = selected;
+        _selectedCount = selectedCount;
     }
 
     public GoalVM? Goal { get; }
@@ -51,11 +55,130 @@ public sealed class GoalPickVM : ObservableObject
 
     public bool HasGoal => Goal is not null;
 
+    public bool HasSubGoals => Goal?.HasSubGoals == true;
+
+    public int SelectedCount
+    {
+        get => _selectedCount;
+        set
+        {
+            if (!Set(ref _selectedCount, value)) return;
+            OnPropertyChanged(nameof(BadgeText));
+            OnPropertyChanged(nameof(HasBadge));
+        }
+    }
+
+    public string BadgeText
+    {
+        get
+        {
+            if (!HasSubGoals) return "";
+            return SelectedCount > 0 ? $"⑂ {SelectedCount}" : "⑂";
+        }
+    }
+
+    public bool HasBadge => HasSubGoals;
+
     public bool IsSelected
     {
         get => _isSelected;
-        set => Set(ref _isSelected, value);
+        set
+        {
+            _isSelected = value;
+            OnPropertyChanged();
+        }
     }
+
+    public override string ToString() => HasBadge ? $"{Title} {BadgeText}" : Title;
+}
+
+/// <summary>ScheduleEditorVM 与 PresetManagerVM 共用的跨总目标/子目标草稿选择状态。</summary>
+public sealed class GoalBindingDraft
+{
+    public List<GoalBindingVM> Bindings { get; } = new();
+
+    public void Reset(IEnumerable<GoalBindingVM> initial, IEnumerable<GoalVM> activeGoals, ObservableCollection<GoalPickVM> targetPicks)
+    {
+        Bindings.Clear();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var b in initial)
+        {
+            if (seen.Add(b.TargetKey))
+                Bindings.Add(new GoalBindingVM(b.Goal, b.Node));
+        }
+
+        RebuildPicks(activeGoals, targetPicks);
+    }
+
+    public void RebuildPicks(IEnumerable<GoalVM> activeGoals, ObservableCollection<GoalPickVM> targetPicks)
+    {
+        // 移除已被外部删除的目标或子目标
+        Bindings.RemoveAll(b => b.Node is not null && !b.Goal.Nodes.Contains(b.Node));
+
+        var pool = new List<GoalVM>(activeGoals);
+        foreach (var b in Bindings)
+        {
+            if (!pool.Contains(b.Goal))
+                pool.Add(b.Goal);
+        }
+
+        targetPicks.Clear();
+        targetPicks.Add(new GoalPickVM(null, Bindings.Count == 0));
+
+        foreach (var entity in pool)
+        {
+            var count = Bindings.Count(b => ReferenceEquals(b.Goal, entity));
+            targetPicks.Add(new GoalPickVM(entity, count > 0, count));
+        }
+    }
+
+    public void SyncPickStates(ObservableCollection<GoalPickVM> targetPicks)
+    {
+        foreach (var pick in targetPicks)
+        {
+            if (pick.Goal is null)
+            {
+                pick.SelectedCount = 0;
+                pick.IsSelected = Bindings.Count == 0;
+            }
+            else
+            {
+                var count = Bindings.Count(b => ReferenceEquals(b.Goal, pick.Goal));
+                pick.SelectedCount = count;
+                pick.IsSelected = count > 0;
+            }
+        }
+    }
+
+    public void ClearAll(ObservableCollection<GoalPickVM> targetPicks)
+    {
+        Bindings.Clear();
+        SyncPickStates(targetPicks);
+    }
+
+    public void ToggleDirectGoal(GoalVM goal, ObservableCollection<GoalPickVM> targetPicks)
+    {
+        var existed = Bindings.RemoveAll(b => ReferenceEquals(b.Goal, goal)) > 0;
+        if (!existed)
+            Bindings.Add(new GoalBindingVM(goal, null));
+        SyncPickStates(targetPicks);
+    }
+
+    public void ApplyGoalNodes(GoalVM goal, IEnumerable<GoalNodeVM> nodes, ObservableCollection<GoalPickVM> targetPicks)
+    {
+        Bindings.RemoveAll(b => ReferenceEquals(b.Goal, goal));
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var node in nodes)
+        {
+            var binding = new GoalBindingVM(goal, node.IsRoot ? null : node);
+            if (seen.Add(binding.TargetKey))
+                Bindings.Add(binding);
+        }
+        SyncPickStates(targetPicks);
+    }
+
+    public IReadOnlyList<GoalChipVM> BuildPreviewChips()
+        => TaskVM.BuildGoalChips(Bindings, compact: false);
 }
 
 /// <summary>
@@ -65,6 +188,7 @@ public sealed class GoalPickVM : ObservableObject
 public sealed class ScheduleEditorVM : ObservableObject
 {
     private readonly MainViewModel _owner;
+    private readonly GoalBindingDraft _goalDraft = new();
 
     public ScheduleEditorVM(MainViewModel owner) => _owner = owner;
 
@@ -80,6 +204,10 @@ public sealed class ScheduleEditorVM : ObservableObject
     public ObservableCollection<TagPickVM> TagPicks { get; } = new();
 
     public ObservableCollection<GoalPickVM> GoalPicks { get; } = new();
+
+    public IReadOnlyList<GoalChipVM> SelectedGoalChips => _goalDraft.BuildPreviewChips();
+
+    public bool HasSelectedGoals => _goalDraft.Bindings.Count > 0;
 
     private string _title = "";
     private string _note = "";
@@ -213,7 +341,7 @@ public sealed class ScheduleEditorVM : ObservableObject
         _startText = Clock(startMinutes);
         _endText = Clock(endMinutes);
 
-        BuildPicks(Array.Empty<TagVM>(), null);
+        BuildPicks(Array.Empty<TagVM>(), Array.Empty<GoalBindingVM>());
         RaiseAll();
         _owner.RefreshEditorHint();
     }
@@ -238,19 +366,39 @@ public sealed class ScheduleEditorVM : ObservableObject
         _startText = Clock(start);
         _endText = Clock(end);
 
-        BuildPicks(task.Tags, task.Goal);
+        BuildPicks(task.Tags, task.GoalBindings);
         RaiseAll();
         _owner.RefreshEditorHint();
     }
 
     // ---------------- 选择 ----------------
 
-    public void SelectGoal(GoalPickVM? pick)
+    public void ClickGoalPick(GoalPickVM? pick)
     {
-        foreach (var option in GoalPicks) option.IsSelected = ReferenceEquals(option, pick);
+        if (pick is null) return;
+
+        if (pick.Goal is null)
+        {
+            _goalDraft.ClearAll(GoalPicks);
+            RaiseGoalSelectionChanged();
+            return;
+        }
+
+        if (pick.Goal.HasSubGoals)
+        {
+            _owner.OpenGoalPickerForDraft(pick.Goal, _goalDraft.Bindings, nodes =>
+            {
+                _goalDraft.ApplyGoalNodes(pick.Goal, nodes, GoalPicks);
+                RaiseGoalSelectionChanged();
+            });
+            return;
+        }
+
+        _goalDraft.ToggleDirectGoal(pick.Goal, GoalPicks);
+        RaiseGoalSelectionChanged();
     }
 
-    public GoalVM? SelectedGoal => GoalPicks.FirstOrDefault(g => g.IsSelected)?.Goal;
+    public IReadOnlyList<GoalBindingVM> SelectedGoalBindings => _goalDraft.Bindings;
 
     public IEnumerable<TagPickVM> SelectedTagPicks => TagPicks.Where(p => p.IsSelected);
 
@@ -280,16 +428,19 @@ public sealed class ScheduleEditorVM : ObservableObject
 
     // ---------------- 内部 ----------------
 
-    private void BuildPicks(IList<TagVM> selected, GoalVM? goal)
+    private void BuildPicks(IList<TagVM> selectedTags, IEnumerable<GoalBindingVM> selectedGoals)
     {
         TagPicks.Clear();
         foreach (var tag in _owner.Tags)
-            TagPicks.Add(new TagPickVM(tag, selected.Contains(tag)));
+            TagPicks.Add(new TagPickVM(tag, selectedTags.Contains(tag)));
 
-        GoalPicks.Clear();
-        GoalPicks.Add(new GoalPickVM(null, goal is null));
-        foreach (var entity in _owner.Goals)
-            GoalPicks.Add(new GoalPickVM(entity, ReferenceEquals(entity, goal)));
+        _goalDraft.Reset(selectedGoals, _owner.ActiveGoals, GoalPicks);
+    }
+
+    private void RaiseGoalSelectionChanged()
+    {
+        OnPropertyChanged(nameof(SelectedGoalChips));
+        OnPropertyChanged(nameof(HasSelectedGoals));
     }
 
     private void RaiseAll()
@@ -314,6 +465,7 @@ public sealed class ScheduleEditorVM : ObservableObject
         OnPropertyChanged(nameof(NewTagText));
         OnPropertyChanged(nameof(TagPicks));
         OnPropertyChanged(nameof(GoalPicks));
+        RaiseGoalSelectionChanged();
     }
 
     private void RaiseRemindProperties()

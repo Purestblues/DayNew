@@ -40,12 +40,21 @@ public sealed class MainViewModel : ObservableObject
     /// <summary>快捷日程预设管理弹窗状态。</summary>
     public PresetManagerVM PresetManager { get; }
 
+    /// <summary>目标树结构编辑弹窗状态。</summary>
+    public GoalTreeEditorVM GoalTreeEditor { get; }
+
+    /// <summary>目标树多选弹窗状态。</summary>
+    public GoalTreePickerVM GoalPicker { get; }
+
     private bool _isEditorOpen;
     private bool _isSettingsOpen;
     private bool _isPresetManagerOpen;
     private bool _isTagDetailOpen;
+    private bool _isGoalTreeEditorOpen;
+    private bool _isGoalPickerOpen;
     private TagVM? _selectedTagDetail;
     private GoalVM? _selectedGoalDetail;
+    private GoalNodeVM? _selectedGoalNodeDetail;
     private int _tagDetailTodayIndex;
 
     public bool IsEditorOpen
@@ -72,6 +81,18 @@ public sealed class MainViewModel : ObservableObject
         private set => Set(ref _isTagDetailOpen, value);
     }
 
+    public bool IsGoalTreeEditorOpen
+    {
+        get => _isGoalTreeEditorOpen;
+        private set => Set(ref _isGoalTreeEditorOpen, value);
+    }
+
+    public bool IsGoalPickerOpen
+    {
+        get => _isGoalPickerOpen;
+        private set => Set(ref _isGoalPickerOpen, value);
+    }
+
     public TagVM? SelectedTagDetail
     {
         get => _selectedTagDetail;
@@ -94,7 +115,11 @@ public sealed class MainViewModel : ObservableObject
 
     public Brush DetailColor => SelectedGoalDetail?.Color ?? SelectedTagDetail?.Color ?? Brushes.Transparent;
 
-    public string DetailTitle => SelectedGoalDetail?.Title ?? SelectedTagDetail?.Name ?? "";
+    public string DetailTitle => SelectedGoalDetail is not null
+        ? (_selectedGoalNodeDetail is { IsRoot: false } sub
+            ? $"{SelectedGoalDetail.Title} › {sub.DisplayTitle}"
+            : SelectedGoalDetail.Title)
+        : SelectedTagDetail?.Name ?? "";
 
     public ObservableCollection<TagDayColumnVM> TagDetailDays { get; } = new();
 
@@ -106,7 +131,14 @@ public sealed class MainViewModel : ObservableObject
         {
             if (SelectedGoalDetail is not null)
             {
-                var goalCount = _all.Count(t => ReferenceEquals(t.Goal, SelectedGoalDetail));
+                if (_selectedGoalNodeDetail is { IsRoot: false } sub && SelectedGoalDetail.Nodes.Contains(sub))
+                {
+                    var ids = SelectedGoalDetail.CollectSubtreeIds(sub);
+                    var subCount = _all.Count(t => t.HasGoalSubtreeRef(SelectedGoalDetail, ids));
+                    return subCount == 0 ? "该子目标暂无日程" : $"共 {subCount} 条日程 · {sub.HoverStatusText}";
+                }
+
+                var goalCount = _all.Count(t => t.HasGoalRef(SelectedGoalDetail));
                 return goalCount == 0 ? "暂无日程" : $"共 {goalCount} 条日程 · {SelectedGoalDetail.ProgressText}";
             }
 
@@ -253,6 +285,8 @@ public sealed class MainViewModel : ObservableObject
     {
         Editor = new ScheduleEditorVM(this);
         PresetManager = new PresetManagerVM(this);
+        GoalTreeEditor = new GoalTreeEditorVM(this);
+        GoalPicker = new GoalTreePickerVM();
 
         Lanes = new ObservableCollection<LaneVM>
         {
@@ -308,6 +342,14 @@ public sealed class MainViewModel : ObservableObject
     public ObservableCollection<NavItemVM> NavItems { get; }
 
     public ObservableCollection<GoalVM> Goals => _store.Goals;
+
+    public ObservableCollection<GoalVM> ActiveGoals { get; } = new();
+
+    public ObservableCollection<GoalVM> CompletedGoals { get; } = new();
+
+    public bool HasActiveGoals => ActiveGoals.Count > 0;
+
+    public bool HasCompletedGoals => CompletedGoals.Count > 0;
 
     public ObservableCollection<TagVM> Tags => _store.Tags;
 
@@ -449,13 +491,29 @@ public sealed class MainViewModel : ObservableObject
         foreach (var task in _all.OrderBy(t => t.Order))
             LaneOfKind(LaneFor(task)).Items.Add(task);
 
+        SyncGoalGroups();
+
         foreach (var goal in Goals)
         {
             goal.Tasks.Clear();
-            foreach (var task in _all.Where(t => ReferenceEquals(t.Goal, goal)).OrderBy(t => t.Order))
+            foreach (var task in _all.Where(t => t.HasGoalRef(goal)).OrderBy(t => t.Order))
                 goal.Tasks.Add(task);
+
+            goal.RootNode.TaskCount = goal.Total;
+            goal.RootNode.DoneTaskCount = goal.DoneCount;
+
+            foreach (var node in goal.Nodes)
+            {
+                var nodeTasks = _all.Where(t => t.GoalBindings.Any(b => ReferenceEquals(b.Goal, goal) && ReferenceEquals(b.Node, node))).ToList();
+                node.TaskCount = nodeTasks.Count;
+                node.DoneTaskCount = nodeTasks.Count(t => t.Done);
+            }
+
             goal.Refresh();
         }
+
+        foreach (var task in _all) task.NotifyGoalDisplayChanged();
+        foreach (var preset in _store.Presets) preset.RefreshSummary();
 
         // 标签：按用得多少排（已经在 store 里的标签为 0 次的也列出来，方便管理和清理）
         TagRows.Clear();
@@ -489,6 +547,24 @@ public sealed class MainViewModel : ObservableObject
 
         var (todayPending, overdueCount) = GetSummaryCounts();
         SummaryChanged?.Invoke(todayPending, overdueCount);
+    }
+
+    private void SyncGoalGroups()
+    {
+        var desiredActive = Goals.Where(g => !g.IsCompleted).ToList();
+        var desiredCompleted = Goals.Where(g => g.IsCompleted).ToList();
+
+        SyncGoalCollection(ActiveGoals, desiredActive);
+        SyncGoalCollection(CompletedGoals, desiredCompleted);
+        OnPropertyChanged(nameof(HasActiveGoals));
+        OnPropertyChanged(nameof(HasCompletedGoals));
+    }
+
+    private static void SyncGoalCollection(ObservableCollection<GoalVM> target, IList<GoalVM> desired)
+    {
+        if (target.Count == desired.Count && target.SequenceEqual(desired)) return;
+        target.Clear();
+        foreach (var item in desired) target.Add(item);
     }
 
     // ---------------- 操作 ----------------
@@ -619,6 +695,7 @@ public sealed class MainViewModel : ObservableObject
 
     public void OpenTagDetail(TagVM tag)
     {
+        _selectedGoalNodeDetail = null;
         SelectedGoalDetail = null;
         SelectedTagDetail = tag;
         RebuildTagDetail();
@@ -628,6 +705,16 @@ public sealed class MainViewModel : ObservableObject
     public void OpenGoalDetail(GoalVM goal)
     {
         SelectedTagDetail = null;
+        _selectedGoalNodeDetail = null;
+        SelectedGoalDetail = goal;
+        RebuildTagDetail();
+        IsTagDetailOpen = true;
+    }
+
+    public void OpenGoalNodeDetail(GoalVM goal, GoalNodeVM node)
+    {
+        SelectedTagDetail = null;
+        _selectedGoalNodeDetail = node.IsRoot ? null : node;
         SelectedGoalDetail = goal;
         RebuildTagDetail();
         IsTagDetailOpen = true;
@@ -645,13 +732,23 @@ public sealed class MainViewModel : ObservableObject
             if (!Goals.Contains(SelectedGoalDetail))
             {
                 _tagDetailTodayIndex = 0;
+                _selectedGoalNodeDetail = null;
                 SelectedGoalDetail = null;
                 IsTagDetailOpen = false;
                 RaiseDetailHeaderProperties();
                 return;
             }
 
-            detailTasks = _all.Where(t => ReferenceEquals(t.Goal, SelectedGoalDetail)).ToList();
+            if (_selectedGoalNodeDetail is { IsRoot: false } sub && SelectedGoalDetail.Nodes.Contains(sub))
+            {
+                var ids = SelectedGoalDetail.CollectSubtreeIds(sub);
+                detailTasks = _all.Where(t => t.HasGoalSubtreeRef(SelectedGoalDetail, ids)).ToList();
+            }
+            else
+            {
+                _selectedGoalNodeDetail = null;
+                detailTasks = _all.Where(t => t.HasGoalRef(SelectedGoalDetail)).ToList();
+            }
         }
         else if (SelectedTagDetail is not null && _store.Tags.Contains(SelectedTagDetail))
         {
@@ -660,6 +757,7 @@ public sealed class MainViewModel : ObservableObject
         else
         {
             _tagDetailTodayIndex = 0;
+            _selectedGoalNodeDetail = null;
             SelectedTagDetail = null;
             SelectedGoalDetail = null;
             IsTagDetailOpen = false;
@@ -1226,8 +1324,92 @@ public sealed class MainViewModel : ObservableObject
 
         _store.AddGoal(title);
         GoalInput = "";
+        Rebuild();
         Notify($"已新建目标「{title}」");
     }
+
+    public void OpenGoalTreeEditor(GoalVM goal)
+    {
+        GoalTreeEditor.Open(goal);
+        IsGoalTreeEditorOpen = true;
+    }
+
+    public void CloseGoalTreeEditor()
+    {
+        IsGoalTreeEditorOpen = false;
+        GoalTreeEditor.Close();
+        Rebuild();
+    }
+
+    public void OnGoalStructureChanged(bool rebuildTimelineAndCards)
+    {
+        _file.MarkDirty(_store);
+        if (!rebuildTimelineAndCards) return;
+
+        foreach (var task in _all) task.NotifyGoalDisplayChanged();
+        foreach (var preset in _store.Presets) preset.RefreshSummary();
+        RebuildTimeline();
+        if (IsTagDetailOpen) RebuildTagDetail();
+        if (IsPresetManagerOpen) PresetManager.RefreshPicksPreservingSelection();
+    }
+
+    public void RemoveGoalSubNode(GoalVM goal, GoalNodeVM node)
+    {
+        foreach (var task in _all)
+        {
+            if (task.GoalBindings.Any(b => ReferenceEquals(b.Goal, goal) && ReferenceEquals(b.Node, node)))
+                task.SetGoalBindings(task.GoalBindings.Where(b => !(ReferenceEquals(b.Goal, goal) && ReferenceEquals(b.Node, node))));
+        }
+
+        foreach (var preset in _store.Presets)
+        {
+            if (preset.GoalBindings.Any(b => ReferenceEquals(b.Goal, goal) && ReferenceEquals(b.Node, node)))
+                preset.SetGoalBindings(preset.GoalBindings.Where(b => !(ReferenceEquals(b.Goal, goal) && ReferenceEquals(b.Node, node))));
+        }
+
+        goal.RemoveSubGoal(node);
+        Rebuild();
+        Notify($"已删除子目标「{node.DisplayTitle}」");
+    }
+
+    public void ToggleGoalNodeCompleted(GoalVM goal, GoalNodeVM node)
+    {
+        var next = !node.IsCompleted;
+        goal.SetNodeCompleted(node, next);
+        Rebuild();
+        Notify(next ? $"已完成「{node.DisplayTitle}」" : $"已恢复「{node.DisplayTitle}」");
+    }
+
+    public void ToggleGoalCompleted(GoalVM goal)
+    {
+        var next = !goal.IsCompleted;
+        goal.SetGoalCompleted(next);
+        Rebuild();
+        Notify(next ? $"目标「{goal.Title}」已完成，已移入下方区域" : $"已恢复目标「{goal.Title}」");
+    }
+
+    public void OpenGoalPickerForDraft(
+        GoalVM goal,
+        IEnumerable<GoalBindingVM> existingBindings,
+        Action<IReadOnlyList<GoalNodeVM>> onConfirm)
+    {
+        GoalPicker.Open(goal, existingBindings, onConfirm);
+        IsGoalPickerOpen = true;
+    }
+
+    public void ConfirmGoalPicker()
+    {
+        IsGoalPickerOpen = false;
+        GoalPicker.Confirm();
+    }
+
+    public void CloseGoalPicker()
+    {
+        IsGoalPickerOpen = false;
+        GoalPicker.Close();
+    }
+
+    internal void NotifyFromChild(string message, bool highlight = false) => Notify(message, highlight);
 
     // ---------------- 日程编辑弹窗 ----------------
 
@@ -1299,7 +1481,7 @@ public sealed class MainViewModel : ObservableObject
         task.Repeat = Editor.Repeat == ScheduleEditorVM.NoRepeat ? "" : Editor.Repeat;
         task.IsUrgent = Editor.IsUrgent;
         task.IsImportant = Editor.IsImportant;
-        task.Goal = Editor.SelectedGoal;
+        task.SetGoalBindings(Editor.SelectedGoalBindings);
         task.Due = Editor.Date.Date;
         task.StartTime = TimeSpan.FromMinutes(free);
         task.EndTime = TimeSpan.FromMinutes(free + duration);
@@ -1411,7 +1593,7 @@ public sealed class MainViewModel : ObservableObject
         preset.Note = PresetManager.Note ?? "";
         preset.IsUrgent = PresetManager.IsUrgent;
         preset.IsImportant = PresetManager.IsImportant;
-        preset.Goal = PresetManager.SelectedGoal;
+        preset.SetGoalBindings(PresetManager.SelectedGoalBindings);
 
         preset.Tags.Clear();
         foreach (var tag in ResolveSelectedTags(PresetManager.SelectedTagPicks))
@@ -1449,7 +1631,7 @@ public sealed class MainViewModel : ObservableObject
             s.EndTime = TimeSpan.FromMinutes(free + duration);
             s.IsUrgent = preset.IsUrgent;
             s.IsImportant = preset.IsImportant;
-            s.Goal = preset.Goal;
+            s.SetGoalBindings(preset.GoalBindings.Select(b => new GoalBindingVM(b.Goal, b.Node)));
         });
 
         foreach (var tag in preset.Tags)
@@ -1500,18 +1682,51 @@ public sealed class MainViewModel : ObservableObject
 
     public void DeleteGoal(GoalVM goal)
     {
-        foreach (var task in _all.Where(t => ReferenceEquals(t.Goal, goal))) task.Goal = null;
-        foreach (var preset in _store.Presets.Where(p => ReferenceEquals(p.Goal, goal))) preset.Goal = null;
+        if (IsGoalTreeEditorOpen && ReferenceEquals(GoalTreeEditor.Goal, goal))
+            CloseGoalTreeEditor();
+        if (IsGoalPickerOpen && ReferenceEquals(GoalPicker.Goal, goal))
+            CloseGoalPicker();
+
+        foreach (var task in _all.Where(t => t.HasGoalRef(goal)))
+            task.SetGoalBindings(task.GoalBindings.Where(b => !ReferenceEquals(b.Goal, goal)));
+        foreach (var preset in _store.Presets.Where(p => p.HasGoalRef(goal)))
+            preset.SetGoalBindings(preset.GoalBindings.Where(b => !ReferenceEquals(b.Goal, goal)));
+
         Goals.Remove(goal);
         Rebuild();
         Notify($"已删除目标「{goal.Title}」");
     }
 
-    /// <summary>把任务挂到目标下。拖到目标卡片上就是走这里。</summary>
+    /// <summary>把任务挂到目标下。拖到有子目标的目标卡上时弹出目标树选择。</summary>
     public void AssignGoal(TaskVM task, GoalVM goal)
     {
-        if (ReferenceEquals(task.Goal, goal)) return;
-        task.Goal = goal;
+        if (goal.HasSubGoals)
+        {
+            OpenGoalPickerForDraft(goal, task.GoalBindings, nodes =>
+            {
+                var next = task.GoalBindings
+                    .Where(b => !ReferenceEquals(b.Goal, goal))
+                    .Concat(nodes.Select(n => new GoalBindingVM(goal, n.IsRoot ? null : n)))
+                    .ToList();
+                task.SetGoalBindings(next);
+                Rebuild();
+                TaskTouched?.Invoke(task);
+                Notify(nodes.Count > 0
+                    ? $"已关联「{goal.Title}」下的 {nodes.Count} 项目标"
+                    : $"已取消「{goal.Title}」关联");
+            });
+            return;
+        }
+
+        if (task.HasGoalRef(goal))
+        {
+            Notify($"已在目标「{goal.Title}」中");
+            return;
+        }
+
+        var updated = task.GoalBindings.ToList();
+        updated.Add(new GoalBindingVM(goal, null));
+        task.SetGoalBindings(updated);
         Rebuild();
         TaskTouched?.Invoke(task);
         Notify($"已关联目标「{goal.Title}」");
@@ -1519,8 +1734,8 @@ public sealed class MainViewModel : ObservableObject
 
     public void ClearGoal(TaskVM task)
     {
-        if (task.Goal is null) return;
-        task.Goal = null;
+        if (!task.HasGoal) return;
+        task.SetGoalBindings(Array.Empty<GoalBindingVM>());
         Rebuild();
     }
 
@@ -1537,12 +1752,26 @@ public sealed class MainViewModel : ObservableObject
     {
         var today = DateTime.Today;
 
+        var paper = CreateGoal("发小论文");
+        var lit = paper.AddChildSubGoal(paper.RootNode, "写文献综述", GoalEdgeKind.Belong);
+        var iv = paper.AddChildSubGoal(paper.RootNode, "梳理自变量", GoalEdgeKind.Belong);
+        var dv = paper.AddChildSubGoal(paper.RootNode, "找出因变量", GoalEdgeKind.Belong);
+        var model = paper.AddChildSubGoal(iv, "理清研究模型", GoalEdgeKind.Progress);
+        paper.TryAddOrUpdateEdge(dv.Id, model.Id, GoalEdgeKind.Progress, out _);
+        var expDesign = paper.AddChildSubGoal(lit, "设计实验", GoalEdgeKind.Progress);
+        paper.TryAddOrUpdateEdge(model.Id, expDesign.Id, GoalEdgeKind.Progress, out _);
+        var expRun = paper.AddChildSubGoal(expDesign, "进行实验", GoalEdgeKind.Progress);
+        paper.AddChildSubGoal(expRun, "数据回收分析", GoalEdgeKind.Progress);
+
         var python = CreateGoal("学 Python");
+        var pyBase = python.AddChildSubGoal(python.RootNode, "语法与模块", GoalEdgeKind.Belong);
+        var pyCrawl = python.AddChildSubGoal(pyBase, "爬虫实战", GoalEdgeKind.Progress);
+
         var tidy = CreateGoal("生活整理");
 
-        void Add(string title, DateTime? due, string note = "", string[]? tags = null,
+        TaskVM Add(string title, DateTime? due, string note = "", string[]? tags = null,
                  string repeat = "", string remind = RemindRules.Default, bool done = false, GoalVM? goal = null,
-                 string? time = null)
+                 string? time = null, GoalBindingVM[]? bindings = null)
         {
             var t = _store.AddSchedule(s =>
             {
@@ -1552,7 +1781,10 @@ public sealed class MainViewModel : ObservableObject
                 s.Repeat = repeat;
                 s.Remind = remind;
                 s.Done = done;
-                s.Goal = goal;
+                if (bindings is { Length: > 0 })
+                    s.SetGoalBindings(bindings);
+                else
+                    s.Goal = goal;
             });
 
             if (time is not null)
@@ -1564,10 +1796,19 @@ public sealed class MainViewModel : ObservableObject
 
             foreach (var tag in tags ?? Array.Empty<string>())
                 t.Tags.Add(_store.GetOrCreateTag(tag));
+
+            return t;
         }
 
         Add("交电费", today.AddDays(-1), "户号记在手机备忘录里（在发票右上角）", new[] { "生活" }, time: "19:00-19:15");
         Add("写方案", today, "先把档位的边界定死，再动代码", new[] { "工作" }, time: "09:00-10:30");
+        Add("梳理变量与模型", today, "核对核心自变量、因变量与理论模型假设", new[] { "科研" }, time: "14:00-15:30",
+            bindings: new[]
+            {
+                new GoalBindingVM(paper, iv),
+                new GoalBindingVM(paper, dv),
+                new GoalBindingVM(paper, model)
+            });
         Add("跑步", today, "", new[] { "习惯" }, repeat: "每天", remind: RemindRules.Default, time: "19:30-20:10");
         Add("回邮件", today, "", new[] { "工作" }, time: "11:00-11:40");
         Add("吃药", today, "", new[] { "生活" }, repeat: "每天", done: true, time: "08:00-08:10");
@@ -1575,8 +1816,10 @@ public sealed class MainViewModel : ObservableObject
         Add("整理书房", EndOfWeek(), "", new[] { "生活" }, goal: tidy, time: "14:00-16:00");
         Add("年报", today.AddDays(40), "", new[] { "工作" }, remind: "", time: "10:00-11:30");
         Add("学 Rust", today.AddDays(3), "先把所有权搞明白", new[] { "学习" }, remind: "", time: "20:00-21:00");
-        Add("读官方教程前四章", today.AddDays(2), "", new[] { "学习" }, remind: "", goal: python, time: "20:00-21:30");
-        Add("写一个爬虫小脚本", today.AddDays(10), "", new[] { "学习" }, remind: "", goal: python, time: "20:00-21:00");
+        Add("读官方教程前四章", today.AddDays(2), "", new[] { "学习" }, remind: "", time: "20:00-21:30",
+            bindings: new[] { new GoalBindingVM(python, pyBase) });
+        Add("写一个爬虫小脚本", today.AddDays(10), "", new[] { "学习" }, remind: "", time: "20:00-21:00",
+            bindings: new[] { new GoalBindingVM(python, pyCrawl) });
         Add("换手机", today.AddDays(5), "", new[] { "生活" }, remind: "", goal: tidy, time: "15:00-15:30");
 
         SeedDefaultPresets();
