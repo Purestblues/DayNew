@@ -1398,41 +1398,63 @@
                                                                                             Width="{Binding Width}" Height="{Binding Height}"
                                                                                             Background="{DynamicResource Surface2}"
                                                                                             BorderBrush="{DynamicResource BorderStrong}" BorderThickness="1"
-                                                                                            CornerRadius="6" Padding="8,4" Cursor="Hand"
+                                                                                            CornerRadius="6" Padding="8,5" Cursor="Hand"
                                                                                             MouseEnter="GoalCardNode_MouseEnter"
                                                                                             MouseLeave="GoalCardNode_MouseLeave">
                                                                                         <Grid>
-                                                                                            <Grid.ColumnDefinitions>
-                                                                                                <ColumnDefinition Width="Auto"/>
-                                                                                                <ColumnDefinition Width="*"/>
-                                                                                                <ColumnDefinition Width="Auto"/>
-                                                                                            </Grid.ColumnDefinitions>
-                                                                                            <Border x:Name="nodeTint" Grid.ColumnSpan="3"
-                                                                                                    CornerRadius="5" Margin="-8,-4"
+                                                                                            <Grid.RowDefinitions>
+                                                                                                <RowDefinition Height="*"/>
+                                                                                                <RowDefinition Height="Auto"/>
+                                                                                            </Grid.RowDefinitions>
+                                                                                            <Border x:Name="nodeTint" Grid.RowSpan="2"
+                                                                                                    CornerRadius="5" Margin="-8,-5"
                                                                                                     Background="Transparent" IsHitTestVisible="False"/>
-                                                                                            <Ellipse x:Name="rootDot" Width="6" Height="6" Fill="{Binding Owner.Color}"
-                                                                                                     VerticalAlignment="Center" Margin="0,0,6,0" Visibility="Collapsed"/>
-                                                                                            <TextBlock x:Name="doneTick" Grid.Column="0" Text="&#xE73E;"
-                                                                                                       FontFamily="{StaticResource IconFont}" FontSize="10"
-                                                                                                       Foreground="{DynamicResource Success}"
-                                                                                                       VerticalAlignment="Center" Margin="0,0,5,0" Visibility="Collapsed"/>
-                                                                                            <TextBlock x:Name="nodeTitle" Grid.Column="1" Text="{Binding DisplayTitle}"
-                                                                                                       FontSize="12" FontWeight="SemiBold"
-                                                                                                       TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
-                                                                                                       Foreground="{DynamicResource TextPrimary}"/>
-                                                                                            <Border Grid.Column="2" Background="{DynamicResource Surface3}" CornerRadius="4"
-                                                                                                    Padding="4,1" Margin="4,0,0,0" VerticalAlignment="Center"
-                                                                                                    Visibility="{Binding HasTasks, Converter={StaticResource BoolToVisible}}">
-                                                                                                <TextBlock Text="{Binding TaskBadgeText}" FontSize="10" FontWeight="Medium"
+                                                                                            <Grid Grid.Row="0">
+                                                                                                <Grid.ColumnDefinitions>
+                                                                                                    <ColumnDefinition Width="Auto"/>
+                                                                                                    <ColumnDefinition Width="*"/>
+                                                                                                    <ColumnDefinition Width="Auto"/>
+                                                                                                </Grid.ColumnDefinitions>
+                                                                                                <Ellipse x:Name="rootDot" Width="6" Height="6" Fill="{Binding Owner.Color}"
+                                                                                                         VerticalAlignment="Center" Margin="0,0,6,0" Visibility="Collapsed"/>
+                                                                                                <TextBlock x:Name="doneTick" Grid.Column="0" Text="&#xE73E;"
+                                                                                                           FontFamily="{StaticResource IconFont}" FontSize="10"
+                                                                                                           Foreground="{DynamicResource Success}"
+                                                                                                           VerticalAlignment="Center" Margin="0,0,5,0" Visibility="Collapsed"/>
+                                                                                                <TextBlock x:Name="nodeTitle" Grid.Column="1" Text="{Binding DisplayTitle}"
+                                                                                                           FontSize="12" FontWeight="SemiBold"
+                                                                                                           TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                                                                                                           Foreground="{DynamicResource TextPrimary}"/>
+                                                                                                <Border Grid.Column="2" Background="{DynamicResource Surface3}" CornerRadius="4"
+                                                                                                        Padding="4,1" Margin="4,0,0,0" VerticalAlignment="Center"
+                                                                                                        Visibility="{Binding HasTasks, Converter={StaticResource BoolToVisible}}">
+                                                                                                    <TextBlock Text="{Binding TaskBadgeText}" FontSize="10" FontWeight="Medium"
+                                                                                                               Foreground="{DynamicResource TextTertiary}"
+                                                                                                               Typography.NumeralAlignment="Tabular"/>
+                                                                                                </Border>
+                                                                                            </Grid>
+                                                                                            <StackPanel x:Name="cardDueRow" Grid.Row="1" Orientation="Horizontal" Margin="0,2,0,0"
+                                                                                                        Visibility="{Binding HasDue, Converter={StaticResource BoolToVisible}}">
+                                                                                                <TextBlock x:Name="cardDueIcon" Text="&#xE787;"
+                                                                                                           FontFamily="{StaticResource IconFont}" FontSize="9.5"
                                                                                                            Foreground="{DynamicResource TextTertiary}"
+                                                                                                           VerticalAlignment="Center" Margin="0,0,4,0"/>
+                                                                                                <TextBlock x:Name="cardDueText" Text="{Binding DueBadgeText}"
+                                                                                                           FontSize="10" FontWeight="Medium"
+                                                                                                           Foreground="{DynamicResource TextTertiary}"
+                                                                                                           VerticalAlignment="Center"
                                                                                                            Typography.NumeralAlignment="Tabular"/>
-                                                                                            </Border>
+                                                                                            </StackPanel>
                                                                                         </Grid>
                                                                                     </Border>
                                                                                     <DataTemplate.Triggers>
                                                                                         <DataTrigger Binding="{Binding IsRoot}" Value="True">
                                                                                             <Setter TargetName="rootDot" Property="Visibility" Value="Visible"/>
                                                                                             <Setter TargetName="nodeBox" Property="BorderBrush" Value="{DynamicResource Accent}"/>
+                                                                                        </DataTrigger>
+                                                                                        <DataTrigger Binding="{Binding IsDueOverdue}" Value="True">
+                                                                                            <Setter TargetName="cardDueIcon" Property="Foreground" Value="{DynamicResource Danger}"/>
+                                                                                            <Setter TargetName="cardDueText" Property="Foreground" Value="{DynamicResource Danger}"/>
                                                                                         </DataTrigger>
                                                                                         <DataTrigger Binding="{Binding IsCompleted}" Value="True">
                                                                                             <Setter TargetName="doneTick" Property="Visibility" Value="Visible"/>
@@ -1448,13 +1470,43 @@
                                                                                 </DataTemplate>
                                                                             </ItemsControl.ItemTemplate>
                                                                         </ItemsControl>
+
+                                                                        <!-- 连线文字说明标签（只读展示，置顶防遮挡） -->
+                                                                        <ItemsControl ItemsSource="{Binding Edges}" IsHitTestVisible="False">
+                                                                            <ItemsControl.ItemsPanel>
+                                                                                <ItemsPanelTemplate>
+                                                                                    <Canvas/>
+                                                                                </ItemsPanelTemplate>
+                                                                            </ItemsControl.ItemsPanel>
+                                                                            <ItemsControl.ItemContainerStyle>
+                                                                                <Style TargetType="ContentPresenter">
+                                                                                    <Setter Property="Canvas.Left" Value="{Binding MidX}"/>
+                                                                                    <Setter Property="Canvas.Top" Value="{Binding MidY}"/>
+                                                                                </Style>
+                                                                            </ItemsControl.ItemContainerStyle>
+                                                                            <ItemsControl.ItemTemplate>
+                                                                                <DataTemplate DataType="{x:Type vm:GoalEdgeVM}">
+                                                                                    <Grid Width="220" Height="40" Margin="-110,-20,0,0" Background="{x:Null}"
+                                                                                          Visibility="{Binding HasLabel, Converter={StaticResource BoolToVisible}}">
+                                                                                        <Border HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                                                                Background="{DynamicResource Surface4}"
+                                                                                                BorderBrush="{DynamicResource BorderStrong}" BorderThickness="1"
+                                                                                                CornerRadius="8" Padding="6,1.5">
+                                                                                            <TextBlock Text="{Binding Label}" FontSize="10.5" FontWeight="Medium"
+                                                                                                       MaxWidth="130" TextTrimming="CharacterEllipsis"
+                                                                                                       Foreground="{DynamicResource TextSecondary}"/>
+                                                                                        </Border>
+                                                                                    </Grid>
+                                                                                </DataTemplate>
+                                                                            </ItemsControl.ItemTemplate>
+                                                                        </ItemsControl>
                                                                     </Canvas>
 
                                                                     <!-- 节点悬停具体信息浮层（固定视口字号，不随画布缩放失真） -->
                                                                     <Canvas>
                                                                         <Border x:Name="goalHoverPopover" Tag="goalhoverpopover"
                                                                                 Canvas.Left="{Binding HoverAnchorX}" Canvas.Top="{Binding HoverAnchorY}"
-                                                                                Width="216" Padding="10,8" CornerRadius="8"
+                                                                                Width="228" Padding="10,8" CornerRadius="8"
                                                                                 Background="{DynamicResource Surface4}"
                                                                                 BorderBrush="{DynamicResource BorderStrong}" BorderThickness="1"
                                                                                 Visibility="{Binding HasHoveredNode, Converter={StaticResource BoolToVisible}}"
@@ -1472,16 +1524,22 @@
                                                                                            Style="{StaticResource Caption}" Margin="0,2,0,6"/>
                                                                                 <StackPanel Orientation="Horizontal">
                                                                                     <Button Style="{StaticResource GhostButton}"
-                                                                                            Padding="7,3" FontSize="11.5" Margin="0,0,6,0"
+                                                                                            Padding="7,3" FontSize="11.5" Margin="0,0,4,0"
                                                                                             Foreground="{DynamicResource Accent}"
                                                                                             Content="{Binding HoveredNode.CompleteActionText}"
                                                                                             Tag="{Binding HoveredNode}"
                                                                                             Click="GoalCardNodeToggleComplete_Click"/>
                                                                                     <Button Style="{StaticResource GhostButton}"
-                                                                                            Padding="7,3" FontSize="11.5"
+                                                                                            Padding="7,3" FontSize="11.5" Margin="0,0,4,0"
                                                                                             Content="查看日程"
                                                                                             Tag="{Binding HoveredNode}"
                                                                                             Click="GoalCardNodeDetail_Click"/>
+                                                                                    <Button Style="{StaticResource GhostButton}"
+                                                                                            Padding="6,3" FontSize="11"
+                                                                                            FontFamily="{StaticResource IconFont}"
+                                                                                            Content="&#xE787;" ToolTip="设置节点截止日期"
+                                                                                            Tag="{Binding HoveredNode}"
+                                                                                            Click="GoalCardNodeSetDue_Click"/>
                                                                                 </StackPanel>
                                                                             </StackPanel>
                                                                         </Border>
@@ -1496,18 +1554,36 @@
                                                                         <TextBlock FontSize="10.5" FontWeight="Medium" Foreground="{DynamicResource TextTertiary}"
                                                                                    Typography.NumeralAlignment="Tabular">
                                                                             <Run Text="{Binding ZoomLabel, Mode=OneWay}"/>
-                                                                            <Run Text=" · 滚轮缩放 · 右键/空格拖拽"/>
+                                                                            <Run Text=" · 拖拽节点 · 滚轮缩放 · 右键/空格拖画布"/>
                                                                         </TextBlock>
                                                                     </Border>
                                                                 </Grid>
                                                             </Border>
                                                         </Grid>
 
-                                                        <!-- 卡片底部：进度 + 标记完成 + 删除 -->
+                                                        <!-- 卡片底部：进度 + 截止日期 + 标记完成 + 删除 -->
                                                         <Grid Grid.Row="2">
-                                                            <TextBlock Text="{Binding ProgressText}"
-                                                                       Style="{StaticResource Caption}"
-                                                                       VerticalAlignment="Center"/>
+                                                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                                                <TextBlock Text="{Binding ProgressText}"
+                                                                           Style="{StaticResource Caption}"
+                                                                           VerticalAlignment="Center"/>
+                                                                <Button Style="{StaticResource GhostButton}"
+                                                                        Padding="6,2" Margin="8,0,0,0"
+                                                                        VerticalAlignment="Center"
+                                                                        ToolTip="设置或修改该目标的截止日期"
+                                                                        Tag="{Binding}" Click="GoalCardSetDue_Click">
+                                                                    <StackPanel Orientation="Horizontal">
+                                                                        <TextBlock x:Name="goalCardDueIcon" Text="&#xE787;"
+                                                                                   FontFamily="{StaticResource IconFont}" FontSize="10"
+                                                                                   Foreground="{DynamicResource TextTertiary}"
+                                                                                   VerticalAlignment="Center" Margin="0,0,4,0"/>
+                                                                        <TextBlock x:Name="goalCardDueLabel" Text="{Binding DueBadgeText}"
+                                                                                   FontSize="11" FontWeight="Medium"
+                                                                                   Foreground="{DynamicResource Accent}"
+                                                                                   VerticalAlignment="Center"/>
+                                                                    </StackPanel>
+                                                                </Button>
+                                                            </StackPanel>
                                                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                                                                 <Button Style="{StaticResource GhostButton}" Content="标记完成"
                                                                         Padding="8,4" Margin="0,0,2,0"
@@ -1521,6 +1597,15 @@
                                                     </Grid>
                                                 </Border>
                                                 <DataTemplate.Triggers>
+                                                    <DataTrigger Binding="{Binding HasDue}" Value="False">
+                                                        <Setter TargetName="goalCardDueLabel" Property="Text" Value="设截止日"/>
+                                                        <Setter TargetName="goalCardDueLabel" Property="Foreground" Value="{DynamicResource TextDisabled}"/>
+                                                        <Setter TargetName="goalCardDueIcon" Property="Foreground" Value="{DynamicResource TextDisabled}"/>
+                                                    </DataTrigger>
+                                                    <DataTrigger Binding="{Binding IsDueOverdue}" Value="True">
+                                                        <Setter TargetName="goalCardDueLabel" Property="Foreground" Value="{DynamicResource Danger}"/>
+                                                        <Setter TargetName="goalCardDueIcon" Property="Foreground" Value="{DynamicResource Danger}"/>
+                                                    </DataTrigger>
                                                     <DataTrigger Binding="{Binding HasSubGoals}" Value="True">
                                                         <Setter TargetName="simpleProgressBar" Property="Visibility" Value="Collapsed"/>
                                                         <Setter TargetName="goalCanvasSection" Property="Visibility" Value="Visible"/>
@@ -2937,77 +3022,153 @@
                             BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="0,0,0,1"
                             Padding="16,10">
                         <StackPanel>
-                            <WrapPanel VerticalAlignment="Center">
-                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,12,4">
+                            <!-- 第一行：当前选中节点名 + 截止日期 + 新建子目标 -->
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+
+                                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
                                     <TextBlock Text="当前节点" Style="{StaticResource Caption}"
                                                VerticalAlignment="Center" Margin="0,0,6,0"/>
                                     <TextBox x:Name="TreeEditorNodeTitleBox" Style="{StaticResource SubtleInput}"
-                                             Width="152" Height="30" VerticalContentAlignment="Center"
+                                             Width="148" Height="30" VerticalContentAlignment="Center"
                                              FontSize="12.5" FontWeight="SemiBold"
                                              IsEnabled="{Binding GoalTreeEditor.CanEditSelected}"
                                              Text="{Binding GoalTreeEditor.SelectedNodeTitle, UpdateSourceTrigger=PropertyChanged}"/>
-                                    <TextBlock Text="{Binding GoalTreeEditor.SelectedKindHint}"
-                                               Style="{StaticResource Caption}"
-                                               VerticalAlignment="Center" Margin="6,0,0,0"/>
+                                    <Border Background="{DynamicResource Surface2}" BorderBrush="{DynamicResource BorderSubtle}"
+                                            BorderThickness="1" CornerRadius="4" Padding="6,2" Margin="6,0,0,0" VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding GoalTreeEditor.SelectedKindHint}"
+                                                   FontSize="11" FontWeight="Medium" Foreground="{DynamicResource TextTertiary}"/>
+                                    </Border>
+
+                                    <Border Width="1" Height="16" Background="{DynamicResource BorderSubtle}" Margin="10,0"/>
+
+                                    <Button Style="{StaticResource GhostButton}"
+                                            Padding="8,5" VerticalAlignment="Center"
+                                            IsEnabled="{Binding GoalTreeEditor.CanEditSelected}"
+                                            ToolTip="为当前选中目标设置可选截止日期"
+                                            Click="TreeEditorDeadline_Click">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock FontFamily="{StaticResource IconFont}" FontSize="11"
+                                                       Text="&#xE787;" VerticalAlignment="Center" Margin="0,0,5,0">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock" BasedOn="{StaticResource BaseText}">
+                                                        <Setter Property="Foreground" Value="{DynamicResource TextTertiary}"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding GoalTreeEditor.SelectedNodeHasDue}" Value="True">
+                                                                <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding GoalTreeEditor.SelectedNodeDueIsOverdue}" Value="True">
+                                                                <Setter Property="Foreground" Value="{DynamicResource Danger}"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                            <TextBlock Text="{Binding GoalTreeEditor.SelectedNodeDueText}"
+                                                       FontSize="12" VerticalAlignment="Center">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock" BasedOn="{StaticResource BaseText}">
+                                                        <Setter Property="Foreground" Value="{DynamicResource TextSecondary}"/>
+                                                        <Setter Property="FontWeight" Value="Medium"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding GoalTreeEditor.SelectedNodeHasDue}" Value="True">
+                                                                <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
+                                                                <Setter Property="FontWeight" Value="SemiBold"/>
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding GoalTreeEditor.SelectedNodeDueIsOverdue}" Value="True">
+                                                                <Setter Property="Foreground" Value="{DynamicResource Danger}"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                        </StackPanel>
+                                    </Button>
+                                    <Button Style="{StaticResource GhostButton}"
+                                            Content="&#xE711;" FontFamily="{StaticResource IconFont}" FontSize="9"
+                                            Padding="5,5" VerticalAlignment="Center"
+                                            Foreground="{DynamicResource TextTertiary}"
+                                            ToolTip="清除当前节点截止日期"
+                                            Visibility="{Binding GoalTreeEditor.SelectedNodeHasDue, Converter={StaticResource BoolToVisible}}"
+                                            Click="TreeEditorClearDeadline_Click"/>
                                 </StackPanel>
 
-                                <Grid Width="130" Height="30" Margin="0,0,6,4">
-                                    <TextBox x:Name="TreeEditorNewNodeBox" Style="{StaticResource SubtleInput}" Height="30"
-                                             VerticalContentAlignment="Center"
-                                             Text="{Binding GoalTreeEditor.NewNodeTitle, UpdateSourceTrigger=PropertyChanged}"/>
-                                    <TextBlock Text="新子目标名(选填)" IsHitTestVisible="False"
-                                               FontSize="11.5" FontWeight="Medium" Margin="8,0,0,0"
-                                               VerticalAlignment="Center" Foreground="{DynamicResource TextDisabled}"
-                                               Visibility="{Binding Text, ElementName=TreeEditorNewNodeBox, UpdateSourceTrigger=PropertyChanged, Converter={StaticResource EmptyToVisible}}"/>
-                                </Grid>
+                                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <Button Style="{StaticResource GhostButton}" Content="+ 归属子目标"
+                                            Padding="9,5" Margin="0,0,4,0"
+                                            ToolTip="在当前节点下新增归属关系子目标（实线），创建后可在卡片上直接输入名称"
+                                            Click="TreeEditorAddBelong_Click"/>
+                                    <Button Style="{StaticResource GhostButton}" Content="+ 并列子目标"
+                                            Padding="9,5" Margin="0,0,4,0"
+                                            IsEnabled="{Binding GoalTreeEditor.CanAddSibling}"
+                                            ToolTipService.ShowOnDisabled="True"
+                                            ToolTip="{Binding GoalTreeEditor.SiblingButtonToolTip}"
+                                            Click="TreeEditorAddSibling_Click"/>
+                                    <Button Style="{StaticResource GhostButton}" Content="+ 递进子目标"
+                                            Padding="9,5"
+                                            ToolTip="在当前节点后新增递进步骤子目标（虚线箭头），创建后可在卡片上直接输入名称"
+                                            Click="TreeEditorAddProgress_Click"/>
+                                </StackPanel>
+                            </Grid>
 
-                                <Button Style="{StaticResource GhostButton}" Content="+ 归属子目标"
-                                        Padding="8,5" Margin="0,0,4,4"
-                                        ToolTip="在当前节点下新增归属关系子目标（实线）"
-                                        Click="TreeEditorAddBelong_Click"/>
-                                <Button Style="{StaticResource GhostButton}" Content="+ 并列子目标"
-                                        Padding="8,5" Margin="0,0,4,4"
-                                        IsEnabled="{Binding GoalTreeEditor.CanAddSibling}"
-                                        ToolTip="与当前子目标共享同一父节点，新增并列子目标"
-                                        Click="TreeEditorAddSibling_Click"/>
-                                <Button Style="{StaticResource GhostButton}" Content="+ 递进子目标"
-                                        Padding="8,5" Margin="0,0,8,4"
-                                        ToolTip="在当前节点后新增递进步骤子目标（虚线箭头）"
-                                        Click="TreeEditorAddProgress_Click"/>
+                            <!-- 第二行：快捷连线 / 自动排版 / 删除节点 / 缩放 -->
+                            <Grid Margin="0,7,0,0">
+                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                    <ToggleButton Style="{StaticResource FlagChip}" Content="连线(归属)"
+                                                  Padding="8,4" Margin="0,0,4,0"
+                                                  IsChecked="{Binding GoalTreeEditor.IsLinkingBelong, Mode=OneWay}"
+                                                  ToolTip="点击后点选另一个子目标建立归属连线（也可直接从卡片四边圆点拖出连线）"
+                                                  Click="TreeEditorLinkBelong_Click"/>
+                                    <ToggleButton Style="{StaticResource FlagChip}" Content="连线(递进)"
+                                                  Padding="8,4" Margin="0,0,8,0"
+                                                  IsChecked="{Binding GoalTreeEditor.IsLinkingProgress, Mode=OneWay}"
+                                                  ToolTip="点击后点选另一个子目标建立递进连线（也可直接从卡片四边圆点拖出连线）"
+                                                  Click="TreeEditorLinkProgress_Click"/>
 
-                                <ToggleButton Style="{StaticResource FlagChip}" Content="连线(归属)"
-                                              Padding="8,4" Margin="0,0,4,4"
-                                              IsChecked="{Binding GoalTreeEditor.IsLinkingBelong, Mode=OneWay}"
-                                              ToolTip="点选画布上另一个已有子目标建立归属关系（形成共有子目标）"
-                                              Click="TreeEditorLinkBelong_Click"/>
-                                <ToggleButton Style="{StaticResource FlagChip}" Content="连线(递进)"
-                                              Padding="8,4" Margin="0,0,8,4"
-                                              IsChecked="{Binding GoalTreeEditor.IsLinkingProgress, Mode=OneWay}"
-                                              ToolTip="点选画布上另一个已有子目标建立递进关系（形成共有下游节点）"
-                                              Click="TreeEditorLinkProgress_Click"/>
+                                    <Border Width="1" Height="15" Background="{DynamicResource BorderSubtle}" Margin="0,0,8,0"/>
 
-                                <Button Style="{StaticResource GhostButton}" Content="自动排版"
-                                        Padding="8,5" Margin="0,0,4,4"
-                                        Click="TreeEditorAutoLayout_Click"/>
-                                <Button Style="{StaticResource GhostButton}" Content="删除节点"
-                                        Padding="8,5" Margin="0,0,0,4"
-                                        Foreground="{DynamicResource Danger}"
-                                        IsEnabled="{Binding GoalTreeEditor.CanDeleteSelected}"
-                                        Click="TreeEditorDeleteNode_Click"/>
-                            </WrapPanel>
+                                    <Button Style="{StaticResource GhostButton}" Content="自动排版"
+                                            Padding="8,4" Margin="0,0,4,0"
+                                            ToolTip="按层级重新排列所有卡片位置"
+                                            Click="TreeEditorAutoLayout_Click"/>
+                                    <Button Style="{StaticResource GhostButton}" Content="删除节点"
+                                            Padding="8,4"
+                                            Foreground="{DynamicResource Danger}"
+                                            IsEnabled="{Binding GoalTreeEditor.CanDeleteSelected}"
+                                            ToolTipService.ShowOnDisabled="True"
+                                            ToolTip="{Binding GoalTreeEditor.DeleteButtonToolTip}"
+                                            Click="TreeEditorDeleteNode_Click"/>
+                                </StackPanel>
 
-                            <Grid Margin="0,4,0,0">
-                                <TextBlock x:Name="treeEditorHintText" Text="{Binding GoalTreeEditor.LinkHint}"
-                                           Style="{StaticResource Caption}" VerticalAlignment="Center"/>
-                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
                                     <TextBlock Text="{Binding GoalTreeEditor.ZoomLabel}" Style="{StaticResource Caption}"
                                                VerticalAlignment="Center" Margin="0,0,6,0"
                                                Typography.NumeralAlignment="Tabular"/>
                                     <Button Style="{StaticResource GhostButton}" Content="重置视图"
-                                            Padding="7,2" FontSize="11"
+                                            Padding="7,3" FontSize="11"
                                             Click="TreeEditorResetView_Click"/>
                                 </StackPanel>
                             </Grid>
+
+                            <TextBlock x:Name="treeEditorHintText" Text="{Binding GoalTreeEditor.LinkHint}"
+                                       Margin="0,6,0,0" VerticalAlignment="Center">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock" BasedOn="{StaticResource Caption}">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding GoalTreeEditor.IsDragConnecting}" Value="True">
+                                                <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding GoalTreeEditor.IsLinking}" Value="True">
+                                                <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
                         </StackPanel>
                     </Border>
 
@@ -3019,7 +3180,7 @@
                                 <Border Width="18" Height="2" Background="{DynamicResource BorderStrong}" VerticalAlignment="Center" Margin="0,0,6,0"/>
                                 <TextBlock Text="归属/并列" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="0,0,14,0"/>
                                 <Border Width="18" Height="2" Background="{DynamicResource Accent}" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                                <TextBlock Text="递进(箭头) · 多线汇聚=共有子目标" Style="{StaticResource Caption}" VerticalAlignment="Center"/>
+                                <TextBlock Text="递进(箭头) · 悬停卡片四边拖出连线 · 悬停连线加说明或删除" Style="{StaticResource Caption}" VerticalAlignment="Center"/>
                             </StackPanel>
                             <Button Style="{StaticResource PrimaryButton}" Content="完成"
                                     Padding="16,6" HorizontalAlignment="Right"
@@ -3031,94 +3192,363 @@
                     <Border x:Name="TreeEditorViewport" Background="{DynamicResource Surface1}"
                             ClipToBounds="True" Cursor="Arrow"
                             PreviewMouseWheel="TreeEditorViewport_PreviewMouseWheel">
-                        <Canvas Width="{Binding GoalTreeEditor.Goal.CanvasWidth}"
-                                Height="{Binding GoalTreeEditor.Goal.CanvasHeight}"
-                                HorizontalAlignment="Left" VerticalAlignment="Top">
-                            <Canvas.RenderTransform>
-                                <TransformGroup>
-                                    <ScaleTransform ScaleX="{Binding GoalTreeEditor.Zoom}" ScaleY="{Binding GoalTreeEditor.Zoom}"/>
-                                    <TranslateTransform X="{Binding GoalTreeEditor.PanX}" Y="{Binding GoalTreeEditor.PanY}"/>
-                                </TransformGroup>
-                            </Canvas.RenderTransform>
+                        <Grid>
+                            <Canvas x:Name="TreeEditorCanvas"
+                                    Width="{Binding GoalTreeEditor.Goal.CanvasWidth}"
+                                    Height="{Binding GoalTreeEditor.Goal.CanvasHeight}"
+                                    HorizontalAlignment="Left" VerticalAlignment="Top">
+                                <Canvas.RenderTransform>
+                                    <TransformGroup>
+                                        <ScaleTransform ScaleX="{Binding GoalTreeEditor.Zoom}" ScaleY="{Binding GoalTreeEditor.Zoom}"/>
+                                        <TranslateTransform X="{Binding GoalTreeEditor.PanX}" Y="{Binding GoalTreeEditor.PanY}"/>
+                                    </TransformGroup>
+                                </Canvas.RenderTransform>
 
-                            <ItemsControl ItemsSource="{Binding GoalTreeEditor.Goal.Edges}" IsHitTestVisible="False">
-                                <ItemsControl.ItemsPanel>
-                                    <ItemsPanelTemplate>
-                                        <Canvas/>
-                                    </ItemsPanelTemplate>
-                                </ItemsControl.ItemsPanel>
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate DataType="{x:Type vm:GoalEdgeVM}">
-                                        <Canvas>
-                                            <Path x:Name="edLine" Data="{Binding LineGeometry}"
-                                                  Stroke="{DynamicResource BorderStrong}" StrokeThickness="1.6"/>
-                                            <Path x:Name="edArrow" Data="{Binding ArrowGeometry}"
-                                                  Fill="{DynamicResource Accent}" Visibility="Collapsed"/>
-                                        </Canvas>
-                                        <DataTemplate.Triggers>
-                                            <DataTrigger Binding="{Binding IsProgress}" Value="True">
-                                                <Setter TargetName="edLine" Property="Stroke" Value="{DynamicResource Accent}"/>
-                                                <Setter TargetName="edLine" Property="StrokeDashArray" Value="4 2"/>
-                                                <Setter TargetName="edArrow" Property="Visibility" Value="Visible"/>
-                                            </DataTrigger>
-                                        </DataTemplate.Triggers>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
+                                <!-- 1. 连线层（含透明宽命中热区 + 实虚线/箭头） -->
+                                <ItemsControl ItemsSource="{Binding GoalTreeEditor.Goal.Edges}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <Canvas/>
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate DataType="{x:Type vm:GoalEdgeVM}">
+                                            <Canvas>
+                                                <Path x:Name="edHit" Tag="treeedgehit"
+                                                      Data="{Binding LineGeometry}"
+                                                      Stroke="Transparent" StrokeThickness="16"
+                                                      Cursor="Hand"
+                                                      MouseEnter="TreeEdgeHit_MouseEnter"
+                                                      MouseLeave="TreeEdgeHit_MouseLeave"/>
+                                                <Path x:Name="edLine" Data="{Binding LineGeometry}"
+                                                      Stroke="{DynamicResource BorderStrong}" StrokeThickness="1.7"
+                                                      IsHitTestVisible="False"/>
+                                                <Path x:Name="edArrow" Data="{Binding ArrowGeometry}"
+                                                      Fill="{DynamicResource Accent}" Visibility="Collapsed"
+                                                      IsHitTestVisible="False"/>
+                                            </Canvas>
+                                            <DataTemplate.Triggers>
+                                                <DataTrigger Binding="{Binding IsProgress}" Value="True">
+                                                    <Setter TargetName="edLine" Property="Stroke" Value="{DynamicResource Accent}"/>
+                                                    <Setter TargetName="edLine" Property="StrokeDashArray" Value="4 2"/>
+                                                    <Setter TargetName="edArrow" Property="Visibility" Value="Visible"/>
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding IsHovered}" Value="True">
+                                                    <Setter TargetName="edLine" Property="Stroke" Value="{DynamicResource AccentHover}"/>
+                                                    <Setter TargetName="edLine" Property="StrokeThickness" Value="2.6"/>
+                                                    <Setter TargetName="edArrow" Property="Fill" Value="{DynamicResource AccentHover}"/>
+                                                </DataTrigger>
+                                            </DataTemplate.Triggers>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
 
-                            <ItemsControl ItemsSource="{Binding GoalTreeEditor.Goal.AllCanvasNodes}">
-                                <ItemsControl.ItemsPanel>
-                                    <ItemsPanelTemplate>
-                                        <Canvas/>
-                                    </ItemsPanelTemplate>
-                                </ItemsControl.ItemsPanel>
-                                <ItemsControl.ItemContainerStyle>
-                                    <Style TargetType="ContentPresenter">
-                                        <Setter Property="Canvas.Left" Value="{Binding X}"/>
-                                        <Setter Property="Canvas.Top" Value="{Binding Y}"/>
-                                    </Style>
-                                </ItemsControl.ItemContainerStyle>
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate DataType="{x:Type vm:GoalNodeVM}">
-                                        <Border x:Name="editorNodeBox" Tag="treeeditornode"
-                                                Width="{Binding Width}" Height="{Binding Height}"
-                                                Background="{DynamicResource Surface2}"
-                                                BorderBrush="{DynamicResource BorderStrong}" BorderThickness="1"
-                                                CornerRadius="6" Padding="8,4" Cursor="Hand">
-                                            <Grid>
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="Auto"/>
-                                                    <ColumnDefinition Width="*"/>
-                                                </Grid.ColumnDefinitions>
-                                                <Border x:Name="editorNodeTint" Grid.ColumnSpan="2"
-                                                        CornerRadius="5" Margin="-8,-4"
-                                                        Background="Transparent" IsHitTestVisible="False"/>
-                                                <Ellipse x:Name="edRootDot" Width="6" Height="6" Fill="{Binding Owner.Color}"
-                                                         VerticalAlignment="Center" Margin="0,0,6,0" Visibility="Collapsed"/>
-                                                <TextBlock Grid.Column="1" Text="{Binding DisplayTitle}"
-                                                           FontSize="12" FontWeight="SemiBold"
-                                                           TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
-                                                           Foreground="{DynamicResource TextPrimary}"/>
+                                <!-- 2. 四边拖拽连线实时预览曲线 -->
+                                <Canvas IsHitTestVisible="False"
+                                        Visibility="{Binding GoalTreeEditor.IsDragConnecting, Converter={StaticResource BoolToVisible}}">
+                                    <Path Data="{Binding GoalTreeEditor.DragConnectGeometry}"
+                                          Stroke="{DynamicResource Accent}" StrokeThickness="2" StrokeDashArray="4 2"/>
+                                    <Path Data="{Binding GoalTreeEditor.DragConnectArrowGeometry}"
+                                          Fill="{DynamicResource Accent}"/>
+                                </Canvas>
+
+                                <!-- 3. 节点层（支持自由拖动、就地编辑标题、截止日期展示、draw.io 四边悬停圆点） -->
+                                <ItemsControl ItemsSource="{Binding GoalTreeEditor.Goal.AllCanvasNodes}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <Canvas/>
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemContainerStyle>
+                                        <Style TargetType="ContentPresenter">
+                                            <Setter Property="Canvas.Left" Value="{Binding X}"/>
+                                            <Setter Property="Canvas.Top" Value="{Binding Y}"/>
+                                        </Style>
+                                    </ItemsControl.ItemContainerStyle>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate DataType="{x:Type vm:GoalNodeVM}">
+                                            <Grid Width="{Binding Width}" Height="{Binding Height}" ClipToBounds="False"
+                                                  MouseEnter="TreeEditorNode_MouseEnter"
+                                                  MouseLeave="TreeEditorNode_MouseLeave">
+                                                <!-- 外扩 7px 透明悬停缓冲区：鼠标从卡片边缘移到 4 边圆点时不会断掉悬停 -->
+                                                <Border Margin="-7" Background="Transparent"/>
+
+                                                <Border x:Name="editorNodeBox" Tag="treeeditornode"
+                                                        Width="{Binding Width}" Height="{Binding Height}"
+                                                        Background="{DynamicResource Surface2}"
+                                                        BorderBrush="{DynamicResource BorderStrong}" BorderThickness="1"
+                                                        CornerRadius="6" Padding="8,5" Cursor="Hand">
+                                                    <Grid>
+                                                        <Grid.RowDefinitions>
+                                                            <RowDefinition Height="*"/>
+                                                            <RowDefinition Height="Auto"/>
+                                                        </Grid.RowDefinitions>
+
+                                                        <Border x:Name="editorNodeTint" Grid.RowSpan="2"
+                                                                CornerRadius="5" Margin="-8,-5"
+                                                                Background="Transparent" IsHitTestVisible="False"/>
+
+                                                        <Grid Grid.Row="0">
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="Auto"/>
+                                                                <ColumnDefinition Width="*"/>
+                                                            </Grid.ColumnDefinitions>
+                                                            <Ellipse x:Name="edRootDot" Width="6" Height="6" Fill="{Binding Owner.Color}"
+                                                                     VerticalAlignment="Center" Margin="0,0,6,0" Visibility="Collapsed"/>
+                                                            <TextBlock x:Name="edNodeTitle" Grid.Column="1" Text="{Binding DisplayTitle}"
+                                                                       FontSize="12" FontWeight="SemiBold"
+                                                                       TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                                                                       Foreground="{DynamicResource TextPrimary}"/>
+                                                            <Border x:Name="edInlineTitleWrap" Grid.Column="1"
+                                                                    Background="{DynamicResource Surface3}"
+                                                                    BorderBrush="{DynamicResource Accent}" BorderThickness="1"
+                                                                    CornerRadius="4" Padding="5,2" Visibility="Collapsed">
+                                                                <TextBox x:Name="edInlineTitleBox"
+                                                                         Style="{StaticResource TitleEditor}"
+                                                                         FontSize="12" FontWeight="SemiBold"
+                                                                         VerticalAlignment="Center"
+                                                                         Text="{Binding Title, UpdateSourceTrigger=PropertyChanged}"
+                                                                         KeyDown="TreeEditorInlineBox_KeyDown"
+                                                                         LostFocus="TreeEditorInlineBox_LostFocus"
+                                                                         IsVisibleChanged="TreeEditorInlineBox_IsVisibleChanged"/>
+                                                            </Border>
+                                                        </Grid>
+
+                                                        <StackPanel x:Name="edDueRow" Grid.Row="1" Orientation="Horizontal" Margin="0,2,0,0"
+                                                                    Visibility="{Binding HasDue, Converter={StaticResource BoolToVisible}}">
+                                                            <TextBlock x:Name="edDueIcon" Text="&#xE787;"
+                                                                       FontFamily="{StaticResource IconFont}" FontSize="9.5"
+                                                                       Foreground="{DynamicResource TextTertiary}"
+                                                                       VerticalAlignment="Center" Margin="0,0,4,0"/>
+                                                            <TextBlock x:Name="edDueText" Text="{Binding DueBadgeText}"
+                                                                       FontSize="10" FontWeight="Medium"
+                                                                       Foreground="{DynamicResource TextTertiary}"
+                                                                       VerticalAlignment="Center"
+                                                                       Typography.NumeralAlignment="Tabular"/>
+                                                        </StackPanel>
+                                                    </Grid>
+                                                </Border>
+
+                                                <!-- 四条边中点连线锚点（draw.io 风格：悬停节点或拖近目标时浮现） -->
+                                                <Border x:Name="portTop" Tag="nodeport" Uid="Top"
+                                                        Width="14" Height="14" Background="Transparent" Cursor="Cross"
+                                                        HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,-7,0,0"
+                                                        Visibility="Collapsed" ToolTip="按住拖向其它目标或空白处连线">
+                                                    <Ellipse Width="9" Height="9" Fill="{DynamicResource Surface4}"
+                                                             Stroke="{DynamicResource Accent}" StrokeThickness="1.8"/>
+                                                </Border>
+                                                <Border x:Name="portRight" Tag="nodeport" Uid="Right"
+                                                        Width="14" Height="14" Background="Transparent" Cursor="Cross"
+                                                        HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,-7,0"
+                                                        Visibility="Collapsed" ToolTip="按住拖向其它目标或空白处连线">
+                                                    <Ellipse Width="9" Height="9" Fill="{DynamicResource Surface4}"
+                                                             Stroke="{DynamicResource Accent}" StrokeThickness="1.8"/>
+                                                </Border>
+                                                <Border x:Name="portBottom" Tag="nodeport" Uid="Bottom"
+                                                        Width="14" Height="14" Background="Transparent" Cursor="Cross"
+                                                        HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,-7"
+                                                        Visibility="Collapsed" ToolTip="按住拖向其它目标或空白处连线">
+                                                    <Ellipse Width="9" Height="9" Fill="{DynamicResource Surface4}"
+                                                             Stroke="{DynamicResource Accent}" StrokeThickness="1.8"/>
+                                                </Border>
+                                                <Border x:Name="portLeft" Tag="nodeport" Uid="Left"
+                                                        Width="14" Height="14" Background="Transparent" Cursor="Cross"
+                                                        HorizontalAlignment="Left" VerticalAlignment="Center" Margin="-7,0,0,0"
+                                                        Visibility="Collapsed" ToolTip="按住拖向其它目标或空白处连线">
+                                                    <Ellipse Width="9" Height="9" Fill="{DynamicResource Surface4}"
+                                                             Stroke="{DynamicResource Accent}" StrokeThickness="1.8"/>
+                                                </Border>
                                             </Grid>
-                                        </Border>
-                                        <DataTemplate.Triggers>
-                                            <DataTrigger Binding="{Binding IsRoot}" Value="True">
-                                                <Setter TargetName="edRootDot" Property="Visibility" Value="Visible"/>
-                                            </DataTrigger>
-                                            <DataTrigger Binding="{Binding IsSelectedInEditor}" Value="True">
-                                                <Setter TargetName="editorNodeBox" Property="BorderBrush" Value="{DynamicResource Accent}"/>
-                                                <Setter TargetName="editorNodeBox" Property="BorderThickness" Value="1.5"/>
-                                                <Setter TargetName="editorNodeTint" Property="Background" Value="{DynamicResource AccentTint}"/>
-                                            </DataTrigger>
-                                            <DataTrigger Binding="{Binding IsLinkSource}" Value="True">
-                                                <Setter TargetName="editorNodeBox" Property="BorderBrush" Value="{DynamicResource Warning}"/>
-                                                <Setter TargetName="editorNodeTint" Property="Background" Value="{DynamicResource WarningTint}"/>
-                                            </DataTrigger>
-                                        </DataTemplate.Triggers>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                        </Canvas>
+                                            <DataTemplate.Triggers>
+                                                <DataTrigger Binding="{Binding IsRoot}" Value="True">
+                                                    <Setter TargetName="edRootDot" Property="Visibility" Value="Visible"/>
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding IsDueOverdue}" Value="True">
+                                                    <Setter TargetName="edDueIcon" Property="Foreground" Value="{DynamicResource Danger}"/>
+                                                    <Setter TargetName="edDueText" Property="Foreground" Value="{DynamicResource Danger}"/>
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding IsSelectedInEditor}" Value="True">
+                                                    <Setter TargetName="editorNodeBox" Property="BorderBrush" Value="{DynamicResource Accent}"/>
+                                                    <Setter TargetName="editorNodeBox" Property="BorderThickness" Value="1.5"/>
+                                                    <Setter TargetName="editorNodeTint" Property="Background" Value="{DynamicResource AccentTint}"/>
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding IsLinkSource}" Value="True">
+                                                    <Setter TargetName="editorNodeBox" Property="BorderBrush" Value="{DynamicResource Warning}"/>
+                                                    <Setter TargetName="editorNodeTint" Property="Background" Value="{DynamicResource WarningTint}"/>
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding IsLinkTargetHighlight}" Value="True">
+                                                    <Setter TargetName="editorNodeBox" Property="BorderBrush" Value="{DynamicResource AccentHover}"/>
+                                                    <Setter TargetName="editorNodeBox" Property="BorderThickness" Value="2"/>
+                                                    <Setter TargetName="portTop" Property="Visibility" Value="Visible"/>
+                                                    <Setter TargetName="portRight" Property="Visibility" Value="Visible"/>
+                                                    <Setter TargetName="portBottom" Property="Visibility" Value="Visible"/>
+                                                    <Setter TargetName="portLeft" Property="Visibility" Value="Visible"/>
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding IsEditorHovered}" Value="True">
+                                                    <Setter TargetName="portTop" Property="Visibility" Value="Visible"/>
+                                                    <Setter TargetName="portRight" Property="Visibility" Value="Visible"/>
+                                                    <Setter TargetName="portBottom" Property="Visibility" Value="Visible"/>
+                                                    <Setter TargetName="portLeft" Property="Visibility" Value="Visible"/>
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding IsEditingInline}" Value="True">
+                                                    <Setter TargetName="edNodeTitle" Property="Visibility" Value="Collapsed"/>
+                                                    <Setter TargetName="edInlineTitleWrap" Property="Visibility" Value="Visible"/>
+                                                    <Setter TargetName="editorNodeBox" Property="BorderBrush" Value="{DynamicResource Accent}"/>
+                                                    <Setter TargetName="editorNodeBox" Property="BorderThickness" Value="1.8"/>
+                                                    <Setter TargetName="editorNodeBox" Property="Cursor" Value="IBeam"/>
+                                                    <Setter TargetName="portTop" Property="Visibility" Value="Collapsed"/>
+                                                    <Setter TargetName="portRight" Property="Visibility" Value="Collapsed"/>
+                                                    <Setter TargetName="portBottom" Property="Visibility" Value="Collapsed"/>
+                                                    <Setter TargetName="portLeft" Property="Visibility" Value="Collapsed"/>
+                                                </DataTrigger>
+                                            </DataTemplate.Triggers>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+
+                                <!-- 4. 连线文字说明胶囊 & 悬停「+ / 垃圾桶」操作条（置顶防被卡片遮挡） -->
+                                <ItemsControl ItemsSource="{Binding GoalTreeEditor.Goal.Edges}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <Canvas/>
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemContainerStyle>
+                                        <Style TargetType="ContentPresenter">
+                                            <Setter Property="Canvas.Left" Value="{Binding MidX}"/>
+                                            <Setter Property="Canvas.Top" Value="{Binding MidY}"/>
+                                        </Style>
+                                    </ItemsControl.ItemContainerStyle>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate DataType="{x:Type vm:GoalEdgeVM}">
+                                            <Grid Width="260" Height="64" Margin="-130,-32,0,0" Background="{x:Null}">
+                                                <Border x:Name="edgeMidPill" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                        Visibility="{Binding ShowOverlay, Converter={StaticResource BoolToVisible}}"
+                                                        Background="{DynamicResource Surface4}"
+                                                        BorderBrush="{DynamicResource BorderStrong}" BorderThickness="1"
+                                                        CornerRadius="10" Padding="5,2.5"
+                                                        MouseEnter="TreeEdgeOverlay_MouseEnter"
+                                                        MouseLeave="TreeEdgeOverlay_MouseLeave">
+                                                    <Border.Effect>
+                                                        <DropShadowEffect Color="Black" BlurRadius="8" ShadowDepth="2" Direction="270" Opacity="0.14"/>
+                                                    </Border.Effect>
+                                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                                        <TextBlock x:Name="edgeLabelText" Text="{Binding Label}"
+                                                                   FontSize="11" FontWeight="Medium"
+                                                                   MaxWidth="136" TextTrimming="CharacterEllipsis"
+                                                                   Foreground="{DynamicResource TextPrimary}"
+                                                                   VerticalAlignment="Center" Margin="3,0,4,0"
+                                                                   Visibility="Collapsed"/>
+                                                        <TextBox x:Name="edgeLabelBox" Style="{StaticResource SubtleInput}"
+                                                                 Width="122" Height="24" FontSize="11"
+                                                                 VerticalContentAlignment="Center"
+                                                                 Text="{Binding Label, UpdateSourceTrigger=PropertyChanged}"
+                                                                 Visibility="Collapsed"
+                                                                 KeyDown="TreeEdgeLabelBox_KeyDown"
+                                                                 LostFocus="TreeEdgeLabelBox_LostFocus"
+                                                                 IsVisibleChanged="TreeEdgeLabelBox_IsVisibleChanged"/>
+                                                        <Button x:Name="edgeAddBtn" Style="{StaticResource GhostButton}"
+                                                                Padding="4,2" Margin="0,0,2,0"
+                                                                FontFamily="{StaticResource IconFont}" FontSize="10"
+                                                                Content="&#xE710;"
+                                                                Foreground="{DynamicResource Accent}"
+                                                                ToolTip="添加或编辑该连线的文字说明"
+                                                                Visibility="Collapsed"
+                                                                Tag="{Binding}" Click="TreeEdgeAddNote_Click"/>
+                                                        <Button x:Name="edgeDelBtn" Style="{StaticResource GhostButton}"
+                                                                Padding="4,2"
+                                                                FontFamily="{StaticResource IconFont}" FontSize="10"
+                                                                Content="&#xE74D;"
+                                                                Foreground="{DynamicResource Danger}"
+                                                                ToolTip="删除该连线及其文字说明"
+                                                                Visibility="Collapsed"
+                                                                Tag="{Binding}" Click="TreeEdgeDelete_Click"/>
+                                                    </StackPanel>
+                                                </Border>
+                                            </Grid>
+                                            <DataTemplate.Triggers>
+                                                <MultiDataTrigger>
+                                                    <MultiDataTrigger.Conditions>
+                                                        <Condition Binding="{Binding HasLabel}" Value="True"/>
+                                                        <Condition Binding="{Binding IsEditingLabel}" Value="False"/>
+                                                    </MultiDataTrigger.Conditions>
+                                                    <Setter TargetName="edgeLabelText" Property="Visibility" Value="Visible"/>
+                                                </MultiDataTrigger>
+                                                <DataTrigger Binding="{Binding IsEditingLabel}" Value="True">
+                                                    <Setter TargetName="edgeLabelBox" Property="Visibility" Value="Visible"/>
+                                                    <Setter TargetName="edgeMidPill" Property="BorderBrush" Value="{DynamicResource Accent}"/>
+                                                </DataTrigger>
+                                                <MultiDataTrigger>
+                                                    <MultiDataTrigger.Conditions>
+                                                        <Condition Binding="{Binding IsHovered}" Value="True"/>
+                                                        <Condition Binding="{Binding IsEditingLabel}" Value="False"/>
+                                                    </MultiDataTrigger.Conditions>
+                                                    <Setter TargetName="edgeAddBtn" Property="Visibility" Value="Visible"/>
+                                                    <Setter TargetName="edgeDelBtn" Property="Visibility" Value="Visible"/>
+                                                    <Setter TargetName="edgeMidPill" Property="BorderBrush" Value="{DynamicResource Accent}"/>
+                                                </MultiDataTrigger>
+                                            </DataTemplate.Triggers>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </Canvas>
+
+                            <!-- 四边拖出连线松手后的「归属 / 递进」选择浮层 -->
+                            <Canvas Visibility="{Binding GoalTreeEditor.IsConnectMenuOpen, Converter={StaticResource BoolToVisible}}">
+                                <Border x:Name="TreeEditorConnectMenu"
+                                        Canvas.Left="{Binding GoalTreeEditor.ConnectMenuX}"
+                                        Canvas.Top="{Binding GoalTreeEditor.ConnectMenuY}"
+                                        Width="196" Padding="8" CornerRadius="8"
+                                        Background="{DynamicResource Surface4}"
+                                        BorderBrush="{DynamicResource BorderStrong}" BorderThickness="1">
+                                    <Border.Effect>
+                                        <DropShadowEffect Color="Black" BlurRadius="16" ShadowDepth="4" Direction="270" Opacity="0.24"/>
+                                    </Border.Effect>
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding GoalTreeEditor.ConnectMenuHeader}"
+                                                   Style="{StaticResource Caption}" Margin="4,0,4,6"/>
+                                        <Button Style="{StaticResource GhostButton}"
+                                                HorizontalContentAlignment="Left" Padding="8,6" Margin="0,0,0,2"
+                                                Click="TreeEditorConnectBelong_Click">
+                                            <StackPanel Orientation="Horizontal">
+                                                <Border Width="14" Height="2" Background="{DynamicResource BorderStrong}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                                <TextBlock FontSize="12" VerticalAlignment="Center">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock" BasedOn="{StaticResource BaseText}">
+                                                            <Setter Property="Text" Value="在此新建归属子目标"/>
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding GoalTreeEditor.ConnectMenuHasTargetNode}" Value="True">
+                                                                    <Setter Property="Text" Value="归属连线（实线）"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+                                            </StackPanel>
+                                        </Button>
+                                        <Button Style="{StaticResource GhostButton}"
+                                                HorizontalContentAlignment="Left" Padding="8,6"
+                                                Click="TreeEditorConnectProgress_Click">
+                                            <StackPanel Orientation="Horizontal">
+                                                <Border Width="14" Height="2" Background="{DynamicResource Accent}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                                <TextBlock FontSize="12" VerticalAlignment="Center" Foreground="{DynamicResource Accent}">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock" BasedOn="{StaticResource BaseText}">
+                                                            <Setter Property="Text" Value="在此新建递进子目标"/>
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding GoalTreeEditor.ConnectMenuHasTargetNode}" Value="True">
+                                                                    <Setter Property="Text" Value="递进连线（虚线箭头）"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+                                            </StackPanel>
+                                        </Button>
+                                    </StackPanel>
+                                </Border>
+                            </Canvas>
+                        </Grid>
                     </Border>
                 </DockPanel>
             </Border>
@@ -3251,31 +3681,53 @@
                                                 Width="{Binding Width}" Height="{Binding Height}"
                                                 Background="{DynamicResource Surface2}"
                                                 BorderBrush="{DynamicResource BorderStrong}" BorderThickness="1"
-                                                CornerRadius="6" Padding="8,4" Cursor="Hand">
+                                                CornerRadius="6" Padding="8,5" Cursor="Hand">
                                             <Grid>
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="Auto"/>
-                                                    <ColumnDefinition Width="*"/>
-                                                    <ColumnDefinition Width="Auto"/>
-                                                </Grid.ColumnDefinitions>
-                                                <Border x:Name="pickerNodeTint" Grid.ColumnSpan="3"
-                                                        CornerRadius="5" Margin="-8,-4"
+                                                <Grid.RowDefinitions>
+                                                    <RowDefinition Height="*"/>
+                                                    <RowDefinition Height="Auto"/>
+                                                </Grid.RowDefinitions>
+                                                <Border x:Name="pickerNodeTint" Grid.RowSpan="2"
+                                                        CornerRadius="5" Margin="-8,-5"
                                                         Background="Transparent" IsHitTestVisible="False"/>
-                                                <Ellipse x:Name="pkRootDot" Width="6" Height="6" Fill="{Binding Owner.Color}"
-                                                         VerticalAlignment="Center" Margin="0,0,6,0" Visibility="Collapsed"/>
-                                                <TextBlock Grid.Column="1" Text="{Binding DisplayTitle}"
-                                                           FontSize="12" FontWeight="SemiBold"
-                                                           TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
-                                                           Foreground="{DynamicResource TextPrimary}"/>
-                                                <TextBlock x:Name="pkTick" Grid.Column="2" Text="&#xE73E;"
-                                                           FontFamily="{StaticResource IconFont}" FontSize="10.5"
-                                                           Foreground="{DynamicResource Accent}"
-                                                           VerticalAlignment="Center" Margin="4,0,0,0" Visibility="Collapsed"/>
+                                                <Grid Grid.Row="0">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <Ellipse x:Name="pkRootDot" Width="6" Height="6" Fill="{Binding Owner.Color}"
+                                                             VerticalAlignment="Center" Margin="0,0,6,0" Visibility="Collapsed"/>
+                                                    <TextBlock Grid.Column="1" Text="{Binding DisplayTitle}"
+                                                               FontSize="12" FontWeight="SemiBold"
+                                                               TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                                                               Foreground="{DynamicResource TextPrimary}"/>
+                                                    <TextBlock x:Name="pkTick" Grid.Column="2" Text="&#xE73E;"
+                                                               FontFamily="{StaticResource IconFont}" FontSize="10.5"
+                                                               Foreground="{DynamicResource Accent}"
+                                                               VerticalAlignment="Center" Margin="4,0,0,0" Visibility="Collapsed"/>
+                                                </Grid>
+                                                <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,2,0,0"
+                                                            Visibility="{Binding HasDue, Converter={StaticResource BoolToVisible}}">
+                                                    <TextBlock x:Name="pkDueIcon" Text="&#xE787;"
+                                                               FontFamily="{StaticResource IconFont}" FontSize="9.5"
+                                                               Foreground="{DynamicResource TextTertiary}"
+                                                               VerticalAlignment="Center" Margin="0,0,4,0"/>
+                                                    <TextBlock x:Name="pkDueText" Text="{Binding DueBadgeText}"
+                                                               FontSize="10" FontWeight="Medium"
+                                                               Foreground="{DynamicResource TextTertiary}"
+                                                               VerticalAlignment="Center"
+                                                               Typography.NumeralAlignment="Tabular"/>
+                                                </StackPanel>
                                             </Grid>
                                         </Border>
                                         <DataTemplate.Triggers>
                                             <DataTrigger Binding="{Binding IsRoot}" Value="True">
                                                 <Setter TargetName="pkRootDot" Property="Visibility" Value="Visible"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding IsDueOverdue}" Value="True">
+                                                <Setter TargetName="pkDueIcon" Property="Foreground" Value="{DynamicResource Danger}"/>
+                                                <Setter TargetName="pkDueText" Property="Foreground" Value="{DynamicResource Danger}"/>
                                             </DataTrigger>
                                             <DataTrigger Binding="{Binding IsPicked}" Value="True">
                                                 <Setter TargetName="pickerNodeBox" Property="BorderBrush" Value="{DynamicResource Accent}"/>
@@ -3290,6 +3742,155 @@
                         </Canvas>
                     </Border>
                 </DockPanel>
+            </Border>
+        </Grid>
+
+        <!-- ================= 目标截止日期选择浮层（置于目标页与目标树编辑器之上） ================= -->
+        <Grid x:Name="DeadlinePickerLayer" Grid.RowSpan="2" Visibility="Collapsed">
+            <Border x:Name="DeadlinePickerScrim" Background="{DynamicResource Scrim}" Opacity="0"
+                    MouseLeftButtonDown="DeadlinePickerScrim_Click"/>
+            <Border x:Name="DeadlinePickerDialog" Width="312"
+                    VerticalAlignment="Center" HorizontalAlignment="Center"
+                    Background="{DynamicResource Surface4}"
+                    BorderBrush="{DynamicResource BorderStrong}" BorderThickness="1"
+                    CornerRadius="12" Padding="16,14"
+                    Opacity="0" RenderTransformOrigin="0.5,0.5">
+                <Border.RenderTransform>
+                    <TransformGroup>
+                        <ScaleTransform x:Name="DeadlinePickerScale" ScaleX="0.97" ScaleY="0.97"/>
+                        <TranslateTransform x:Name="DeadlinePickerShift" Y="10"/>
+                    </TransformGroup>
+                </Border.RenderTransform>
+                <Border.Effect>
+                    <DropShadowEffect Color="Black" BlurRadius="24" ShadowDepth="8" Direction="270" Opacity="0.28"/>
+                </Border.Effect>
+                <StackPanel>
+                    <!-- 标题 -->
+                    <Grid Margin="0,0,0,10">
+                        <TextBlock Text="{Binding DeadlinePicker.TargetTitle}"
+                                   FontSize="14.5" FontWeight="SemiBold"
+                                   TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="0,0,28,0"/>
+                        <Button Style="{StaticResource GhostButton}" Content="&#xE711;"
+                                FontFamily="{StaticResource IconFont}" FontSize="10.5"
+                                HorizontalAlignment="Right" ToolTip="关闭（Esc）"
+                                AutomationProperties.Name="关闭截止日期选择器"
+                                Click="DeadlinePickerClose_Click"/>
+                    </Grid>
+
+                    <!-- 快捷选择 -->
+                    <WrapPanel Margin="0,0,0,10">
+                        <Button Style="{StaticResource GhostButton}" Content="今天" Padding="8,4" Margin="0,0,4,4"
+                                Click="DeadlineToday_Click"/>
+                        <Button Style="{StaticResource GhostButton}" Content="明天" Padding="8,4" Margin="0,0,4,4"
+                                Click="DeadlineTomorrow_Click"/>
+                        <Button Style="{StaticResource GhostButton}" Content="本周日" Padding="8,4" Margin="0,0,4,4"
+                                Click="DeadlineEndOfWeek_Click"/>
+                        <Button Style="{StaticResource GhostButton}" Content="+7天" Padding="8,4" Margin="0,0,4,4"
+                                Click="DeadlineNextWeek_Click"/>
+                        <Button Style="{StaticResource GhostButton}" Content="清除日期" Padding="8,4" Margin="0,0,0,4"
+                                Foreground="{DynamicResource Danger}"
+                                Visibility="{Binding DeadlinePicker.HasCurrentDate, Converter={StaticResource BoolToVisible}}"
+                                Click="DeadlineClear_Click"/>
+                    </WrapPanel>
+
+                    <!-- 月份切换 -->
+                    <Border Background="{DynamicResource Surface3}" CornerRadius="8"
+                            BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="1"
+                            Padding="8,8" Margin="0,0,0,10">
+                        <StackPanel>
+                            <Grid Margin="0,0,0,8">
+                                <Button Style="{StaticResource GhostButton}" Content="&#xE76B;"
+                                        FontFamily="{StaticResource IconFont}" FontSize="10"
+                                        Padding="7,4" HorizontalAlignment="Left"
+                                        Click="DeadlinePrevMonth_Click"/>
+                                <TextBlock Text="{Binding DeadlinePicker.MonthTitle}"
+                                           FontSize="13" FontWeight="SemiBold"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                                           Typography.NumeralAlignment="Tabular"/>
+                                <Button Style="{StaticResource GhostButton}" Content="&#xE76C;"
+                                        FontFamily="{StaticResource IconFont}" FontSize="10"
+                                        Padding="7,4" HorizontalAlignment="Right"
+                                        Click="DeadlineNextMonth_Click"/>
+                            </Grid>
+
+                            <UniformGrid Columns="7" Margin="0,0,0,4">
+                                <TextBlock Text="一" Style="{StaticResource Caption}" HorizontalAlignment="Center"/>
+                                <TextBlock Text="二" Style="{StaticResource Caption}" HorizontalAlignment="Center"/>
+                                <TextBlock Text="三" Style="{StaticResource Caption}" HorizontalAlignment="Center"/>
+                                <TextBlock Text="四" Style="{StaticResource Caption}" HorizontalAlignment="Center"/>
+                                <TextBlock Text="五" Style="{StaticResource Caption}" HorizontalAlignment="Center"/>
+                                <TextBlock Text="六" Style="{StaticResource Caption}" HorizontalAlignment="Center"/>
+                                <TextBlock Text="日" Style="{StaticResource Caption}" HorizontalAlignment="Center"/>
+                            </UniformGrid>
+
+                            <ItemsControl ItemsSource="{Binding DeadlinePicker.Days}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <UniformGrid Columns="7" Rows="6"/>
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate DataType="{x:Type vm:CalendarDayVM}">
+                                        <Button Style="{StaticResource GhostButton}"
+                                                Padding="0" Height="30" Margin="1"
+                                                Tag="{Binding}" Click="DeadlineDay_Click">
+                                            <Border x:Name="dayCellBg" Width="30" Height="26" CornerRadius="5"
+                                                    Background="Transparent" BorderBrush="Transparent" BorderThickness="1">
+                                                <TextBlock x:Name="dayCellText" Text="{Binding DayText}"
+                                                           FontSize="12" FontWeight="Medium"
+                                                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                           Foreground="{DynamicResource TextPrimary}"
+                                                           Typography.NumeralAlignment="Tabular"/>
+                                            </Border>
+                                        </Button>
+                                        <DataTemplate.Triggers>
+                                            <DataTrigger Binding="{Binding IsCurrentMonth}" Value="False">
+                                                <Setter TargetName="dayCellText" Property="Foreground" Value="{DynamicResource TextDisabled}"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding IsToday}" Value="True">
+                                                <Setter TargetName="dayCellBg" Property="BorderBrush" Value="{DynamicResource Accent}"/>
+                                                <Setter TargetName="dayCellText" Property="Foreground" Value="{DynamicResource Accent}"/>
+                                                <Setter TargetName="dayCellText" Property="FontWeight" Value="SemiBold"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                                <Setter TargetName="dayCellBg" Property="Background" Value="{DynamicResource Accent}"/>
+                                                <Setter TargetName="dayCellBg" Property="BorderBrush" Value="{DynamicResource Accent}"/>
+                                                <Setter TargetName="dayCellText" Property="Foreground" Value="{DynamicResource OnAccent}"/>
+                                                <Setter TargetName="dayCellText" Property="FontWeight" Value="SemiBold"/>
+                                            </DataTrigger>
+                                        </DataTemplate.Triggers>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- 手动输入 yyyy-MM-dd -->
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid>
+                            <TextBox x:Name="DeadlineManualBox" Style="{StaticResource SubtleInput}"
+                                     Height="30" VerticalContentAlignment="Center"
+                                     Text="{Binding DeadlinePicker.ManualText, UpdateSourceTrigger=PropertyChanged}"
+                                     KeyDown="DeadlineManualBox_KeyDown"/>
+                            <TextBlock Text="yyyy-MM-dd（留空清除）" IsHitTestVisible="False"
+                                       FontSize="11.5" FontWeight="Medium" Margin="8,0,0,0"
+                                       VerticalAlignment="Center" Foreground="{DynamicResource TextDisabled}"
+                                       Visibility="{Binding Text, ElementName=DeadlineManualBox, UpdateSourceTrigger=PropertyChanged, Converter={StaticResource EmptyToVisible}}"/>
+                        </Grid>
+                        <Button Grid.Column="1" Style="{StaticResource PrimaryButton}" Content="应用"
+                                Padding="12,5" FontSize="12" Margin="8,0,0,0"
+                                Click="DeadlineApplyManual_Click"/>
+                    </Grid>
+
+                    <TextBlock Text="{Binding DeadlinePicker.ErrorText}"
+                               FontSize="11.5" FontWeight="Medium" Foreground="{DynamicResource Danger}"
+                               Margin="0,6,0,0" TextWrapping="Wrap"
+                               Visibility="{Binding DeadlinePicker.ErrorText, Converter={StaticResource EmptyToCollapsed}}"/>
+                </StackPanel>
             </Border>
         </Grid>
 

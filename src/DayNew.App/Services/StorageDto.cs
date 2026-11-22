@@ -26,6 +26,8 @@ public sealed class GoalDto
     public string Title { get; set; } = "";
     public string Color { get; set; } = "#527CE6";
     public bool IsCompleted { get; set; }
+    /// <summary>yyyy-MM-dd；空 = 未设截止日期。</summary>
+    public string? Due { get; set; }
     public double? RootX { get; set; }
     public double? RootY { get; set; }
     public List<GoalNodeDto> Nodes { get; set; } = new();
@@ -37,6 +39,8 @@ public sealed class GoalNodeDto
     public string Id { get; set; } = "";
     public string Title { get; set; } = "";
     public bool IsCompleted { get; set; }
+    /// <summary>yyyy-MM-dd；空 = 未设截止日期。</summary>
+    public string? Due { get; set; }
     public double X { get; set; }
     public double Y { get; set; }
 }
@@ -46,6 +50,9 @@ public sealed class GoalEdgeDto
     public string FromId { get; set; } = "";
     public string ToId { get; set; } = "";
     public string Kind { get; set; } = "belong";
+    public string? Label { get; set; }
+    public string? FromSide { get; set; }
+    public string? ToSide { get; set; }
 }
 
 public sealed class GoalRefDto

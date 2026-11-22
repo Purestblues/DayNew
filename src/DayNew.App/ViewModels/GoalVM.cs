@@ -12,16 +12,28 @@ public enum GoalEdgeKind
     Progress = 1
 }
 
+/// <summary>连线在目标卡片上的吸附边。</summary>
+public enum GoalPortSide
+{
+    Auto = 0,
+    Top = 1,
+    Right = 2,
+    Bottom = 3,
+    Left = 4
+}
+
 /// <summary>目标导图中的一个节点（ROOT 代表总目标自身，其余为子目标）。</summary>
 public sealed class GoalNodeVM : ObservableObject
 {
     public const string RootId = "ROOT";
-    public const double DefaultWidth = 148;
-    public const double DefaultHeight = 40;
+    public const double DefaultWidth = 156;
+    public const double DefaultHeight = 42;
+    public const double HeightWithDue = 56;
 
     private string _id;
     private string _title;
     private bool _isCompleted;
+    private DateTime? _due;
     private double _x;
     private double _y;
     private int _taskCount;
@@ -30,6 +42,9 @@ public sealed class GoalNodeVM : ObservableObject
     private bool _isLinkSource;
     private bool _isPicked;
     private bool _isHovered;
+    private bool _isEditingInline;
+    private bool _isEditorHovered;
+    private bool _isLinkTargetHighlight;
 
     public GoalNodeVM(GoalVM owner, string id, string title)
     {
@@ -86,9 +101,45 @@ public sealed class GoalNodeVM : ObservableObject
             }
 
             if (!Set(ref _isCompleted, value)) return;
-            OnPropertyChanged(nameof(CompleteActionText));
-            OnPropertyChanged(nameof(HoverStatusText));
+            RaiseCompletionAndDueDisplay();
         }
+    }
+
+    public DateTime? Due
+    {
+        get => IsRoot ? Owner.Due : _due;
+        set
+        {
+            var normalized = value?.Date;
+            if (IsRoot)
+            {
+                Owner.Due = normalized;
+                return;
+            }
+
+            if (!Set(ref _due, normalized)) return;
+            RaiseDueDisplay();
+            Owner.UpdateLayoutBoundsAndEdges();
+        }
+    }
+
+    public bool HasDue => Due.HasValue;
+
+    public bool IsDueOverdue => !IsCompleted && Due is { } d && d.Date < DateTime.Today;
+
+    public string DueInputText => Due?.ToString("yyyy-MM-dd") ?? "";
+
+    public string DueBadgeText => FormatDueBadge(Due, IsCompleted);
+
+    internal static string FormatDueBadge(DateTime? due, bool isCompleted)
+    {
+        if (due is not { } d) return "";
+        var date = d.Date;
+        var today = DateTime.Today;
+        if (!isCompleted && date < today) return $"逾期 · {date:M月d日}";
+        if (date == today) return "今天截止";
+        if (date == today.AddDays(1)) return "明天截止";
+        return date.Year == today.Year ? $"{date:M月d日}截止" : $"{date:yyyy-MM-dd}";
     }
 
     public double X
@@ -105,7 +156,7 @@ public sealed class GoalNodeVM : ObservableObject
 
     public double Width => DefaultWidth;
 
-    public double Height => DefaultHeight;
+    public double Height => HasDue ? HeightWithDue : DefaultHeight;
 
     public int TaskCount
     {
@@ -139,7 +190,8 @@ public sealed class GoalNodeVM : ObservableObject
         get
         {
             var state = IsCompleted ? "已完成" : "进行中";
-            return TaskCount > 0 ? $"{state} · 日程 {DoneTaskCount}/{TaskCount}" : $"{state} · 暂无日程";
+            var taskPart = TaskCount > 0 ? $"日程 {DoneTaskCount}/{TaskCount}" : "暂无日程";
+            return HasDue ? $"{state} · {DueBadgeText} · {taskPart}" : $"{state} · {taskPart}";
         }
     }
 
@@ -169,11 +221,60 @@ public sealed class GoalNodeVM : ObservableObject
         set => Set(ref _isHovered, value);
     }
 
+    public bool IsEditingInline
+    {
+        get => _isEditingInline;
+        set => Set(ref _isEditingInline, value);
+    }
+
+    public bool IsEditorHovered
+    {
+        get => _isEditorHovered;
+        set => Set(ref _isEditorHovered, value);
+    }
+
+    public bool IsLinkTargetHighlight
+    {
+        get => _isLinkTargetHighlight;
+        set => Set(ref _isLinkTargetHighlight, value);
+    }
+
+    public Point GetPortPoint(GoalPortSide side) => side switch
+    {
+        GoalPortSide.Top => new Point(X + Width / 2.0, Y),
+        GoalPortSide.Right => new Point(X + Width, Y + Height / 2.0),
+        GoalPortSide.Bottom => new Point(X + Width / 2.0, Y + Height),
+        _ => new Point(X, Y + Height / 2.0)
+    };
+
+    public GoalPortSide NearestPortSide(Point canvasPoint)
+    {
+        var candidates = new[]
+        {
+            (Side: GoalPortSide.Top, Pt: GetPortPoint(GoalPortSide.Top)),
+            (Side: GoalPortSide.Right, Pt: GetPortPoint(GoalPortSide.Right)),
+            (Side: GoalPortSide.Bottom, Pt: GetPortPoint(GoalPortSide.Bottom)),
+            (Side: GoalPortSide.Left, Pt: GetPortPoint(GoalPortSide.Left))
+        };
+
+        var best = GoalPortSide.Left;
+        var bestDist = double.MaxValue;
+        foreach (var c in candidates)
+        {
+            var dist = (c.Pt - canvasPoint).LengthSquared;
+            if (dist < bestDist)
+            {
+                bestDist = dist;
+                best = c.Side;
+            }
+        }
+        return best;
+    }
+
     internal void SetCompletedRaw(bool value)
     {
         if (!Set(ref _isCompleted, value, nameof(IsCompleted))) return;
-        OnPropertyChanged(nameof(CompleteActionText));
-        OnPropertyChanged(nameof(HoverStatusText));
+        RaiseCompletionAndDueDisplay();
     }
 
     internal void NotifyRootSynced()
@@ -181,7 +282,28 @@ public sealed class GoalNodeVM : ObservableObject
         OnPropertyChanged(nameof(Title));
         OnPropertyChanged(nameof(DisplayTitle));
         OnPropertyChanged(nameof(IsCompleted));
+        RaiseCompletionAndDueDisplay();
+        RaiseDueDisplay();
+    }
+
+    internal void NotifyRootDueSynced() => RaiseDueDisplay();
+
+    private void RaiseCompletionAndDueDisplay()
+    {
         OnPropertyChanged(nameof(CompleteActionText));
+        OnPropertyChanged(nameof(IsDueOverdue));
+        OnPropertyChanged(nameof(DueBadgeText));
+        OnPropertyChanged(nameof(HoverStatusText));
+    }
+
+    private void RaiseDueDisplay()
+    {
+        OnPropertyChanged(nameof(Due));
+        OnPropertyChanged(nameof(HasDue));
+        OnPropertyChanged(nameof(IsDueOverdue));
+        OnPropertyChanged(nameof(DueInputText));
+        OnPropertyChanged(nameof(DueBadgeText));
+        OnPropertyChanged(nameof(Height));
         OnPropertyChanged(nameof(HoverStatusText));
     }
 
@@ -192,6 +314,13 @@ public sealed class GoalNodeVM : ObservableObject
 public sealed class GoalEdgeVM : ObservableObject
 {
     private GoalEdgeKind _kind;
+    private GoalPortSide _fromSide;
+    private GoalPortSide _toSide;
+    private string _label = "";
+    private bool _isHovered;
+    private bool _isEditingLabel;
+    private double _midX;
+    private double _midY;
     private Geometry? _lineGeometry;
     private Geometry? _arrowGeometry;
 
@@ -221,6 +350,66 @@ public sealed class GoalEdgeVM : ObservableObject
 
     public bool IsBelong => Kind == GoalEdgeKind.Belong;
 
+    public GoalPortSide FromSide
+    {
+        get => _fromSide;
+        set => Set(ref _fromSide, value);
+    }
+
+    public GoalPortSide ToSide
+    {
+        get => _toSide;
+        set => Set(ref _toSide, value);
+    }
+
+    public string Label
+    {
+        get => _label;
+        set
+        {
+            var next = value ?? "";
+            if (!Set(ref _label, next)) return;
+            OnPropertyChanged(nameof(HasLabel));
+            OnPropertyChanged(nameof(ShowOverlay));
+        }
+    }
+
+    public bool HasLabel => !string.IsNullOrWhiteSpace(Label);
+
+    public bool IsHovered
+    {
+        get => _isHovered;
+        set
+        {
+            if (!Set(ref _isHovered, value)) return;
+            OnPropertyChanged(nameof(ShowOverlay));
+        }
+    }
+
+    public bool IsEditingLabel
+    {
+        get => _isEditingLabel;
+        set
+        {
+            if (!Set(ref _isEditingLabel, value)) return;
+            OnPropertyChanged(nameof(ShowOverlay));
+        }
+    }
+
+    public bool ShowOverlay => IsHovered || IsEditingLabel || HasLabel;
+
+    public double MidX
+    {
+        get => _midX;
+        private set => Set(ref _midX, value);
+    }
+
+    public double MidY
+    {
+        get => _midY;
+        private set => Set(ref _midY, value);
+    }
+
     public Geometry? LineGeometry
     {
         get => _lineGeometry;
@@ -235,51 +424,11 @@ public sealed class GoalEdgeVM : ObservableObject
 
     public void UpdateGeometry(GoalNodeVM from, GoalNodeVM to, IReadOnlyList<GoalNodeVM>? allNodes = null)
     {
-        var start = new Point(from.X + from.Width, from.Y + from.Height / 2.0);
-        var end = new Point(to.X, to.Y + to.Height / 2.0);
+        var (fromSide, toSide) = ResolveSides(from, to, FromSide, ToSide);
+        var start = from.GetPortPoint(fromSide);
+        var end = to.GetPortPoint(toSide);
 
-        Point c1;
-        Point c2;
-        if (end.X >= start.X - 8)
-        {
-            var dx = Math.Max(32.0, (end.X - start.X) * 0.48);
-            c1 = new Point(start.X + dx, start.Y);
-            c2 = new Point(end.X - dx, end.Y);
-
-            // 跨多列连线避让中间列节点，避免线条直接穿过中间节点卡片
-            if (allNodes is not null && end.X - start.X > 180)
-            {
-                foreach (var other in allNodes)
-                {
-                    if (ReferenceEquals(other, from) || ReferenceEquals(other, to)) continue;
-                    var midX = other.X + other.Width / 2.0;
-                    if (midX <= start.X + 12 || midX >= end.X - 12) continue;
-
-                    var t = (midX - start.X) / (end.X - start.X);
-                    var lineY = start.Y + (end.Y - start.Y) * t;
-                    if (lineY < other.Y - 14 || lineY > other.Y + other.Height + 14) continue;
-
-                    var otherCenterY = other.Y + other.Height / 2.0;
-                    var targetClearY = lineY <= otherCenterY
-                        ? other.Y - 22.0
-                        : other.Y + other.Height + 22.0;
-                    var shiftY = Math.Clamp((targetClearY - lineY) * 1.45, -88.0, 88.0);
-                    if (Math.Abs(shiftY) < 42.0) shiftY = lineY <= otherCenterY ? -48.0 : 48.0;
-
-                    c1 = new Point(c1.X, c1.Y + shiftY);
-                    c2 = new Point(c2.X, c2.Y + shiftY);
-                    break;
-                }
-            }
-        }
-        else
-        {
-            // 若用户手动把目标拖到起点左侧，仍保持可辨识的 S 形贝塞尔连接
-            var backOffset = Math.Max(48.0, (start.X - end.X) * 0.35 + 32.0);
-            var verticalOffset = Math.Abs(end.Y - start.Y) < 28 ? -42.0 : 0.0;
-            c1 = new Point(start.X + backOffset, start.Y + verticalOffset);
-            c2 = new Point(end.X - backOffset, end.Y + verticalOffset);
-        }
+        var (c1, c2) = BuildAvoidantControls(start, end, fromSide, toSide, from, to, allNodes);
 
         var lineFigure = new PathFigure(start, new PathSegment[]
         {
@@ -308,6 +457,205 @@ public sealed class GoalEdgeVM : ObservableObject
         var arrowGeo = new PathGeometry(new[] { arrowFigure });
         arrowGeo.Freeze();
         ArrowGeometry = arrowGeo;
+
+        var mid = PickClearMidpoint(start, c1, c2, end, allNodes);
+        MidX = mid.X;
+        MidY = mid.Y;
+    }
+
+    public static (GoalPortSide From, GoalPortSide To) ResolveSides(
+        GoalNodeVM from, GoalNodeVM to, GoalPortSide requestedFrom, GoalPortSide requestedTo)
+    {
+        var fromCenter = new Point(from.X + from.Width / 2.0, from.Y + from.Height / 2.0);
+        var toCenter = new Point(to.X + to.Width / 2.0, to.Y + to.Height / 2.0);
+        var dx = toCenter.X - fromCenter.X;
+        var dy = toCenter.Y - fromCenter.Y;
+
+        var resolvedFrom = requestedFrom;
+        var resolvedTo = requestedTo;
+
+        if (resolvedFrom == GoalPortSide.Auto && resolvedTo == GoalPortSide.Auto)
+        {
+            if (to.X >= from.X + from.Width + 16)
+                return (GoalPortSide.Right, GoalPortSide.Left);
+            if (from.X >= to.X + to.Width + 16)
+                return (GoalPortSide.Left, GoalPortSide.Right);
+            if (to.X >= from.X + from.Width * 0.5 && Math.Abs(dy) >= 24)
+                return (GoalPortSide.Right, dy >= 0 ? GoalPortSide.Top : GoalPortSide.Bottom);
+            if (from.X >= to.X + to.Width * 0.5 && Math.Abs(dy) >= 24)
+                return (GoalPortSide.Left, dy >= 0 ? GoalPortSide.Top : GoalPortSide.Bottom);
+            if (Math.Abs(dy) >= 24)
+                return dy >= 0
+                    ? (GoalPortSide.Bottom, GoalPortSide.Top)
+                    : (GoalPortSide.Top, GoalPortSide.Bottom);
+            return dx >= 0
+                ? (GoalPortSide.Right, GoalPortSide.Left)
+                : (GoalPortSide.Left, GoalPortSide.Right);
+        }
+
+        if (resolvedFrom == GoalPortSide.Auto)
+        {
+            var targetPt = to.GetPortPoint(resolvedTo);
+            resolvedFrom = Math.Abs(targetPt.X - fromCenter.X) >= Math.Abs(targetPt.Y - fromCenter.Y)
+                ? (targetPt.X >= fromCenter.X ? GoalPortSide.Right : GoalPortSide.Left)
+                : (targetPt.Y >= fromCenter.Y ? GoalPortSide.Bottom : GoalPortSide.Top);
+        }
+
+        if (resolvedTo == GoalPortSide.Auto)
+        {
+            var sourcePt = from.GetPortPoint(resolvedFrom);
+            resolvedTo = Math.Abs(toCenter.X - sourcePt.X) >= Math.Abs(toCenter.Y - sourcePt.Y)
+                ? (toCenter.X >= sourcePt.X ? GoalPortSide.Left : GoalPortSide.Right)
+                : (toCenter.Y >= sourcePt.Y ? GoalPortSide.Top : GoalPortSide.Bottom);
+        }
+
+        return (resolvedFrom, resolvedTo);
+    }
+
+    public static Vector SideNormal(GoalPortSide side) => side switch
+    {
+        GoalPortSide.Top => new Vector(0, -1),
+        GoalPortSide.Right => new Vector(1, 0),
+        GoalPortSide.Bottom => new Vector(0, 1),
+        _ => new Vector(-1, 0)
+    };
+
+    public static Point EvalBezier(Point p0, Point p1, Point p2, Point p3, double t)
+    {
+        var u = 1.0 - t;
+        var tt = t * t;
+        var uu = u * u;
+        var uuu = uu * u;
+        var ttt = tt * t;
+        return new Point(
+            uuu * p0.X + 3 * uu * t * p1.X + 3 * u * tt * p2.X + ttt * p3.X,
+            uuu * p0.Y + 3 * uu * t * p1.Y + 3 * u * tt * p2.Y + ttt * p3.Y);
+    }
+
+    private static (Point C1, Point C2) BuildAvoidantControls(
+        Point start, Point end,
+        GoalPortSide fromSide, GoalPortSide toSide,
+        GoalNodeVM from, GoalNodeVM to,
+        IReadOnlyList<GoalNodeVM>? allNodes)
+    {
+        var outDir = SideNormal(fromSide);
+        var inDir = SideNormal(toSide);
+        var chord = end - start;
+        var dist = chord.Length;
+
+        var opposing = Vector.Multiply(outDir, chord) < 0 || Vector.Multiply(inDir, -chord) < 0;
+        var handle = opposing
+            ? Math.Clamp(dist * 0.42 + 44.0, 56.0, 175.0)
+            : Math.Clamp(dist * 0.46, 36.0, 155.0);
+
+        var baseC1 = start + outDir * handle;
+        var baseC2 = end + inDir * handle;
+
+        // 水平近似对齐且反向连接时先给一个轻微弧度防止穿心
+        if (opposing && Math.Abs(chord.Y) < 28 && (fromSide is GoalPortSide.Left or GoalPortSide.Right))
+        {
+            baseC1 = new Point(baseC1.X, baseC1.Y - 48);
+            baseC2 = new Point(baseC2.X, baseC2.Y - 48);
+        }
+        else if (opposing && Math.Abs(chord.X) < 36 && (fromSide is GoalPortSide.Top or GoalPortSide.Bottom))
+        {
+            baseC1 = new Point(baseC1.X + 52, baseC1.Y);
+            baseC2 = new Point(baseC2.X + 52, baseC2.Y);
+        }
+
+        if (allNodes is null || allNodes.Count <= 2)
+            return (baseC1, baseC2);
+
+        if (CountBezierCollisions(start, baseC1, baseC2, end, from, to, allNodes) == 0)
+            return (baseC1, baseC2);
+
+        var chordDir = dist > 1 ? chord / dist : new Vector(1, 0);
+        var perp = new Vector(-chordDir.Y, chordDir.X);
+        var mostlyHorizontal = Math.Abs(chord.X) >= Math.Abs(chord.Y);
+
+        var bestC1 = baseC1;
+        var bestC2 = baseC2;
+        var bestHits = CountBezierCollisions(start, baseC1, baseC2, end, from, to, allNodes);
+        var bestCost = double.MaxValue;
+
+        // 结合垂直/水平/法线方向探测绕行控制点，彻底绕过中间或相邻节点卡片
+        var offsets = new[] { 44.0, -44.0, 62.0, -62.0, 82.0, -82.0, 108.0, -108.0, 140.0, -140.0, 180.0, -180.0 };
+        var axes = mostlyHorizontal
+            ? new[] { new Vector(0, 1), perp, new Vector(1, 0) }
+            : new[] { new Vector(1, 0), perp, new Vector(0, 1) };
+
+        foreach (var axis in axes)
+        {
+            foreach (var offset in offsets)
+            {
+                var shift = axis * offset;
+                var candC1 = baseC1 + shift;
+                var candC2 = baseC2 + shift;
+                var hits = CountBezierCollisions(start, candC1, candC2, end, from, to, allNodes);
+                var cost = Math.Abs(offset);
+
+                if (hits < bestHits || (hits == bestHits && cost < bestCost))
+                {
+                    bestHits = hits;
+                    bestCost = cost;
+                    bestC1 = candC1;
+                    bestC2 = candC2;
+                    if (bestHits == 0 && axis == axes[0])
+                        return (bestC1, bestC2);
+                }
+            }
+
+            if (bestHits == 0)
+                return (bestC1, bestC2);
+        }
+
+        return (bestC1, bestC2);
+    }
+
+    private static int CountBezierCollisions(
+        Point start, Point c1, Point c2, Point end,
+        GoalNodeVM from, GoalNodeVM to,
+        IReadOnlyList<GoalNodeVM> nodes)
+    {
+        var hits = 0;
+        const int samples = 22;
+        for (var i = 1; i < samples; i++)
+        {
+            var t = (double)i / samples;
+            var pt = EvalBezier(start, c1, c2, end, t);
+
+            foreach (var node in nodes)
+            {
+                if (ReferenceEquals(node, from) || ReferenceEquals(node, to))
+                {
+                    if (t is < 0.06 or > 0.94) continue;
+                    var selfRect = new Rect(node.X + 4, node.Y + 4, Math.Max(4, node.Width - 8), Math.Max(4, node.Height - 8));
+                    if (selfRect.Contains(pt)) { hits++; break; }
+                }
+                else
+                {
+                    var padRect = new Rect(node.X - 10, node.Y - 10, node.Width + 20, node.Height + 20);
+                    if (padRect.Contains(pt)) { hits++; break; }
+                }
+            }
+        }
+        return hits;
+    }
+
+    private static Point PickClearMidpoint(Point start, Point c1, Point c2, Point end, IReadOnlyList<GoalNodeVM>? nodes)
+    {
+        var tCandidates = new[] { 0.5, 0.42, 0.58, 0.34, 0.66 };
+        var fallback = EvalBezier(start, c1, c2, end, 0.5);
+        if (nodes is null || nodes.Count == 0) return fallback;
+
+        foreach (var t in tCandidates)
+        {
+            var pt = EvalBezier(start, c1, c2, end, t);
+            var blocked = nodes.Any(n => new Rect(n.X - 18, n.Y - 14, n.Width + 36, n.Height + 28).Contains(pt));
+            if (!blocked) return pt;
+        }
+
+        return fallback;
     }
 }
 
@@ -371,11 +719,12 @@ public sealed class GoalVM : ObservableObject
     private string _id = Guid.NewGuid().ToString("N")[..10];
     private string _title = "";
     private bool _isCompleted;
+    private DateTime? _due;
     private bool _isExpanded;
     private bool _isDropTarget;
     private int _maxDepth;
-    private double _canvasWidth = 360;
-    private double _canvasHeight = 140;
+    private double _canvasWidth = 420;
+    private double _canvasHeight = 150;
     private double _viewZoom = 1.0;
     private double _viewPanX;
     private double _viewPanY;
@@ -417,6 +766,28 @@ public sealed class GoalVM : ObservableObject
             Refresh();
         }
     }
+
+    public DateTime? Due
+    {
+        get => _due;
+        set
+        {
+            var normalized = value?.Date;
+            if (!Set(ref _due, normalized)) return;
+            RootNode.NotifyRootDueSynced();
+            OnPropertyChanged(nameof(HasDue));
+            OnPropertyChanged(nameof(IsDueOverdue));
+            OnPropertyChanged(nameof(DueBadgeText));
+            UpdateLayoutBoundsAndEdges();
+            Refresh();
+        }
+    }
+
+    public bool HasDue => Due.HasValue;
+
+    public bool IsDueOverdue => !IsCompleted && Due is { } d && d.Date < DateTime.Today;
+
+    public string DueBadgeText => GoalNodeVM.FormatDueBadge(Due, IsCompleted);
 
     /// <summary>每个目标一个固定颜色，任务卡片标题前的小圆点用它 —— 比写字省地方。</summary>
     public Brush Color { get; set; } = Brushes.Transparent;
@@ -684,24 +1055,38 @@ public sealed class GoalVM : ObservableObject
         return ids;
     }
 
-    /// <summary>添加归属或递进下级子目标。</summary>
-    public GoalNodeVM AddChildSubGoal(GoalNodeVM parent, string title, GoalEdgeKind kind)
+    /// <summary>添加归属或递进下级子目标（增量找空位，不打乱已有节点位置）。</summary>
+    public GoalNodeVM AddChildSubGoal(
+        GoalNodeVM parent,
+        string title,
+        GoalEdgeKind kind,
+        Point? explicitPos = null,
+        GoalPortSide fromSide = GoalPortSide.Auto,
+        GoalPortSide toSide = GoalPortSide.Auto)
     {
         var clean = string.IsNullOrWhiteSpace(title) ? "新子目标" : title.Trim();
         var node = new GoalNodeVM(this, Guid.NewGuid().ToString("N")[..10], clean);
+        var pos = explicitPos ?? FindFreeChildPosition(parent);
+        node.X = pos.X;
+        node.Y = pos.Y;
+
         Nodes.Add(node);
         AllCanvasNodes.Add(node);
-        Edges.Add(new GoalEdgeVM(parent.Id, node.Id, kind));
+        Edges.Add(new GoalEdgeVM(parent.Id, node.Id, kind)
+        {
+            FromSide = fromSide,
+            ToSide = toSide
+        });
 
-        // 新增未完成子目标时，若总目标原本已完成则保持/退回未完成由用户控制，这里自动取消总目标完成态避免结构变更后仍卡在已完成区
+        // 新增未完成子目标时，取消总目标完成态避免结构变更后仍卡在已完成区
         if (_isCompleted) _isCompleted = false;
 
-        AutoLayout();
+        UpdateLayoutBoundsAndEdges();
         Refresh();
         return node;
     }
 
-    /// <summary>添加与当前节点并列的同级子目标。</summary>
+    /// <summary>添加与当前节点并列的同级子目标（增量找空位，不打乱已有节点位置）。</summary>
     public GoalNodeVM? AddSiblingSubGoal(GoalNodeVM sibling, string title)
     {
         if (sibling.IsRoot) return null;
@@ -709,7 +1094,43 @@ public sealed class GoalVM : ObservableObject
         var incoming = Edges.FirstOrDefault(e => e.ToId == sibling.Id);
         var parent = FindNode(incoming?.FromId) ?? RootNode;
         var kind = incoming?.Kind ?? GoalEdgeKind.Belong;
-        return AddChildSubGoal(parent, title, kind);
+        var clean = string.IsNullOrWhiteSpace(title) ? "并列子目标" : title.Trim();
+        var pos = FindFreeSlotNear(sibling.X, sibling.Y + sibling.Height + 18, stepY: 60);
+        return AddChildSubGoal(parent, clean, kind, pos, incoming?.FromSide ?? GoalPortSide.Auto, incoming?.ToSide ?? GoalPortSide.Auto);
+    }
+
+    private Point FindFreeChildPosition(GoalNodeVM parent)
+    {
+        var baseX = parent.X + GoalNodeVM.DefaultWidth + 46;
+        var existingChildren = Edges
+            .Where(e => e.FromId == parent.Id)
+            .Select(e => FindNode(e.ToId))
+            .Where(n => n is not null)
+            .ToList();
+
+        var startY = existingChildren.Count > 0
+            ? existingChildren.Max(c => c!.Y + c!.Height) + 18
+            : parent.Y;
+
+        return FindFreeSlotNear(baseX, Math.Max(18, startY), stepY: 60);
+    }
+
+    private Point FindFreeSlotNear(double preferredX, double preferredY, double stepY)
+    {
+        var x = Math.Max(16, preferredX);
+        var y = Math.Max(16, preferredY);
+        const double w = GoalNodeVM.DefaultWidth;
+        const double h = GoalNodeVM.DefaultHeight;
+
+        for (var i = 0; i < 40; i++)
+        {
+            var candY = y + i * stepY;
+            var candRect = new Rect(x - 10, candY - 10, w + 20, h + 20);
+            if (!AllCanvasNodes.Any(n => candRect.IntersectsWith(new Rect(n.X, n.Y, n.Width, n.Height))))
+                return new Point(x, candY);
+        }
+
+        return new Point(x, y);
     }
 
     public bool WouldCreateCycle(string fromId, string toId)
@@ -735,7 +1156,14 @@ public sealed class GoalVM : ObservableObject
         return false;
     }
 
-    public bool TryAddOrUpdateEdge(string fromId, string toId, GoalEdgeKind kind, out string message)
+    public bool TryAddOrUpdateEdge(
+        string fromId,
+        string toId,
+        GoalEdgeKind kind,
+        out string message,
+        GoalPortSide fromSide = GoalPortSide.Auto,
+        GoalPortSide toSide = GoalPortSide.Auto,
+        bool toggleIfSame = false)
     {
         if (toId == GoalNodeVM.RootId)
         {
@@ -752,33 +1180,35 @@ public sealed class GoalVM : ObservableObject
         var existing = Edges.FirstOrDefault(e => e.FromId == fromId && e.ToId == toId);
         if (existing is not null)
         {
-            if (existing.Kind != kind)
+            var sideUpdated = false;
+            if (fromSide != GoalPortSide.Auto && existing.FromSide != fromSide)
+            {
+                existing.FromSide = fromSide;
+                sideUpdated = true;
+            }
+            if (toSide != GoalPortSide.Auto && existing.ToSide != toSide)
+            {
+                existing.ToSide = toSide;
+                sideUpdated = true;
+            }
+
+            if (existing.Kind != kind || sideUpdated)
             {
                 existing.Kind = kind;
                 RefreshEdgeGeometries();
-                message = kind == GoalEdgeKind.Belong ? "已改为归属连线" : "已改为递进连线";
+                message = existing.Kind == GoalEdgeKind.Belong ? "已更新为归属连线" : "已更新为递进连线";
                 return true;
             }
 
-            var otherParents = Edges.Count(e => e.ToId == toId && !ReferenceEquals(e, existing));
-            if (otherParents == 0)
+            if (!toggleIfSame)
             {
-                if (fromId == GoalNodeVM.RootId)
-                {
-                    message = "子目标至少需要保留一条来源连线";
-                    return false;
-                }
-
-                Edges.Remove(existing);
-                Edges.Add(new GoalEdgeVM(GoalNodeVM.RootId, toId, GoalEdgeKind.Belong));
-                AutoLayout();
-                message = "已断开该连线，节点自动挂回总目标";
-                return true;
+                message = "这两个节点之间已有该连线（悬停连线可删除或加说明）";
+                return false;
             }
 
             Edges.Remove(existing);
-            AutoLayout();
-            message = "已移除共有连线";
+            UpdateLayoutBoundsAndEdges();
+            message = "已断开该连线";
             return true;
         }
 
@@ -788,9 +1218,27 @@ public sealed class GoalVM : ObservableObject
             return false;
         }
 
-        Edges.Add(new GoalEdgeVM(fromId, toId, kind));
-        AutoLayout();
-        message = kind == GoalEdgeKind.Belong ? "已建立归属连线" : "已建立递进连线（形成共有/下游子目标）";
+        Edges.Add(new GoalEdgeVM(fromId, toId, kind)
+        {
+            FromSide = fromSide,
+            ToSide = toSide
+        });
+        UpdateLayoutBoundsAndEdges();
+        message = kind == GoalEdgeKind.Belong ? "已建立归属连线" : "已建立递进连线";
+        return true;
+    }
+
+    public bool RemoveEdge(GoalEdgeVM edge, out string message)
+    {
+        if (!Edges.Remove(edge))
+        {
+            message = "未找到该连线";
+            return false;
+        }
+
+        UpdateLayoutBoundsAndEdges();
+        Refresh();
+        message = "已删除连线";
         return true;
     }
 
@@ -825,7 +1273,7 @@ public sealed class GoalVM : ObservableObject
             }
         }
 
-        AutoLayout();
+        UpdateLayoutBoundsAndEdges();
         Refresh();
         return true;
     }
@@ -966,18 +1414,18 @@ public sealed class GoalVM : ObservableObject
 
         const double padX = 20;
         const double padY = 26;
-        const double colStep = 182;
-        const double rowStep = 56;
+        const double colStep = 198;
+        const double rowStep = 66;
 
         var maxRows = Math.Max(1, columns.Max(c => c.Count));
-        var totalHeight = (maxRows - 1) * rowStep + GoalNodeVM.DefaultHeight;
+        var totalHeight = (maxRows - 1) * rowStep + GoalNodeVM.HeightWithDue;
 
         for (var layer = 0; layer <= maxLayer; layer++)
         {
             var col = columns[layer];
             if (col.Count == 0) continue;
 
-            var colHeight = (col.Count - 1) * rowStep + GoalNodeVM.DefaultHeight;
+            var colHeight = (col.Count - 1) * rowStep + GoalNodeVM.HeightWithDue;
             var startY = padY + (totalHeight - colHeight) / 2.0;
             var x = padX + layer * colStep;
 
@@ -991,16 +1439,50 @@ public sealed class GoalVM : ObservableObject
         UpdateLayoutBoundsAndEdges(maxLayer);
     }
 
+    public (double ShiftX, double ShiftY) NormalizeMinBounds()
+    {
+        if (AllCanvasNodes.Count == 0) return (0, 0);
+
+        var minX = AllCanvasNodes.Min(n => n.X);
+        var minY = AllCanvasNodes.Min(n => n.Y);
+        var shiftX = minX < 16 ? 16 - minX : 0;
+        var shiftY = minY < 16 ? 16 - minY : 0;
+
+        if (shiftX > 0 || shiftY > 0)
+        {
+            foreach (var node in AllCanvasNodes)
+            {
+                node.X += shiftX;
+                node.Y += shiftY;
+            }
+        }
+
+        UpdateLayoutBoundsAndEdges();
+        return (shiftX, shiftY);
+    }
+
     public void UpdateLayoutBoundsAndEdges(int? computedMaxLayer = null)
     {
+        RefreshEdgeGeometries();
+
         var maxRight = AllCanvasNodes.Max(n => n.X + n.Width);
         var maxBottom = AllCanvasNodes.Max(n => n.Y + n.Height);
 
-        CanvasWidth = Math.Max(360, maxRight + 24);
-        CanvasHeight = Math.Max(140, maxBottom + 26);
+        foreach (var edge in Edges)
+        {
+            if (edge.LineGeometry is null) continue;
+            var b = edge.LineGeometry.Bounds;
+            if (!b.IsEmpty)
+            {
+                maxRight = Math.Max(maxRight, b.Right);
+                maxBottom = Math.Max(maxBottom, b.Bottom);
+            }
+        }
+
+        CanvasWidth = Math.Max(420, maxRight + 80);
+        CanvasHeight = Math.Max(150, maxBottom + 36);
         MaxDepth = computedMaxLayer ?? EstimateDepth();
 
-        RefreshEdgeGeometries();
         RaiseLayoutProperties();
     }
 
@@ -1051,12 +1533,6 @@ public sealed class GoalVM : ObservableObject
             var e = Edges[i];
             if (!validIds.Contains(e.FromId) || !validIds.Contains(e.ToId) || e.ToId == GoalNodeVM.RootId || e.FromId == e.ToId)
                 Edges.RemoveAt(i);
-        }
-
-        foreach (var node in Nodes)
-        {
-            if (Edges.All(e => e.ToId != node.Id))
-                Edges.Add(new GoalEdgeVM(GoalNodeVM.RootId, node.Id, GoalEdgeKind.Belong));
         }
     }
 

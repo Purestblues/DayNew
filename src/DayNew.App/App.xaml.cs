@@ -1,3 +1,4 @@
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
@@ -26,6 +27,12 @@ public partial class App : Application
     {
         base.OnStartup(e);
 
+        DispatcherUnhandledException += (_, args) => LogError("DispatcherUnhandledException", args.Exception);
+        AppDomain.CurrentDomain.UnhandledException += (_, args) =>
+        {
+            if (args.ExceptionObject is Exception ex) LogError("UnhandledException", ex);
+        };
+
         _instanceMutex = new Mutex(initiallyOwned: true, MutexName, out var isFirstInstance);
 
         if (!isFirstInstance)
@@ -35,18 +42,41 @@ public partial class App : Application
             return;
         }
 
-        ThemeService.ApplyInitial();
-        var window = new MainWindow();
-        MainWindow = window;
+        try
+        {
+            ThemeService.ApplyInitial();
+            var window = new MainWindow();
+            MainWindow = window;
 
-        if (StartupSilent)
-        {
-            // 只建 HWND 并挂载消息钩子，不弹窗，确保后台静默常驻且可被单实例再次唤醒
-            new WindowInteropHelper(window).EnsureHandle();
+            if (StartupSilent)
+            {
+                // 只建 HWND 并挂载消息钩子，不弹窗，确保后台静默常驻且可被单实例再次唤醒
+                new WindowInteropHelper(window).EnsureHandle();
+            }
+            else
+            {
+                window.Show();
+            }
         }
-        else
+        catch (Exception ex)
         {
-            window.Show();
+            LogError("OnStartup", ex);
+            Shutdown(1);
+        }
+    }
+
+    private static void LogError(string source, Exception ex)
+    {
+        try
+        {
+            Directory.CreateDirectory(StoreFile.Folder);
+            File.WriteAllText(
+                Path.Combine(StoreFile.Folder, "startup-error.txt"),
+                $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} [{source}]\n{ex}\n");
+        }
+        catch
+        {
+            // 忽略日志写失败
         }
     }
 

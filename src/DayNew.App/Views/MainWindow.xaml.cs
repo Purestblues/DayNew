@@ -124,10 +124,20 @@ public partial class MainWindow : Window
     private GoalVM? _hoveredGoalCard;
     private bool _hoveringGoalPopover;
 
-    // 目标树结构编辑器节点拖动 / 点击选择
+    // 目标树结构编辑器节点拖动 / 点击选择 / 四边拖拽连线 / 连线悬停防闪烁
     private GoalNodeVM? _pressedEditorNode;
     private bool _draggingEditorNode;
     private double _editorNodeStartX, _editorNodeStartY;
+    private bool _draggingEditorPort;
+    private readonly DispatcherTimer _edgeHoverHideTimer = new() { Interval = TimeSpan.FromMilliseconds(140) };
+    private GoalEdgeVM? _hoveredEditorEdge;
+    private bool _hoveringEdgeHit;
+    private bool _hoveringEdgeOverlay;
+
+    // 目标页大卡片内节点自由拖动
+    private GoalNodeVM? _pressedCardGoalNode;
+    private bool _draggingCardGoalNode;
+    private double _cardNodeStartX, _cardNodeStartY;
 
     // 目标树多选弹窗节点点击
     private GoalNodeVM? _pressedPickerNode;
@@ -170,7 +180,7 @@ public partial class MainWindow : Window
         Deactivated += (_, _) => CancelActiveInteractions();
         LostMouseCapture += (_, _) =>
         {
-            if (_dragging || _draggingBlock || _draggingPreset || _panning || _resizingBlock || _goalPanTarget != GoalCanvasTarget.None || _draggingEditorNode)
+            if (_dragging || _draggingBlock || _draggingPreset || _panning || _resizingBlock || _goalPanTarget != GoalCanvasTarget.None || _draggingEditorNode || _draggingEditorPort || _draggingCardGoalNode)
                 CancelActiveInteractions();
         };
         StateChanged += (_, _) => OnWindowStateChanged();
@@ -189,6 +199,7 @@ public partial class MainWindow : Window
         };
 
         _vm.PropertyChanged += OnViewModelPropertyChanged;
+        _vm.DeadlinePicker.PropertyChanged += OnDeadlinePickerPropertyChanged;
         _vm.ToastRequested += ShowToast;
         _vm.TaskTouched += OnTaskTouched;
         _vm.SummaryChanged += _tray.UpdateTooltip;
@@ -201,6 +212,15 @@ public partial class MainWindow : Window
             {
                 _hoveredGoalCard?.ClearHoverNode();
                 _hoveredGoalCard = null;
+            }
+        };
+        _edgeHoverHideTimer.Tick += (_, _) =>
+        {
+            _edgeHoverHideTimer.Stop();
+            if (!_hoveringEdgeHit && !_hoveringEdgeOverlay && _hoveredEditorEdge is not null && !_hoveredEditorEdge.IsEditingLabel)
+            {
+                _hoveredEditorEdge.IsHovered = false;
+                _hoveredEditorEdge = null;
             }
         };
         _nowLineTimer.Tick += (_, _) => _vm.RefreshCurrentTime();
@@ -237,6 +257,13 @@ public partial class MainWindow : Window
         else if (e.PropertyName == nameof(MainViewModel.IsGoalPickerOpen))
             AnimateModalVisibility(GoalPickerLayer, GoalPickerScrim, GoalPickerDialog, GoalPickerScale, GoalPickerShift,
                 _vm.IsGoalPickerOpen, () => _vm.IsGoalPickerOpen);
+    }
+
+    private void OnDeadlinePickerPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(DeadlinePickerVM.IsOpen))
+            AnimateModalVisibility(DeadlinePickerLayer, DeadlinePickerScrim, DeadlinePickerDialog, DeadlinePickerScale, DeadlinePickerShift,
+                _vm.DeadlinePicker.IsOpen, () => _vm.DeadlinePicker.IsOpen);
     }
 
     // ==================== 标题栏 ====================
@@ -304,7 +331,7 @@ public partial class MainWindow : Window
 
     private bool HandleHorizontalWheel(int delta)
     {
-        if (_vm.IsGoalPickerOpen || _vm.IsGoalTreeEditorOpen || _vm.IsEditorOpen || _vm.IsSettingsOpen || _vm.IsPresetManagerOpen) return false;
+        if (_vm.DeadlinePicker.IsOpen || _vm.IsGoalPickerOpen || _vm.IsGoalTreeEditorOpen || _vm.IsEditorOpen || _vm.IsSettingsOpen || _vm.IsPresetManagerOpen) return false;
 
         var pos = Mouse.GetPosition(this);
         ScrollViewer? target = null;
@@ -457,6 +484,7 @@ public partial class MainWindow : Window
     private void HideToTray()
     {
         CancelActiveInteractions();
+        _vm.DeadlinePicker.Close();
         _vm.CloseGoalPicker();
         _vm.CloseGoalTreeEditor();
         _vm.CloseSettings();
@@ -653,6 +681,11 @@ public partial class MainWindow : Window
         if (sender is FrameworkElement { Tag: GoalVM goal }) _vm.ToggleGoalCompleted(goal);
     }
 
+    private void GoalCardSetDue_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: GoalVM goal }) _vm.OpenGoalDeadlinePicker(goal);
+    }
+
     private void GoalCardCanvas_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
     {
         if (sender is not FrameworkElement viewport || viewport.DataContext is not GoalVM goal) return;
@@ -664,7 +697,7 @@ public partial class MainWindow : Window
 
     private void GoalCardNode_MouseEnter(object sender, MouseEventArgs e)
     {
-        if (_goalPanTarget != GoalCanvasTarget.None || _dragging) return;
+        if (_goalPanTarget != GoalCanvasTarget.None || _dragging || _draggingCardGoalNode) return;
         if (sender is not FrameworkElement { DataContext: GoalNodeVM node } el) return;
         if (FindAncestorTag(el, "goalcanvas") is not FrameworkElement viewport) return;
 
@@ -710,29 +743,39 @@ public partial class MainWindow : Window
         OpenDetailModal(() => _vm.OpenGoalNodeDetail(node.Owner, node));
     }
 
+    private void GoalCardNodeSetDue_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: GoalNodeVM node }) return;
+        node.Owner.ClearHoverNode();
+        _vm.OpenNodeDeadlinePicker(node);
+    }
+
     // ==================== 目标树结构编辑弹窗 ====================
 
     private void GoalTreeEditorClose_Click(object sender, RoutedEventArgs e) => _vm.CloseGoalTreeEditor();
 
     private void GoalTreeEditorScrim_Click(object sender, MouseButtonEventArgs e) => _vm.CloseGoalTreeEditor();
 
-    private void TreeEditorAddBelong_Click(object sender, RoutedEventArgs e)
+    private void TreeEditorDeadline_Click(object sender, RoutedEventArgs e)
     {
-        if (_vm.GoalTreeEditor.AddChild(GoalEdgeKind.Belong, out var focus) is not null && focus)
-            FocusTreeEditorNodeTitle();
+        if (_vm.GoalTreeEditor.SelectedNode is { } node)
+            _vm.OpenNodeDeadlinePicker(node);
     }
+
+    private void TreeEditorClearDeadline_Click(object sender, RoutedEventArgs e)
+    {
+        if (_vm.GoalTreeEditor.SelectedNode is { } node)
+            _vm.GoalTreeEditor.SetNodeDue(node, null);
+    }
+
+    private void TreeEditorAddBelong_Click(object sender, RoutedEventArgs e)
+        => _vm.GoalTreeEditor.AddChild(GoalEdgeKind.Belong);
 
     private void TreeEditorAddSibling_Click(object sender, RoutedEventArgs e)
-    {
-        if (_vm.GoalTreeEditor.AddSibling(out var focus) is not null && focus)
-            FocusTreeEditorNodeTitle();
-    }
+        => _vm.GoalTreeEditor.AddSibling();
 
     private void TreeEditorAddProgress_Click(object sender, RoutedEventArgs e)
-    {
-        if (_vm.GoalTreeEditor.AddChild(GoalEdgeKind.Progress, out var focus) is not null && focus)
-            FocusTreeEditorNodeTitle();
-    }
+        => _vm.GoalTreeEditor.AddChild(GoalEdgeKind.Progress);
 
     private void TreeEditorLinkBelong_Click(object sender, RoutedEventArgs e)
         => _vm.GoalTreeEditor.ToggleLinkMode(GoalEdgeKind.Belong);
@@ -749,6 +792,12 @@ public partial class MainWindow : Window
     private void TreeEditorResetView_Click(object sender, RoutedEventArgs e)
         => _vm.GoalTreeEditor.ResetViewport();
 
+    private void TreeEditorConnectBelong_Click(object sender, RoutedEventArgs e)
+        => _vm.GoalTreeEditor.ConfirmConnectMenu(GoalEdgeKind.Belong);
+
+    private void TreeEditorConnectProgress_Click(object sender, RoutedEventArgs e)
+        => _vm.GoalTreeEditor.ConfirmConnectMenu(GoalEdgeKind.Progress);
+
     private void TreeEditorViewport_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
     {
         e.Handled = true;
@@ -756,13 +805,171 @@ public partial class MainWindow : Window
         _vm.GoalTreeEditor.ZoomAt(factor, e.GetPosition(TreeEditorViewport));
     }
 
-    private void FocusTreeEditorNodeTitle()
+    private void TreeEditorNode_MouseEnter(object sender, MouseEventArgs e)
     {
-        Dispatcher.BeginInvoke(new Action(() =>
+        if (_draggingEditorPort || _draggingEditorNode || _goalPanTarget != GoalCanvasTarget.None) return;
+        if (sender is FrameworkElement { DataContext: GoalNodeVM node })
+            node.IsEditorHovered = true;
+    }
+
+    private void TreeEditorNode_MouseLeave(object sender, MouseEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: GoalNodeVM node })
+            node.IsEditorHovered = false;
+    }
+
+    private void TreeEditorInlineBox_IsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
+    {
+        if (sender is TextBox { IsVisible: true } box)
         {
-            TreeEditorNodeTitleBox.Focus();
-            TreeEditorNodeTitleBox.SelectAll();
-        }), DispatcherPriority.Input);
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                box.Focus();
+                box.SelectAll();
+            }), DispatcherPriority.Input);
+        }
+    }
+
+    private void TreeEditorInlineBox_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (sender is not TextBox { DataContext: GoalNodeVM node }) return;
+        if (e.Key is Key.Enter or Key.Escape)
+        {
+            _vm.GoalTreeEditor.CommitInlineNodeEdit(node);
+            Keyboard.ClearFocus();
+            e.Handled = true;
+        }
+    }
+
+    private void TreeEditorInlineBox_LostFocus(object sender, RoutedEventArgs e)
+    {
+        if (sender is TextBox { DataContext: GoalNodeVM node })
+            _vm.GoalTreeEditor.CommitInlineNodeEdit(node);
+    }
+
+    private void TreeEdgeHit_MouseEnter(object sender, MouseEventArgs e)
+    {
+        if (_draggingEditorPort || _draggingEditorNode || _goalPanTarget != GoalCanvasTarget.None) return;
+        if (sender is not FrameworkElement { DataContext: GoalEdgeVM edge }) return;
+
+        _edgeHoverHideTimer.Stop();
+        _hoveringEdgeHit = true;
+
+        if (_hoveredEditorEdge is not null && !ReferenceEquals(_hoveredEditorEdge, edge))
+            _hoveredEditorEdge.IsHovered = false;
+
+        _hoveredEditorEdge = edge;
+        edge.IsHovered = true;
+    }
+
+    private void TreeEdgeHit_MouseLeave(object sender, MouseEventArgs e)
+    {
+        _hoveringEdgeHit = false;
+        _edgeHoverHideTimer.Start();
+    }
+
+    private void TreeEdgeOverlay_MouseEnter(object sender, MouseEventArgs e)
+    {
+        if (_draggingEditorPort || _draggingEditorNode || _goalPanTarget != GoalCanvasTarget.None) return;
+        if (sender is not FrameworkElement { DataContext: GoalEdgeVM edge }) return;
+
+        _edgeHoverHideTimer.Stop();
+        _hoveringEdgeOverlay = true;
+
+        if (_hoveredEditorEdge is not null && !ReferenceEquals(_hoveredEditorEdge, edge))
+            _hoveredEditorEdge.IsHovered = false;
+
+        _hoveredEditorEdge = edge;
+        edge.IsHovered = true;
+    }
+
+    private void TreeEdgeOverlay_MouseLeave(object sender, MouseEventArgs e)
+    {
+        _hoveringEdgeOverlay = false;
+        _edgeHoverHideTimer.Start();
+    }
+
+    private void TreeEdgeAddNote_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: GoalEdgeVM edge }) return;
+        _hoveringEdgeHit = false;
+        _hoveringEdgeOverlay = false;
+        _hoveredEditorEdge = null;
+        _vm.GoalTreeEditor.StartEdgeLabelEdit(edge);
+    }
+
+    private void TreeEdgeDelete_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: GoalEdgeVM edge }) return;
+        _hoveringEdgeHit = false;
+        _hoveringEdgeOverlay = false;
+        _hoveredEditorEdge = null;
+        _vm.GoalTreeEditor.RemoveEdge(edge);
+    }
+
+    private void TreeEdgeLabelBox_IsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
+    {
+        if (sender is TextBox { IsVisible: true } box)
+        {
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                box.Focus();
+                box.SelectAll();
+            }), DispatcherPriority.Input);
+        }
+    }
+
+    private void TreeEdgeLabelBox_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (sender is not TextBox { DataContext: GoalEdgeVM edge }) return;
+        if (e.Key is Key.Enter or Key.Escape)
+        {
+            _vm.GoalTreeEditor.CommitEdgeLabelEdit(edge);
+            Keyboard.ClearFocus();
+            e.Handled = true;
+        }
+    }
+
+    private void TreeEdgeLabelBox_LostFocus(object sender, RoutedEventArgs e)
+    {
+        if (sender is TextBox { DataContext: GoalEdgeVM edge })
+            _vm.GoalTreeEditor.CommitEdgeLabelEdit(edge);
+    }
+
+    // ==================== 目标截止日期选择浮层 ====================
+
+    private void DeadlinePickerClose_Click(object sender, RoutedEventArgs e) => _vm.DeadlinePicker.Close();
+
+    private void DeadlinePickerScrim_Click(object sender, MouseButtonEventArgs e) => _vm.DeadlinePicker.Close();
+
+    private void DeadlineToday_Click(object sender, RoutedEventArgs e) => _vm.DeadlinePicker.PickToday();
+
+    private void DeadlineTomorrow_Click(object sender, RoutedEventArgs e) => _vm.DeadlinePicker.PickTomorrow();
+
+    private void DeadlineEndOfWeek_Click(object sender, RoutedEventArgs e) => _vm.DeadlinePicker.PickEndOfWeek();
+
+    private void DeadlineNextWeek_Click(object sender, RoutedEventArgs e) => _vm.DeadlinePicker.PickNextWeek();
+
+    private void DeadlineClear_Click(object sender, RoutedEventArgs e) => _vm.DeadlinePicker.ClearDate();
+
+    private void DeadlinePrevMonth_Click(object sender, RoutedEventArgs e) => _vm.DeadlinePicker.StepMonth(-1);
+
+    private void DeadlineNextMonth_Click(object sender, RoutedEventArgs e) => _vm.DeadlinePicker.StepMonth(1);
+
+    private void DeadlineDay_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: CalendarDayVM day })
+            _vm.DeadlinePicker.SelectDate(day.Date);
+    }
+
+    private void DeadlineApplyManual_Click(object sender, RoutedEventArgs e)
+        => _vm.DeadlinePicker.TryApplyManualText();
+
+    private void DeadlineManualBox_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter) return;
+        _vm.DeadlinePicker.TryApplyManualText();
+        e.Handled = true;
     }
 
     // ==================== 目标树多选弹窗 ====================
@@ -1124,6 +1331,13 @@ public partial class MainWindow : Window
 
         if (e.Key == Key.Escape)
         {
+            if (_vm.DeadlinePicker.IsOpen)
+            {
+                _vm.DeadlinePicker.Close();
+                e.Handled = true;
+                return;
+            }
+
             if (_vm.IsGoalPickerOpen)
             {
                 _vm.CloseGoalPicker();
@@ -1133,10 +1347,25 @@ public partial class MainWindow : Window
 
             if (_vm.IsGoalTreeEditorOpen)
             {
-                if (_vm.GoalTreeEditor.IsLinking)
+                if (_draggingEditorPort)
+                {
+                    _draggingEditorPort = false;
+                    _vm.GoalTreeEditor.CancelPortDrag();
+                    if (IsMouseCaptured) ReleaseMouseCapture();
+                    Mouse.Capture(null);
+                }
+                else if (_vm.GoalTreeEditor.IsConnectMenuOpen)
+                {
+                    _vm.GoalTreeEditor.CancelConnectMenu();
+                }
+                else if (_vm.GoalTreeEditor.IsLinking)
+                {
                     _vm.GoalTreeEditor.ClearLinkMode();
+                }
                 else
+                {
                     _vm.CloseGoalTreeEditor();
+                }
                 e.Handled = true;
                 return;
             }
@@ -1170,7 +1399,7 @@ public partial class MainWindow : Window
                 return;
             }
 
-            if (_panning || _goalPanTarget != GoalCanvasTarget.None || _resizingBlock || _dragging || _draggingBlock || _draggingPreset || _creating || _draggingEditorNode)
+            if (_panning || _goalPanTarget != GoalCanvasTarget.None || _resizingBlock || _dragging || _draggingBlock || _draggingPreset || _creating || _draggingEditorNode || _draggingEditorPort || _draggingCardGoalNode)
             {
                 CancelActiveInteractions();
                 e.Handled = true;
@@ -1181,8 +1410,8 @@ public partial class MainWindow : Window
             return;
         }
 
-        var modalBlocksGlobal = _vm.IsEditorOpen || _vm.IsSettingsOpen || _vm.IsPresetManagerOpen || _vm.IsTagDetailOpen;
-        var canSpacePan = (_vm.IsGoalPickerOpen || _vm.IsGoalTreeEditorOpen || (!modalBlocksGlobal && (_vm.IsTimeline || _vm.IsGoals)))
+        var modalBlocksGlobal = _vm.DeadlinePicker.IsOpen || _vm.IsEditorOpen || _vm.IsSettingsOpen || _vm.IsPresetManagerOpen || _vm.IsTagDetailOpen;
+        var canSpacePan = (!_vm.DeadlinePicker.IsOpen && (_vm.IsGoalPickerOpen || _vm.IsGoalTreeEditorOpen || (!modalBlocksGlobal && (_vm.IsTimeline || _vm.IsGoals))))
                           && Keyboard.FocusedElement is not TextBoxBase;
 
         if (e.Key == Key.Space && canSpacePan)
@@ -1226,6 +1455,8 @@ public partial class MainWindow : Window
 
     private void OnPreviewRightDown(object sender, MouseButtonEventArgs e)
     {
+        if (_vm.DeadlinePicker.IsOpen) return;
+
         var p = e.GetPosition(this);
         var src = e.OriginalSource as DependencyObject;
 
@@ -1238,6 +1469,7 @@ public partial class MainWindow : Window
 
         if (_vm.IsGoalTreeEditorOpen && IsInsideElement(p, TreeEditorViewport))
         {
+            _vm.GoalTreeEditor.CancelConnectMenu();
             BeginGoalCanvasPan(GoalCanvasTarget.TreeEditor, null, p, rightButton: true);
             e.Handled = true;
             return;
@@ -1413,7 +1645,12 @@ public partial class MainWindow : Window
         _clickedPageBlank = false;
         _pressedEditorNode = null;
         _draggingEditorNode = false;
+        _draggingEditorPort = false;
+        _pressedCardGoalNode = null;
+        _draggingCardGoalNode = false;
         _pressedPickerNode = null;
+
+        if (_vm.DeadlinePicker.IsOpen) return;
 
         var src = e.OriginalSource as DependencyObject;
         var p = e.GetPosition(this);
@@ -1439,11 +1676,34 @@ public partial class MainWindow : Window
 
         if (_vm.IsGoalTreeEditorOpen)
         {
+            if (_vm.GoalTreeEditor.IsConnectMenuOpen && !IsInsideElement(p, TreeEditorConnectMenu))
+                _vm.GoalTreeEditor.CancelConnectMenu();
+
             if (IsInteractive(src)) return;
 
-            // 点击画布区域时让出文本框焦点，确保随后直接按空格可平移画布
-            if (IsInsideElement(p, TreeEditorViewport))
+            // 从节点四边悬停圆点按住拖出连线
+            if (FindAncestorTag(src, "nodeport") is FrameworkElement { DataContext: GoalNodeVM portNode } portEl)
+            {
+                _vm.GoalTreeEditor.FinishAnyInlineNodeEdit();
+                CommitAnyEdgeLabelEdit();
                 Keyboard.ClearFocus();
+
+                _draggingEditorPort = true;
+                _pressPoint = p;
+                var portSide = ParsePortSide(portEl.Uid);
+                _vm.GoalTreeEditor.BeginPortDrag(portNode, portSide, ToTreeEditorCanvasPoint(p));
+                Mouse.Capture(this, CaptureMode.SubTree);
+                e.Handled = true;
+                return;
+            }
+
+            // 点击画布区域时提交就地编辑并让出文本框焦点，确保随后按空格可平移画布
+            if (IsInsideElement(p, TreeEditorViewport))
+            {
+                _vm.GoalTreeEditor.FinishAnyInlineNodeEdit();
+                CommitAnyEdgeLabelEdit();
+                Keyboard.ClearFocus();
+            }
 
             if (_spacePanKeyDown && IsInsideElement(p, TreeEditorViewport))
             {
@@ -1454,6 +1714,13 @@ public partial class MainWindow : Window
 
             if (FindAncestorTag(src, "treeeditornode") is FrameworkElement { DataContext: GoalNodeVM editorNode })
             {
+                if (e.ClickCount >= 2 && !_vm.GoalTreeEditor.IsLinking)
+                {
+                    _vm.GoalTreeEditor.StartInlineNodeEdit(editorNode);
+                    e.Handled = true;
+                    return;
+                }
+
                 _pressedEditorNode = editorNode;
                 _pressPoint = p;
                 _editorNodeStartX = editorNode.X;
@@ -1493,6 +1760,15 @@ public partial class MainWindow : Window
         {
             BeginGoalCanvasPan(GoalCanvasTarget.Card, goalCard, _pressPoint, rightButton: false);
             e.Handled = true;
+            return;
+        }
+
+        // 目标页大卡片内的目标/子目标节点：按住可自由拖拽位置
+        if (_vm.IsGoals && FindAncestorTag(src, "goalcardnode") is FrameworkElement { DataContext: GoalNodeVM cardGoalNode })
+        {
+            _pressedCardGoalNode = cardGoalNode;
+            _cardNodeStartX = cardGoalNode.X;
+            _cardNodeStartY = cardGoalNode.Y;
             return;
         }
 
@@ -1608,6 +1884,56 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (_draggingEditorPort)
+        {
+            if (e.LeftButton != MouseButtonState.Pressed)
+            {
+                _draggingEditorPort = false;
+                _vm.GoalTreeEditor.CancelPortDrag();
+                if (IsMouseCaptured) ReleaseMouseCapture();
+                Mouse.Capture(null);
+                return;
+            }
+
+            var canvasPt = ToTreeEditorCanvasPoint(e.GetPosition(this));
+            var (snapNode, snapSide) = HitTreeEditorTargetNode(canvasPt, exclude: null);
+            _vm.GoalTreeEditor.UpdatePortDrag(canvasPt, snapNode, snapSide);
+            return;
+        }
+
+        if (_pressedCardGoalNode is not null)
+        {
+            if (e.LeftButton != MouseButtonState.Pressed)
+            {
+                if (_draggingCardGoalNode)
+                {
+                    _draggingCardGoalNode = false;
+                    if (IsMouseCaptured) ReleaseMouseCapture();
+                    Mouse.Capture(null);
+                    CommitCardGoalNodeDrag(_pressedCardGoalNode);
+                }
+                _pressedCardGoalNode = null;
+                return;
+            }
+
+            var gp = e.GetPosition(this);
+            if (!_draggingCardGoalNode)
+            {
+                if (Math.Abs(gp.X - _pressPoint.X) < 5 && Math.Abs(gp.Y - _pressPoint.Y) < 5)
+                    return;
+
+                _draggingCardGoalNode = true;
+                _pressedCardGoalNode.Owner.ClearHoverNode();
+                Mouse.Capture(this, CaptureMode.SubTree);
+            }
+
+            var cardZoom = Math.Max(0.1, _pressedCardGoalNode.Owner.ViewZoom);
+            _pressedCardGoalNode.X = _cardNodeStartX + (gp.X - _pressPoint.X) / cardZoom;
+            _pressedCardGoalNode.Y = _cardNodeStartY + (gp.Y - _pressPoint.Y) / cardZoom;
+            _pressedCardGoalNode.Owner.RefreshEdgeGeometries();
+            return;
+        }
+
         if (_pressedEditorNode is not null)
         {
             if (e.LeftButton != MouseButtonState.Pressed)
@@ -1634,8 +1960,8 @@ public partial class MainWindow : Window
             }
 
             var zoom = Math.Max(0.1, _vm.GoalTreeEditor.Zoom);
-            _pressedEditorNode.X = Math.Max(8, _editorNodeStartX + (ep.X - _pressPoint.X) / zoom);
-            _pressedEditorNode.Y = Math.Max(8, _editorNodeStartY + (ep.Y - _pressPoint.Y) / zoom);
+            _pressedEditorNode.X = _editorNodeStartX + (ep.X - _pressPoint.X) / zoom;
+            _pressedEditorNode.Y = _editorNodeStartY + (ep.Y - _pressPoint.Y) / zoom;
             _vm.GoalTreeEditor.Goal?.RefreshEdgeGeometries();
             return;
         }
@@ -1774,6 +2100,42 @@ public partial class MainWindow : Window
             var upPos = e.GetPosition(this);
             if (Math.Abs(upPos.X - _pressPoint.X) < 6 && Math.Abs(upPos.Y - _pressPoint.Y) < 6)
                 _vm.GoalPicker.TogglePick(pNode);
+            e.Handled = true;
+            return;
+        }
+
+        if (_draggingEditorPort)
+        {
+            _draggingEditorPort = false;
+            if (IsMouseCaptured) ReleaseMouseCapture();
+            Mouse.Capture(null);
+
+            var winPt = e.GetPosition(this);
+            var canvasPt = ToTreeEditorCanvasPoint(winPt);
+            var viewportPt = e.GetPosition(TreeEditorViewport);
+            var (targetNode, targetSide) = HitTreeEditorTargetNode(canvasPt, exclude: null);
+            _vm.GoalTreeEditor.CompletePortDrag(
+                canvasPt,
+                viewportPt,
+                TreeEditorViewport.ActualWidth,
+                TreeEditorViewport.ActualHeight,
+                targetNode,
+                targetSide);
+            e.Handled = true;
+            return;
+        }
+
+        if (_pressedCardGoalNode is not null)
+        {
+            var cNode = _pressedCardGoalNode;
+            _pressedCardGoalNode = null;
+            if (_draggingCardGoalNode)
+            {
+                _draggingCardGoalNode = false;
+                if (IsMouseCaptured) ReleaseMouseCapture();
+                Mouse.Capture(null);
+                CommitCardGoalNodeDrag(cNode);
+            }
             e.Handled = true;
             return;
         }
@@ -3000,6 +3362,63 @@ public partial class MainWindow : Window
 
     // ==================== 视觉树工具 ====================
 
+    private Point ToTreeEditorCanvasPoint(Point windowPoint)
+    {
+        var vpPt = TranslatePoint(windowPoint, TreeEditorViewport);
+        var zoom = Math.Max(0.1, _vm.GoalTreeEditor.Zoom);
+        return new Point(
+            (vpPt.X - _vm.GoalTreeEditor.PanX) / zoom,
+            (vpPt.Y - _vm.GoalTreeEditor.PanY) / zoom);
+    }
+
+    private static GoalPortSide ParsePortSide(string? uid) => (uid ?? "").Trim() switch
+    {
+        "Top" => GoalPortSide.Top,
+        "Right" => GoalPortSide.Right,
+        "Bottom" => GoalPortSide.Bottom,
+        "Left" => GoalPortSide.Left,
+        _ => GoalPortSide.Auto
+    };
+
+    private (GoalNodeVM? Node, GoalPortSide Side) HitTreeEditorTargetNode(Point canvasPoint, GoalNodeVM? exclude)
+    {
+        var goal = _vm.GoalTreeEditor.Goal;
+        if (goal is null) return (null, GoalPortSide.Auto);
+
+        foreach (var node in goal.AllCanvasNodes)
+        {
+            if (node.IsRoot || ReferenceEquals(node, exclude)) continue;
+            var hitRect = new Rect(node.X - 14, node.Y - 14, node.Width + 28, node.Height + 28);
+            if (hitRect.Contains(canvasPoint))
+                return (node, node.NearestPortSide(canvasPoint));
+        }
+
+        return (null, GoalPortSide.Auto);
+    }
+
+    private void CommitAnyEdgeLabelEdit()
+    {
+        var goal = _vm.GoalTreeEditor.Goal;
+        if (goal is null) return;
+        foreach (var edge in goal.Edges)
+        {
+            if (edge.IsEditingLabel)
+                _vm.GoalTreeEditor.CommitEdgeLabelEdit(edge);
+        }
+    }
+
+    private void CommitCardGoalNodeDrag(GoalNodeVM node)
+    {
+        var goal = node.Owner;
+        var (sx, sy) = goal.NormalizeMinBounds();
+        if (sx > 0 || sy > 0)
+        {
+            goal.ViewPanX -= sx * goal.ViewZoom;
+            goal.ViewPanY -= sy * goal.ViewZoom;
+        }
+        _vm.OnGoalStructureChanged(rebuildTimelineAndCards: false);
+    }
+
     private static bool IsInteractive(DependencyObject? source)
     {
         var d = source;
@@ -3031,6 +3450,24 @@ public partial class MainWindow : Window
         StopTagDetailScrollAnimation();
         _spacePanKeyDown = false;
         if (_goalPanTarget != GoalCanvasTarget.None) EndGoalCanvasPan();
+        if (_draggingEditorPort)
+        {
+            _draggingEditorPort = false;
+            _vm.GoalTreeEditor.CancelPortDrag();
+            if (IsMouseCaptured) ReleaseMouseCapture();
+            Mouse.Capture(null);
+        }
+        if (_draggingCardGoalNode)
+        {
+            _draggingCardGoalNode = false;
+            _pressedCardGoalNode = null;
+            if (IsMouseCaptured) ReleaseMouseCapture();
+            Mouse.Capture(null);
+        }
+        else
+        {
+            _pressedCardGoalNode = null;
+        }
         if (_draggingEditorNode)
         {
             _draggingEditorNode = false;

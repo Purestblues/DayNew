@@ -195,6 +195,7 @@ public sealed class StoreFile
             Title = g.Title,
             Color = BrushToHex(g.Color),
             IsCompleted = g.IsCompleted,
+            Due = g.Due?.ToString("yyyy-MM-dd"),
             RootX = g.RootNode.X,
             RootY = g.RootNode.Y,
             Nodes = g.Nodes.Select(n => new GoalNodeDto
@@ -202,6 +203,7 @@ public sealed class StoreFile
                 Id = n.Id,
                 Title = n.Title,
                 IsCompleted = n.IsCompleted,
+                Due = n.Due?.ToString("yyyy-MM-dd"),
                 X = n.X,
                 Y = n.Y
             }).ToList(),
@@ -209,7 +211,10 @@ public sealed class StoreFile
             {
                 FromId = e.FromId,
                 ToId = e.ToId,
-                Kind = e.Kind == GoalEdgeKind.Progress ? "progress" : "belong"
+                Kind = e.Kind == GoalEdgeKind.Progress ? "progress" : "belong",
+                Label = string.IsNullOrWhiteSpace(e.Label) ? null : e.Label.Trim(),
+                FromSide = e.FromSide == GoalPortSide.Auto ? null : e.FromSide.ToString().ToLowerInvariant(),
+                ToSide = e.ToSide == GoalPortSide.Auto ? null : e.ToSide.ToString().ToLowerInvariant()
             }).ToList()
         }).ToList(),
 
@@ -276,7 +281,8 @@ public sealed class StoreFile
             {
                 Id = string.IsNullOrEmpty(g.Id) ? "" : g.Id,
                 Title = g.Title,
-                Color = DayStore.BrushFromHex(g.Color)
+                Color = DayStore.BrushFromHex(g.Color),
+                Due = ParseDate(g.Due)
             };
 
             if (g.Nodes is { Count: > 0 })
@@ -289,7 +295,8 @@ public sealed class StoreFile
                     var node = new GoalNodeVM(goal, nodeId, n.Title)
                     {
                         X = n.X,
-                        Y = n.Y
+                        Y = n.Y,
+                        Due = ParseDate(n.Due)
                     };
                     node.SetCompletedRaw(n.IsCompleted);
                     goal.Nodes.Add(node);
@@ -303,7 +310,13 @@ public sealed class StoreFile
                         var kind = string.Equals(e.Kind, "progress", StringComparison.OrdinalIgnoreCase)
                             ? GoalEdgeKind.Progress
                             : GoalEdgeKind.Belong;
-                        goal.Edges.Add(new GoalEdgeVM(e.FromId, e.ToId, kind));
+                        var edge = new GoalEdgeVM(e.FromId, e.ToId, kind)
+                        {
+                            Label = e.Label ?? "",
+                            FromSide = ParsePortSide(e.FromSide),
+                            ToSide = ParsePortSide(e.ToSide)
+                        };
+                        goal.Edges.Add(edge);
                     }
                 }
 
@@ -438,6 +451,16 @@ public sealed class StoreFile
 
         return list;
     }
+
+    private static GoalPortSide ParsePortSide(string? text)
+        => (text ?? "").Trim().ToLowerInvariant() switch
+        {
+            "top" => GoalPortSide.Top,
+            "right" => GoalPortSide.Right,
+            "bottom" => GoalPortSide.Bottom,
+            "left" => GoalPortSide.Left,
+            _ => GoalPortSide.Auto
+        };
 
     private static DateTime? ParseDate(string? text)
         => DateTime.TryParse(text, out var value) ? value.Date : null;

@@ -46,6 +46,9 @@ public sealed class MainViewModel : ObservableObject
     /// <summary>目标树多选弹窗状态。</summary>
     public GoalTreePickerVM GoalPicker { get; }
 
+    /// <summary>目标 / 子目标可选截止日期选择器状态。</summary>
+    public DeadlinePickerVM DeadlinePicker { get; } = new();
+
     private bool _isEditorOpen;
     private bool _isSettingsOpen;
     private bool _isPresetManagerOpen;
@@ -1336,9 +1339,27 @@ public sealed class MainViewModel : ObservableObject
 
     public void CloseGoalTreeEditor()
     {
+        DeadlinePicker.Close();
         IsGoalTreeEditorOpen = false;
         GoalTreeEditor.Close();
         Rebuild();
+    }
+
+    public void OpenNodeDeadlinePicker(GoalNodeVM node)
+    {
+        var label = string.IsNullOrWhiteSpace(node.DisplayTitle) ? "目标" : node.DisplayTitle;
+        DeadlinePicker.Open($"「{label}」截止日期", node.Due, due => GoalTreeEditor.SetNodeDue(node, due));
+    }
+
+    public void OpenGoalDeadlinePicker(GoalVM goal)
+    {
+        var label = string.IsNullOrWhiteSpace(goal.Title) ? "目标" : goal.Title;
+        DeadlinePicker.Open($"「{label}」截止日期", goal.Due, due =>
+        {
+            goal.Due = due;
+            OnGoalStructureChanged(rebuildTimelineAndCards: false);
+            Notify(due.HasValue ? $"已设截止日期：{goal.DueBadgeText}" : "已清除截止日期");
+        });
     }
 
     public void OnGoalStructureChanged(bool rebuildTimelineAndCards)
@@ -1762,10 +1783,12 @@ public sealed class MainViewModel : ObservableObject
         paper.TryAddOrUpdateEdge(model.Id, expDesign.Id, GoalEdgeKind.Progress, out _);
         var expRun = paper.AddChildSubGoal(expDesign, "进行实验", GoalEdgeKind.Progress);
         paper.AddChildSubGoal(expRun, "数据回收分析", GoalEdgeKind.Progress);
+        paper.AutoLayout();
 
         var python = CreateGoal("学 Python");
         var pyBase = python.AddChildSubGoal(python.RootNode, "语法与模块", GoalEdgeKind.Belong);
         var pyCrawl = python.AddChildSubGoal(pyBase, "爬虫实战", GoalEdgeKind.Progress);
+        python.AutoLayout();
 
         var tidy = CreateGoal("生活整理");
 
