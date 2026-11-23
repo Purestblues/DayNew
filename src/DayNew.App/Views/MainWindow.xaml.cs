@@ -18,11 +18,14 @@ namespace DayNew.Views;
 
 public partial class MainWindow : Window
 {
-    private readonly MainViewModel _vm = new();
-    private readonly TrayService _tray;
-    private readonly NotificationService _notifications;
-    private readonly McpServerService _mcpServer;
+    private readonly MainViewModel _vm;
+    private readonly Action _onHideToTray;
+    private readonly Action _onExitApp;
+    private readonly Action _onTestNotify;
+    private readonly Rect? _savedBounds;
+    private readonly WindowState? _savedState;
     private bool _allowExit;
+    private bool _closingToTray;
     private bool _hasCentered;
     private bool _cleanedUp;
     private bool _syncingPasswordBox;
@@ -148,37 +151,26 @@ public partial class MainWindow : Window
     // 目标树多选弹窗节点点击
     private GoalNodeVM? _pressedPickerNode;
 
-    public MainWindow()
+    public MainWindow(
+        MainViewModel vm,
+        Action onHideToTray,
+        Action onExitApp,
+        Action onTestNotify,
+        Rect? savedBounds = null,
+        WindowState? savedState = null)
     {
+        _vm = vm;
+        _onHideToTray = onHideToTray;
+        _onExitApp = onExitApp;
+        _onTestNotify = onTestNotify;
+        _savedBounds = savedBounds;
+        _savedState = savedState;
+
         InitializeComponent();
         DataContext = _vm;
+        EnsurePageTemplateLoaded(_vm.SelectedNav.Kind);
         ApplyThemeIcon();
         UpdateMaxIcon();
-
-        _tray = new TrayService(
-            onOpen: ShowFromTray,
-            onToggleWindow: ToggleTrayWindow,
-            getNotifyEnabled: () => _vm.NotifyEnabled,
-            setNotifyEnabled: v => _vm.NotifyEnabled = v,
-            getAutoStartEnabled: () => _vm.AutoStartEnabled,
-            setAutoStartEnabled: v => _vm.AutoStartEnabled = v,
-            onExit: ExitApplication);
-
-        _notifications = new NotificationService(
-            _vm.Settings,
-            () => _vm.AllSchedules,
-            onOpenWindow: ShowFromTray,
-            onCompleteTask: id =>
-            {
-                if (_vm.CompleteTaskById(id)) _vm.FlushSave();
-            });
-
-        _mcpServer = new McpServerService(_vm, Dispatcher);
-        _vm.AttachMcpServer(_mcpServer);
-        _mcpServer.StartOrRestart();
-
-        var (todayPending, overdueCount) = _vm.GetSummaryCounts();
-        _tray.UpdateTooltip(todayPending, overdueCount);
 
         PreviewMouseLeftButtonDown += OnPreviewDown;
         PreviewMouseMove += OnPreviewMove;
@@ -187,91 +179,182 @@ public partial class MainWindow : Window
         PreviewMouseRightButtonUp += OnPreviewRightUp;
         PreviewKeyDown += OnPreviewKeyDown;
         PreviewKeyUp += OnPreviewKeyUp;
-        Deactivated += (_, _) => CancelActiveInteractions();
-        LostMouseCapture += (_, _) =>
-        {
-            if (_dragging || _draggingBlock || _draggingPreset || _panning || _resizingBlock || _goalPanTarget != GoalCanvasTarget.None || _draggingEditorNode || _draggingEditorPort || _draggingCardGoalNode)
-                CancelActiveInteractions();
-        };
-        StateChanged += (_, _) => OnWindowStateChanged();
+        Deactivated += OnWindowDeactivated;
+        LostMouseCapture += OnWindowLostMouseCapture;
+        StateChanged += OnWindowStateChangedEvent;
         Closing += OnWindowClosing;
-        Closed += (_, _) =>
-        {
-            if (_allowExit) Application.Current.Shutdown();
-        };
+        Closed += OnWindowClosed;
 
-        // 不依赖 WindowStartupLocation：在多屏 / 高 DPI 下它会把窗口丢到屏幕外；只首开时居中一次
-        Loaded += (_, _) =>
-        {
-            if (_hasCentered) return;
-            _hasCentered = true;
-            CenterOnScreen();
-        };
+        // 不依赖 WindowStartupLocation：在多屏 / 高 DPI 下它会把窗口丢到屏幕外；首开居中或恢复上次位置
+        Loaded += OnWindowLoaded;
 
         _vm.PropertyChanged += OnViewModelPropertyChanged;
         _vm.DeadlinePicker.PropertyChanged += OnDeadlinePickerPropertyChanged;
         _vm.ToastRequested += ShowToast;
         _vm.TaskTouched += OnTaskTouched;
-        _vm.SummaryChanged += _tray.UpdateTooltip;
-        _toastTimer.Tick += (_, _) => HideToast();
-        _expandTimer.Tick += (_, _) => CommitPendingExpand();
-        _goalHoverHideTimer.Tick += (_, _) =>
-        {
-            _goalHoverHideTimer.Stop();
-            if (!_hoveringGoalPopover)
-            {
-                _hoveredGoalCard?.ClearHoverNode();
-                _hoveredGoalCard = null;
-            }
-        };
-        _edgeHoverHideTimer.Tick += (_, _) =>
-        {
-            _edgeHoverHideTimer.Stop();
-            if (!_hoveringEdgeHit && !_hoveringEdgeOverlay && _hoveredEditorEdge is not null && !_hoveredEditorEdge.IsEditingLabel)
-            {
-                _hoveredEditorEdge.IsHovered = false;
-                _hoveredEditorEdge = null;
-            }
-        };
-        _nowLineTimer.Tick += (_, _) => _vm.RefreshCurrentTime();
+        _toastTimer.Tick += OnToastTimerTick;
+        _expandTimer.Tick += OnExpandTimerTick;
+        _goalHoverHideTimer.Tick += OnGoalHoverHideTimerTick;
+        _edgeHoverHideTimer.Tick += OnEdgeHoverHideTimerTick;
+        _nowLineTimer.Tick += OnNowLineTimerTick;
         _nowLineTimer.Start();
+        _vm.RefreshCurrentTime();
 
-        NavHost.SelectionChanged += (_, _) =>
+        NavHost.SelectionChanged += OnNavHostSelectionChanged;
+    }
+
+    private void OnWindowDeactivated(object? sender, EventArgs e) => CancelActiveInteractions();
+
+    private void OnWindowLostMouseCapture(object? sender, MouseEventArgs e)
+    {
+        if (_dragging || _draggingBlock || _draggingPreset || _panning || _resizingBlock || _goalPanTarget != GoalCanvasTarget.None || _draggingEditorNode || _draggingEditorPort || _draggingCardGoalNode)
+            CancelActiveInteractions();
+    }
+
+    private void OnWindowStateChangedEvent(object? sender, EventArgs e) => OnWindowStateChanged();
+
+    private void OnWindowLoaded(object sender, RoutedEventArgs e)
+    {
+        if (_hasCentered) return;
+        _hasCentered = true;
+        if (_savedBounds is { } b && b.Width > 0 && b.Height > 0)
         {
-            CancelPendingExpand();
-            AnimateActivePage();
+            var area = SystemParameters.WorkArea;
+            Width = Math.Min(b.Width, Math.Max(MinWidth, area.Width));
+            Height = Math.Min(b.Height, Math.Max(MinHeight, area.Height));
+            Left = Math.Clamp(b.Left, area.Left, Math.Max(area.Left, area.Right - Width));
+            Top = Math.Clamp(b.Top, area.Top, Math.Max(area.Top, area.Bottom - Height));
+            if (_savedState == WindowState.Maximized)
+                WindowState = WindowState.Maximized;
+        }
+        else
+        {
+            CenterOnScreen();
+        }
 
-            if (!_vm.IsTimeline || _timelineScrolled) return;
+        if (_vm.IsTimeline && !_timelineScrolled)
+        {
             _timelineScrolled = true;
             Dispatcher.BeginInvoke(new Action(ScrollToToday), DispatcherPriority.Loaded);
-        };
+        }
     }
+
+    private void OnWindowClosed(object? sender, EventArgs e)
+    {
+        DetachWindowResources();
+        if (_allowExit) _onExitApp();
+    }
+
+    private void OnToastTimerTick(object? sender, EventArgs e) => HideToast();
+    private void OnExpandTimerTick(object? sender, EventArgs e) => CommitPendingExpand();
+
+    private void OnGoalHoverHideTimerTick(object? sender, EventArgs e)
+    {
+        _goalHoverHideTimer.Stop();
+        if (!_hoveringGoalPopover)
+        {
+            _hoveredGoalCard?.ClearHoverNode();
+            _hoveredGoalCard = null;
+        }
+    }
+
+    private void OnEdgeHoverHideTimerTick(object? sender, EventArgs e)
+    {
+        _edgeHoverHideTimer.Stop();
+        if (!_hoveringEdgeHit && !_hoveringEdgeOverlay && _hoveredEditorEdge is not null && !_hoveredEditorEdge.IsEditingLabel)
+        {
+            _hoveredEditorEdge.IsHovered = false;
+            _hoveredEditorEdge = null;
+        }
+    }
+
+    private void OnNowLineTimerTick(object? sender, EventArgs e) => _vm.RefreshCurrentTime();
+
+    private void OnNavHostSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        EnsurePageTemplateLoaded(_vm.SelectedNav.Kind);
+        CancelPendingExpand();
+        AnimateActivePage();
+
+        if (!_vm.IsTimeline || _timelineScrolled) return;
+        _timelineScrolled = true;
+        Dispatcher.BeginInvoke(new Action(ScrollToToday), DispatcherPriority.Loaded);
+    }
+
+    private void EnsurePageTemplateLoaded(PageKind kind)
+    {
+        (ContentControl host, string templateKey) = kind switch
+        {
+            PageKind.Timeline => (TimelinePageHost, "TimelinePageTemplate"),
+            PageKind.Goals => (GoalsPageHost, "GoalsPageTemplate"),
+            PageKind.Tags => (TagsPageHost, "TagsPageTemplate"),
+            PageKind.Eisenhower => (EisenhowerPageHost, "EisenhowerPageTemplate"),
+            PageKind.Deadlines => (DeadlinesPageHost, "DeadlinesPageTemplate"),
+            PageKind.Future => (FuturePageHost, "FuturePageTemplate"),
+            PageKind.Overdue => (OverduePageHost, "OverduePageTemplate"),
+            _ => default
+        };
+
+        if (host is null || string.IsNullOrEmpty(templateKey)) return;
+        var desired = (ControlTemplate)FindResource(templateKey);
+        if (ReferenceEquals(host.Template, desired)) return;
+        host.Template = desired;
+        host.ApplyTemplate();
+    }
+
+    private static T? FindTemplateChild<T>(ContentControl host, string name) where T : class
+        => host.Template?.FindName(name, host) as T;
+
+    private ScrollViewer? BodyScroll => FindTemplateChild<ScrollViewer>(TimelinePageHost, "BodyScroll");
+    private ScrollViewer? HeaderScroll => FindTemplateChild<ScrollViewer>(TimelinePageHost, "HeaderScroll");
+    private ScrollViewer? GutterScroll => FindTemplateChild<ScrollViewer>(TimelinePageHost, "GutterScroll");
+    private ItemsControl? DaysHost => FindTemplateChild<ItemsControl>(TimelinePageHost, "DaysHost");
+    private ScrollViewer? PresetsScroll => FindTemplateChild<ScrollViewer>(TimelinePageHost, "PresetsScroll");
+    private ItemsControl? QuadrantsHost => FindTemplateChild<ItemsControl>(EisenhowerPageHost, "QuadrantsHost");
+    private ItemsControl? DeadlinesHost => FindTemplateChild<ItemsControl>(DeadlinesPageHost, "DeadlinesHost");
+    private ItemsControl? FutureHost => FindTemplateChild<ItemsControl>(FuturePageHost, "FutureHost");
+    private ItemsControl? OverdueHost => FindTemplateChild<ItemsControl>(OverduePageHost, "OverdueHost");
+    private ScrollViewer? TagDetailScroll => FindTemplateChild<ScrollViewer>(TagDetailBodyHost, "TagDetailScroll");
+    private ItemsControl? TagDetailDaysHost => FindTemplateChild<ItemsControl>(TagDetailBodyHost, "TagDetailDaysHost");
+    private TextBox? EditorTitle => FindTemplateChild<TextBox>(EditorBodyHost, "EditorTitle");
+    private PasswordBox? WebDavPasswordBox => FindTemplateChild<PasswordBox>(SettingsBodyHost, "WebDavPasswordBox");
+    private TextBox? PresetTitleBox => FindTemplateChild<TextBox>(PresetManagerBodyHost, "PresetTitleBox");
+    private Border? TreeEditorViewport => FindTemplateChild<Border>(GoalTreeEditorBodyHost, "TreeEditorViewport");
+    private Border? TreeEditorConnectMenu => FindTemplateChild<Border>(GoalTreeEditorBodyHost, "TreeEditorConnectMenu");
+    private Border? GoalPickerViewport => FindTemplateChild<Border>(GoalPickerBodyHost, "GoalPickerViewport");
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(MainViewModel.IsEditorOpen))
             AnimateModalVisibility(EditorLayer, EditorScrim, EditorDialog, EditorScale, EditorShift,
+                EditorBodyHost, "EditorBodyTemplate",
                 _vm.IsEditorOpen, () => _vm.IsEditorOpen);
         else if (e.PropertyName == nameof(MainViewModel.IsSettingsOpen))
         {
-            if (_vm.IsSettingsOpen) SyncWebDavPasswordBox();
             AnimateModalVisibility(SettingsLayer, SettingsScrim, SettingsDialog, SettingsScale, SettingsShift,
+                SettingsBodyHost, "SettingsBodyTemplate",
                 _vm.IsSettingsOpen, () => _vm.IsSettingsOpen);
+            if (_vm.IsSettingsOpen) SyncWebDavPasswordBox();
         }
         else if (e.PropertyName == nameof(MainViewModel.IsImportConfirmOpen))
             AnimateModalVisibility(ImportConfirmLayer, ImportConfirmScrim, ImportConfirmDialog, ImportConfirmScale, ImportConfirmShift,
+                ImportConfirmBodyHost, "ImportConfirmBodyTemplate",
                 _vm.IsImportConfirmOpen, () => _vm.IsImportConfirmOpen);
         else if (e.PropertyName == nameof(MainViewModel.IsPresetManagerOpen))
             AnimateModalVisibility(PresetManagerLayer, PresetManagerScrim, PresetManagerDialog, PresetManagerScale, PresetManagerShift,
+                PresetManagerBodyHost, "PresetManagerBodyTemplate",
                 _vm.IsPresetManagerOpen, () => _vm.IsPresetManagerOpen);
         else if (e.PropertyName == nameof(MainViewModel.IsTagDetailOpen))
             AnimateModalVisibility(TagDetailLayer, TagDetailScrim, TagDetailDialog, TagDetailScale, TagDetailShift,
+                TagDetailBodyHost, "TagDetailBodyTemplate",
                 _vm.IsTagDetailOpen, () => _vm.IsTagDetailOpen);
         else if (e.PropertyName == nameof(MainViewModel.IsGoalTreeEditorOpen))
             AnimateModalVisibility(GoalTreeEditorLayer, GoalTreeEditorScrim, GoalTreeEditorDialog, GoalTreeEditorScale, GoalTreeEditorShift,
+                GoalTreeEditorBodyHost, "GoalTreeEditorBodyTemplate",
                 _vm.IsGoalTreeEditorOpen, () => _vm.IsGoalTreeEditorOpen);
         else if (e.PropertyName == nameof(MainViewModel.IsGoalPickerOpen))
             AnimateModalVisibility(GoalPickerLayer, GoalPickerScrim, GoalPickerDialog, GoalPickerScale, GoalPickerShift,
+                GoalPickerBodyHost, "GoalPickerBodyTemplate",
                 _vm.IsGoalPickerOpen, () => _vm.IsGoalPickerOpen);
     }
 
@@ -279,6 +362,7 @@ public partial class MainWindow : Window
     {
         if (e.PropertyName == nameof(DeadlinePickerVM.IsOpen))
             AnimateModalVisibility(DeadlinePickerLayer, DeadlinePickerScrim, DeadlinePickerDialog, DeadlinePickerScale, DeadlinePickerShift,
+                DeadlinePickerBodyHost, "DeadlinePickerBodyTemplate",
                 _vm.DeadlinePicker.IsOpen, () => _vm.DeadlinePicker.IsOpen);
     }
 
@@ -366,10 +450,10 @@ public partial class MainWindow : Window
             }
         }
 
-        if (target is null && _vm.IsTagDetailOpen && IsInsideElement(pos, TagDetailDialog) && TagDetailScroll.ScrollableWidth > 0)
-            target = TagDetailScroll;
-        else if (target is null && _vm.IsTimeline && IsInsideElement(pos, PageTimeline) && BodyScroll.ScrollableWidth > 0)
-            target = BodyScroll;
+        if (target is null && _vm.IsTagDetailOpen && IsInsideElement(pos, TagDetailDialog) && TagDetailScroll is { ScrollableWidth: > 0 } tds)
+            target = tds;
+        else if (target is null && _vm.IsTimeline && IsInsideElement(pos, PageTimeline) && BodyScroll is { ScrollableWidth: > 0 } bs)
+            target = bs;
 
         if (target is null) return false;
 
@@ -473,10 +557,17 @@ public partial class MainWindow : Window
     {
         _vm.FlushSave();
 
+        if (_closingToTray)
+        {
+            e.Cancel = false;
+            return;
+        }
+
         if (!_allowExit && _vm.CloseToTray)
         {
-            e.Cancel = true;
-            HideToTray();
+            PrepareHideToTray();
+            _closingToTray = true;
+            e.Cancel = false;
             return;
         }
 
@@ -497,7 +588,21 @@ public partial class MainWindow : Window
         }
     }
 
-    private void HideToTray()
+    public void CloseToTray()
+    {
+        if (_closingToTray || _allowExit) return;
+        PrepareHideToTray();
+        _closingToTray = true;
+        Close();
+    }
+
+    public void ForceCloseForExit()
+    {
+        _allowExit = true;
+        Close();
+    }
+
+    private void PrepareHideToTray()
     {
         CancelActiveInteractions();
         _vm.DeadlinePicker.Close();
@@ -508,33 +613,41 @@ public partial class MainWindow : Window
         _vm.ClosePresetManager();
         _vm.CloseTagDetail();
         _vm.FlushSave();
-        Hide();
     }
 
-    private void ToggleTrayWindow()
-    {
-        if (IsVisible && WindowState != WindowState.Minimized && IsActive)
-            HideToTray();
-        else
-            ShowFromTray();
-    }
-
-    private void ExitApplication()
-    {
-        _allowExit = true;
-        Application.Current.Shutdown();
-    }
-
-    public void CleanupOnExit()
+    private void DetachWindowResources()
     {
         if (_cleanedUp) return;
         _cleanedUp = true;
+
         _nowLineTimer.Stop();
-        _vm.StopBackgroundTimers();
-        _mcpServer.Dispose();
-        _vm.FlushSave();
-        _notifications.Dispose();
-        _tray.Dispose();
+        _toastTimer.Stop();
+        _expandTimer.Stop();
+        _goalHoverHideTimer.Stop();
+        _edgeHoverHideTimer.Stop();
+
+        StopScrollAnimation();
+        StopTagDetailScrollAnimation();
+        StopZoomAnimation();
+
+        _vm.PropertyChanged -= OnViewModelPropertyChanged;
+        _vm.DeadlinePicker.PropertyChanged -= OnDeadlinePickerPropertyChanged;
+        _vm.ToastRequested -= ShowToast;
+        _vm.TaskTouched -= OnTaskTouched;
+
+        _toastTimer.Tick -= OnToastTimerTick;
+        _expandTimer.Tick -= OnExpandTimerTick;
+        _goalHoverHideTimer.Tick -= OnGoalHoverHideTimerTick;
+        _edgeHoverHideTimer.Tick -= OnEdgeHoverHideTimerTick;
+        _nowLineTimer.Tick -= OnNowLineTimerTick;
+
+        NavHost.SelectionChanged -= OnNavHostSelectionChanged;
+
+        var hwnd = new WindowInteropHelper(this).Handle;
+        if (hwnd != IntPtr.Zero)
+            HwndSource.FromHwnd(hwnd)?.RemoveHook(WindowHook);
+
+        DataContext = null;
     }
 
     private void SettingsOpen_Click(object sender, RoutedEventArgs e) => _vm.OpenSettings();
@@ -545,7 +658,7 @@ public partial class MainWindow : Window
 
     private void OpenDataFolder_Click(object sender, RoutedEventArgs e) => _vm.OpenDataFolder();
 
-    private void TestNotify_Click(object sender, RoutedEventArgs e) => _notifications.SendTestNotification();
+    private void TestNotify_Click(object sender, RoutedEventArgs e) => _onTestNotify();
 
     private void SettingsDefaultRemind_Click(object sender, RoutedEventArgs e)
         => HandleRemindChipClick(sender, _vm.ToggleDefaultRemindNode);
@@ -587,11 +700,11 @@ public partial class MainWindow : Window
 
     private void SyncWebDavPasswordBox()
     {
-        if (WebDavPasswordBox.Password == _vm.WebDavPassword) return;
+        if (WebDavPasswordBox is not { } box || box.Password == _vm.WebDavPassword) return;
         _syncingPasswordBox = true;
         try
         {
-            WebDavPasswordBox.Password = _vm.WebDavPassword;
+            box.Password = _vm.WebDavPassword;
         }
         finally
         {
@@ -601,8 +714,8 @@ public partial class MainWindow : Window
 
     private void WebDavPasswordBox_PasswordChanged(object sender, RoutedEventArgs e)
     {
-        if (_syncingPasswordBox) return;
-        _vm.WebDavPassword = WebDavPasswordBox.Password;
+        if (_syncingPasswordBox || WebDavPasswordBox is not { } box) return;
+        _vm.WebDavPassword = box.Password;
     }
 
     private async void WebDavTest_Click(object sender, RoutedEventArgs e) => await _vm.TestWebDavConnectionAsync();
@@ -1244,31 +1357,31 @@ public partial class MainWindow : Window
 
     private void TagDetailScroll_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
     {
-        if (!_vm.IsTagDetailOpen || _vm.IsEditorOpen) return;
+        if (!_vm.IsTagDetailOpen || _vm.IsEditorOpen || TagDetailScroll is not { } scroll) return;
 
         StopTagDetailScrollAnimation();
         e.Handled = true;
-        TagDetailScroll.ScrollToHorizontalOffset(
-            Math.Clamp(TagDetailScroll.HorizontalOffset - e.Delta * 0.45, 0, TagDetailScroll.ScrollableWidth));
+        scroll.ScrollToHorizontalOffset(
+            Math.Clamp(scroll.HorizontalOffset - e.Delta * 0.45, 0, scroll.ScrollableWidth));
     }
 
     private void ScrollTagDetailToToday(bool animate)
     {
         StopTagDetailScrollAnimation();
-        if (_vm.TagDetailDays.Count == 0) return;
+        if (_vm.TagDetailDays.Count == 0 || TagDetailScroll is not { } scroll) return;
 
-        TagDetailScroll.UpdateLayout();
+        scroll.UpdateLayout();
 
         const double columnWidth = 188;
-        var targetH = Math.Clamp((_vm.TagDetailTodayIndex - 1) * columnWidth, 0, TagDetailScroll.ScrollableWidth);
+        var targetH = Math.Clamp((_vm.TagDetailTodayIndex - 1) * columnWidth, 0, scroll.ScrollableWidth);
 
         if (!animate)
         {
-            TagDetailScroll.ScrollToHorizontalOffset(targetH);
+            scroll.ScrollToHorizontalOffset(targetH);
             return;
         }
 
-        _tagDetailScrollFromH = TagDetailScroll.HorizontalOffset;
+        _tagDetailScrollFromH = scroll.HorizontalOffset;
         _tagDetailScrollToH = targetH;
         if (Math.Abs(_tagDetailScrollToH - _tagDetailScrollFromH) < 1) return;
 
@@ -1279,11 +1392,17 @@ public partial class MainWindow : Window
 
     private void OnTagDetailScrollAnimationFrame(object? sender, EventArgs e)
     {
+        if (TagDetailScroll is not { } scroll)
+        {
+            StopTagDetailScrollAnimation();
+            return;
+        }
+
         var elapsed = (DateTime.UtcNow - _tagDetailScrollAnimStart).TotalMilliseconds;
         var t = Math.Clamp(elapsed / Motion.M.TotalMilliseconds, 0, 1);
         var eased = Motion.EaseOut.Ease(t);
 
-        TagDetailScroll.ScrollToHorizontalOffset(
+        scroll.ScrollToHorizontalOffset(
             _tagDetailScrollFromH + (_tagDetailScrollToH - _tagDetailScrollFromH) * eased);
 
         if (t >= 1) StopTagDetailScrollAnimation();
@@ -1300,18 +1419,19 @@ public partial class MainWindow : Window
 
     private void Zoom_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is not FrameworkElement { Tag: int index }) return;
+        if (sender is not FrameworkElement { Tag: int index } || BodyScroll is not { } body) return;
 
         StopScrollAnimation();
 
         var targetPx = _vm.PresetPxPerHour(index);
-        var centerY = BodyScroll.ViewportHeight * 0.5;
+        var centerY = body.ViewportHeight * 0.5;
         StartSmoothZoom(targetPx, centerY);
     }
 
     private void PageTimeline_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
     {
         if (_vm.IsEditorOpen || _vm.IsImportConfirmOpen || _vm.IsSettingsOpen || _vm.IsPresetManagerOpen) return;
+        if (BodyScroll is not { } body) return;
 
         StopScrollAnimation();
 
@@ -1322,42 +1442,43 @@ public partial class MainWindow : Window
             e.Handled = true;
             var factor = Math.Pow(1.18, e.Delta / 120.0);
             var basePx = _zoomAnimHandler is not null ? _zoomTargetPx : _vm.PxPerHourValue;
-            var anchorY = Math.Clamp(e.GetPosition(BodyScroll).Y, 0, Math.Max(1, BodyScroll.ViewportHeight));
+            var anchorY = Math.Clamp(e.GetPosition(body).Y, 0, Math.Max(1, body.ViewportHeight));
             StartSmoothZoom(basePx * factor, anchorY);
             return;
         }
 
         // 工具条里的快捷卡片区如果横向溢出，优先横向滚它自己
-        if (IsInsideElement(e.GetPosition(this), PresetsScroll) && PresetsScroll.ScrollableWidth > 0)
+        if (PresetsScroll is { } presets && IsInsideElement(e.GetPosition(this), presets) && presets.ScrollableWidth > 0)
         {
             e.Handled = true;
-            PresetsScroll.ScrollToHorizontalOffset(
-                Math.Clamp(PresetsScroll.HorizontalOffset - e.Delta * 0.35, 0, PresetsScroll.ScrollableWidth));
+            presets.ScrollToHorizontalOffset(
+                Math.Clamp(presets.HorizontalOffset - e.Delta * 0.35, 0, presets.ScrollableWidth));
             return;
         }
 
         if ((mods & ModifierKeys.Shift) != 0)
         {
             e.Handled = true;
-            BodyScroll.ScrollToHorizontalOffset(
-                Math.Clamp(BodyScroll.HorizontalOffset - e.Delta * 0.45, 0, BodyScroll.ScrollableWidth));
+            body.ScrollToHorizontalOffset(
+                Math.Clamp(body.HorizontalOffset - e.Delta * 0.45, 0, body.ScrollableWidth));
             return;
         }
 
         // 接管普通滚轮 / 触控板双指滑动：WPF ScrollViewer 默认每条消息固定跳 48px，会导致触控板飞出去；
         // 这里按实际 e.Delta 等比例滚动并降敏，轻滑就跟手。
         e.Handled = true;
-        BodyScroll.ScrollToVerticalOffset(
-            Math.Clamp(BodyScroll.VerticalOffset - e.Delta * 0.35, 0, BodyScroll.ScrollableHeight));
+        body.ScrollToVerticalOffset(
+            Math.Clamp(body.VerticalOffset - e.Delta * 0.35, 0, body.ScrollableHeight));
     }
 
     private void StartSmoothZoom(double targetPx, double anchorViewportY)
     {
+        if (BodyScroll is not { } body) return;
         _zoomTargetPx = Math.Clamp(targetPx, MainViewModel.MinPxPerHour, MainViewModel.MaxPxPerHour);
-        _zoomAnchorViewportY = Math.Clamp(anchorViewportY, 0, Math.Max(1, BodyScroll.ViewportHeight));
+        _zoomAnchorViewportY = Math.Clamp(anchorViewportY, 0, Math.Max(1, body.ViewportHeight));
 
         var currentPx = _vm.PxPerHourValue;
-        _zoomAnchorHours = currentPx > 0 ? (BodyScroll.VerticalOffset + _zoomAnchorViewportY) / currentPx : 0;
+        _zoomAnchorHours = currentPx > 0 ? (body.VerticalOffset + _zoomAnchorViewportY) / currentPx : 0;
 
         if (_zoomAnimHandler is null)
         {
@@ -1369,6 +1490,12 @@ public partial class MainWindow : Window
 
     private void OnZoomAnimationFrame(object? sender, EventArgs e)
     {
+        if (BodyScroll is not { } body)
+        {
+            StopZoomAnimation();
+            return;
+        }
+
         var now = DateTime.UtcNow;
         var dt = Math.Clamp((now - _zoomAnimLastTick).TotalSeconds, 0.001, 0.05);
         _zoomAnimLastTick = now;
@@ -1379,10 +1506,10 @@ public partial class MainWindow : Window
         var nextPx = done ? _zoomTargetPx : current + diff * (1.0 - Math.Exp(-dt * 28.0));
 
         _vm.SetPxPerHour(nextPx);
-        BodyScroll.UpdateLayout();
+        body.UpdateLayout();
 
-        var offset = Math.Clamp(_zoomAnchorHours * nextPx - _zoomAnchorViewportY, 0, BodyScroll.ScrollableHeight);
-        BodyScroll.ScrollToVerticalOffset(offset);
+        var offset = Math.Clamp(_zoomAnchorHours * nextPx - _zoomAnchorViewportY, 0, body.ScrollableHeight);
+        body.ScrollToVerticalOffset(offset);
 
         if (done) StopZoomAnimation();
     }
@@ -1400,7 +1527,7 @@ public partial class MainWindow : Window
     {
         _vm.RefreshCurrentTime();
         var h = Math.Max(0, (_vm.TodayIndex - 1) * MainViewModel.DayWidth);
-        var maxV = Math.Max(0, _vm.GridHeight - BodyScroll.ViewportHeight);
+        var maxV = Math.Max(0, _vm.GridHeight - (BodyScroll?.ViewportHeight ?? 0));
         var v = Math.Clamp(_vm.NowLineTop - 44, 0, maxV);
         return (h, v);
     }
@@ -1409,20 +1536,22 @@ public partial class MainWindow : Window
     {
         StopZoomAnimation();
         StopScrollAnimation();
+        if (BodyScroll is not { } body) return;
         var (h, v) = GetTodayNowScrollOffset();
-        BodyScroll.ScrollToHorizontalOffset(h);
-        BodyScroll.ScrollToVerticalOffset(v);
+        body.ScrollToHorizontalOffset(h);
+        body.ScrollToVerticalOffset(v);
     }
 
     private void SmoothScrollToToday()
     {
         StopZoomAnimation();
         StopScrollAnimation();
+        if (BodyScroll is not { } body) return;
 
         var (h, v) = GetTodayNowScrollOffset();
-        _scrollFromH = BodyScroll.HorizontalOffset;
+        _scrollFromH = body.HorizontalOffset;
         _scrollToH = h;
-        _scrollFromV = BodyScroll.VerticalOffset;
+        _scrollFromV = body.VerticalOffset;
         _scrollToV = v;
 
         if (Math.Abs(_scrollToH - _scrollFromH) < 1 && Math.Abs(_scrollToV - _scrollFromV) < 1) return;
@@ -1434,12 +1563,18 @@ public partial class MainWindow : Window
 
     private void OnScrollAnimationFrame(object? sender, EventArgs e)
     {
+        if (BodyScroll is not { } body)
+        {
+            StopScrollAnimation();
+            return;
+        }
+
         var elapsed = (DateTime.UtcNow - _scrollAnimStart).TotalMilliseconds;
         var t = Math.Clamp(elapsed / Motion.M.TotalMilliseconds, 0, 1);
         var eased = Motion.EaseOut.Ease(t);
 
-        BodyScroll.ScrollToHorizontalOffset(_scrollFromH + (_scrollToH - _scrollFromH) * eased);
-        BodyScroll.ScrollToVerticalOffset(_scrollFromV + (_scrollToV - _scrollFromV) * eased);
+        body.ScrollToHorizontalOffset(_scrollFromH + (_scrollToH - _scrollFromH) * eased);
+        body.ScrollToVerticalOffset(_scrollFromV + (_scrollToV - _scrollFromV) * eased);
 
         if (t >= 1) StopScrollAnimation();
     }
@@ -1453,8 +1588,9 @@ public partial class MainWindow : Window
 
     private void BodyScroll_ScrollChanged(object sender, ScrollChangedEventArgs e)
     {
-        HeaderScroll.ScrollToHorizontalOffset(BodyScroll.HorizontalOffset);
-        GutterScroll.ScrollToVerticalOffset(BodyScroll.VerticalOffset);
+        if (BodyScroll is not { } body) return;
+        HeaderScroll?.ScrollToHorizontalOffset(body.HorizontalOffset);
+        GutterScroll?.ScrollToVerticalOffset(body.VerticalOffset);
     }
 
     // ==================== 时间是手打字 ====================
@@ -1786,23 +1922,25 @@ public partial class MainWindow : Window
 
     private void BeginPan(Point p, bool rightButton)
     {
+        if (BodyScroll is not { } body) return;
         StopZoomAnimation();
         StopScrollAnimation();
         _panning = true;
         _panWithRightButton = rightButton;
         _panStartPoint = p;
-        _panStartH = BodyScroll.HorizontalOffset;
-        _panStartV = BodyScroll.VerticalOffset;
+        _panStartH = body.HorizontalOffset;
+        _panStartV = body.VerticalOffset;
         UpdatePanCursor();
         Mouse.Capture(this, CaptureMode.SubTree);
     }
 
     private void UpdatePan(Point p)
     {
+        if (BodyScroll is not { } body) return;
         var dx = p.X - _panStartPoint.X;
         var dy = p.Y - _panStartPoint.Y;
-        BodyScroll.ScrollToHorizontalOffset(Math.Clamp(_panStartH - dx, 0, BodyScroll.ScrollableWidth));
-        BodyScroll.ScrollToVerticalOffset(Math.Clamp(_panStartV - dy, 0, BodyScroll.ScrollableHeight));
+        body.ScrollToHorizontalOffset(Math.Clamp(_panStartH - dx, 0, body.ScrollableWidth));
+        body.ScrollToVerticalOffset(Math.Clamp(_panStartV - dy, 0, body.ScrollableHeight));
     }
 
     private void EndPan()
@@ -1817,29 +1955,33 @@ public partial class MainWindow : Window
 
     private void UpdatePanCursor()
     {
+        var body = BodyScroll;
         if (_panning || _goalPanTarget != GoalCanvasTarget.None)
         {
-            if (_panning)
+            if (_panning && body is not null)
             {
-                BodyScroll.Cursor = Cursors.SizeAll;
-                BodyScroll.ForceCursor = true;
+                body.Cursor = Cursors.SizeAll;
+                body.ForceCursor = true;
             }
             Mouse.OverrideCursor = Cursors.SizeAll;
         }
         else if (_spacePanKeyDown && (_vm.IsGoalPickerOpen || _vm.IsGoalTreeEditorOpen || _vm.IsGoals || (_vm.IsTimeline && !_vm.IsEditorOpen)))
         {
             Mouse.OverrideCursor = Cursors.SizeAll;
-            if (_vm.IsTimeline)
+            if (_vm.IsTimeline && body is not null)
             {
-                BodyScroll.Cursor = Cursors.SizeAll;
-                BodyScroll.ForceCursor = true;
+                body.Cursor = Cursors.SizeAll;
+                body.ForceCursor = true;
             }
         }
         else
         {
             Mouse.OverrideCursor = null;
-            BodyScroll.ForceCursor = false;
-            BodyScroll.ClearValue(CursorProperty);
+            if (body is not null)
+            {
+                body.ForceCursor = false;
+                body.ClearValue(CursorProperty);
+            }
         }
     }
 
@@ -2345,13 +2487,14 @@ public partial class MainWindow : Window
 
             var winPt = e.GetPosition(this);
             var canvasPt = ToTreeEditorCanvasPoint(winPt);
-            var viewportPt = e.GetPosition(TreeEditorViewport);
+            var vp = TreeEditorViewport;
+            var viewportPt = vp is not null ? e.GetPosition(vp) : winPt;
             var (targetNode, targetSide) = HitTreeEditorTargetNode(canvasPt, exclude: null);
             _vm.GoalTreeEditor.CompletePortDrag(
                 canvasPt,
                 viewportPt,
-                TreeEditorViewport.ActualWidth,
-                TreeEditorViewport.ActualHeight,
+                vp?.ActualWidth ?? 0,
+                vp?.ActualHeight ?? 0,
                 targetNode,
                 targetSide);
             e.Handled = true;
@@ -2597,7 +2740,7 @@ public partial class MainWindow : Window
     private void BeginDrag(Point p)
     {
         if (_pressedTask is null || _pressedCard is null) return;
-        if (!LanesHost.IsVisible && !QuadrantsHost.IsVisible) return;
+        if (!LanesHost.IsVisible && QuadrantsHost is not { IsVisible: true }) return;
 
         CancelPendingExpand();
         _dragging = true;
@@ -2731,11 +2874,11 @@ public partial class MainWindow : Window
 
     private int DayIndexAt(Point p)
     {
-        if (!DaysHost.IsVisible || !IsInsideBody(p)) return -1;
+        if (DaysHost is not { IsVisible: true } daysHost || !IsInsideBody(p)) return -1;
 
         for (var i = 0; i < _vm.TimelineDays.Count; i++)
         {
-            if (DaysHost.ItemContainerGenerator.ContainerFromIndex(i) is not FrameworkElement el) continue;
+            if (daysHost.ItemContainerGenerator.ContainerFromIndex(i) is not FrameworkElement el) continue;
             if (!el.IsVisible) continue;
 
             var topLeft = el.TranslatePoint(new Point(0, 0), this);
@@ -2747,9 +2890,9 @@ public partial class MainWindow : Window
 
     private bool IsNearRedLine(Point p)
     {
-        if (!IsInsideBody(p)) return false;
-        var origin = BodyScroll.TranslatePoint(new Point(0, 0), this);
-        var contentY = p.Y - origin.Y + BodyScroll.VerticalOffset;
+        if (!IsInsideBody(p) || BodyScroll is not { } body) return false;
+        var origin = body.TranslatePoint(new Point(0, 0), this);
+        var contentY = p.Y - origin.Y + body.VerticalOffset;
         return Math.Abs(contentY - _vm.NowLineTop) <= RedLineSnapPx;
     }
 
@@ -2761,8 +2904,9 @@ public partial class MainWindow : Window
     /// <summary>把窗口坐标换算成「第几分钟」，按当前缩放间隔取整。</summary>
     private int MinutesAt(Point p, bool floor)
     {
-        var origin = BodyScroll.TranslatePoint(new Point(0, 0), this);
-        var contentY = p.Y - origin.Y + BodyScroll.VerticalOffset;
+        if (BodyScroll is not { } body) return 0;
+        var origin = body.TranslatePoint(new Point(0, 0), this);
+        var contentY = p.Y - origin.Y + body.VerticalOffset;
         var minutes = contentY / _vm.PxPerHourValue * 60.0;
 
         var interval = Math.Max(1, _vm.IntervalMinutes);
@@ -2806,8 +2950,9 @@ public partial class MainWindow : Window
 
     private void UpdateCreateGhost(Point p)
     {
+        if (BodyScroll is not { } body) return;
         var (start, end) = CreateRange(p);
-        var origin = BodyScroll.TranslatePoint(new Point(0, 0), this);
+        var origin = body.TranslatePoint(new Point(0, 0), this);
 
         var height = (end - start) / 60.0 * _vm.PxPerHourValue;
 
@@ -2836,8 +2981,8 @@ public partial class MainWindow : Window
         if (_createGhost.Child is TextBlock label) label.Text = $"{Clock(start)}–{Clock(end)}";
         _createGhost.Height = Math.Max(16, height);
 
-        Canvas.SetLeft(_createGhost, origin.X + _createDay * MainViewModel.DayWidth + 5 - BodyScroll.HorizontalOffset);
-        Canvas.SetTop(_createGhost, origin.Y + start / 60.0 * _vm.PxPerHourValue - BodyScroll.VerticalOffset);
+        Canvas.SetLeft(_createGhost, origin.X + _createDay * MainViewModel.DayWidth + 5 - body.HorizontalOffset);
+        Canvas.SetTop(_createGhost, origin.Y + start / 60.0 * _vm.PxPerHourValue - body.VerticalOffset);
     }
 
     private void FinishCreate(Point p)
@@ -2898,8 +3043,8 @@ public partial class MainWindow : Window
     private void FocusEditorTitle()
         => Dispatcher.BeginInvoke(new Action(() =>
         {
-            EditorTitle.Focus();
-            EditorTitle.SelectAll();
+            EditorTitle?.Focus();
+            EditorTitle?.SelectAll();
         }), DispatcherPriority.Input);
 
     private void EditorSave_Click(object sender, RoutedEventArgs e) => _vm.SaveEditor();
@@ -2969,8 +3114,8 @@ public partial class MainWindow : Window
         _vm.OpenPresetManager();
         Dispatcher.BeginInvoke(new Action(() =>
         {
-            PresetTitleBox.Focus();
-            PresetTitleBox.SelectAll();
+            PresetTitleBox?.Focus();
+            PresetTitleBox?.SelectAll();
         }), DispatcherPriority.Input);
     }
 
@@ -3027,8 +3172,8 @@ public partial class MainWindow : Window
             _vm.StartEditPreset(preset);
             Dispatcher.BeginInvoke(new Action(() =>
             {
-                PresetTitleBox.Focus();
-                PresetTitleBox.SelectAll();
+                PresetTitleBox?.Focus();
+                PresetTitleBox?.SelectAll();
             }), DispatcherPriority.Input);
         }
     }
@@ -3216,9 +3361,10 @@ public partial class MainWindow : Window
 
     private (int Day, int Minutes, double Left, double Top) SnapSlotAt(Point p, int duration, TaskVM? exclude = null)
     {
-        var origin = BodyScroll.TranslatePoint(new Point(0, 0), this);
-        var contentX = p.X - origin.X + BodyScroll.HorizontalOffset;
-        var contentY = p.Y - origin.Y + BodyScroll.VerticalOffset;
+        if (BodyScroll is not { } body) return (0, 0, p.X, p.Y);
+        var origin = body.TranslatePoint(new Point(0, 0), this);
+        var contentX = p.X - origin.X + body.HorizontalOffset;
+        var contentY = p.Y - origin.Y + body.VerticalOffset;
 
         var day = (int)Math.Floor(contentX / MainViewModel.DayWidth);
         day = Math.Clamp(day, 0, Math.Max(0, _vm.TimelineDays.Count - 1));
@@ -3234,8 +3380,8 @@ public partial class MainWindow : Window
         if (day < _vm.TimelineDays.Count)
             minutes = _vm.FindFreeStart(_vm.TimelineDays[day].Date, minutes, duration, exclude);
 
-        var left = origin.X + day * MainViewModel.DayWidth + 5 - BodyScroll.HorizontalOffset;
-        var top = origin.Y + minutes / 60.0 * _vm.PxPerHourValue - BodyScroll.VerticalOffset;
+        var left = origin.X + day * MainViewModel.DayWidth + 5 - body.HorizontalOffset;
+        var top = origin.Y + minutes / 60.0 * _vm.PxPerHourValue - body.VerticalOffset;
         return (day, minutes, left, top);
     }
 
@@ -3289,8 +3435,9 @@ public partial class MainWindow : Window
 
     private double RawMinutesAt(Point p)
     {
-        var origin = BodyScroll.TranslatePoint(new Point(0, 0), this);
-        var contentY = p.Y - origin.Y + BodyScroll.VerticalOffset;
+        if (BodyScroll is not { } body) return 0;
+        var origin = body.TranslatePoint(new Point(0, 0), this);
+        var contentY = p.Y - origin.Y + body.VerticalOffset;
         return contentY / _vm.PxPerHourValue * 60.0;
     }
 
@@ -3372,8 +3519,8 @@ public partial class MainWindow : Window
 
             _resizePill.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
             var edgeY = (_resizeTopEdge ? newStart : newEnd) / 60.0 * pxPerHour;
-            var origin = BodyScroll.TranslatePoint(new Point(0, 0), this);
-            var blockScreenY = origin.Y + edgeY - BodyScroll.VerticalOffset;
+            var origin = BodyScroll?.TranslatePoint(new Point(0, 0), this) ?? default;
+            var blockScreenY = origin.Y + edgeY - (BodyScroll?.VerticalOffset ?? 0);
             var pillY = _resizeTopEdge
                 ? blockScreenY - _resizePill.DesiredSize.Height - 6
                 : blockScreenY + 6;
@@ -3424,10 +3571,10 @@ public partial class MainWindow : Window
 
     private bool IsInsideBody(Point p)
     {
-        if (BodyScroll.ActualWidth <= 0 || BodyScroll.ActualHeight <= 0) return false;
+        if (BodyScroll is not { } body || body.ActualWidth <= 0 || body.ActualHeight <= 0) return false;
 
-        var topLeft = BodyScroll.TranslatePoint(new Point(0, 0), this);
-        return new Rect(topLeft, BodyScroll.RenderSize).Contains(p);
+        var topLeft = body.TranslatePoint(new Point(0, 0), this);
+        return new Rect(topLeft, body.RenderSize).Contains(p);
     }
 
     // ==================== 命中测试 ====================
@@ -3468,11 +3615,11 @@ public partial class MainWindow : Window
 
     private QuadrantVM? HitQuadrant(Point p)
     {
-        if (!QuadrantsHost.IsVisible) return null;
+        if (QuadrantsHost is not { IsVisible: true } qHost) return null;
 
         foreach (var quadrant in _vm.Quadrants)
         {
-            if (QuadrantsHost.ItemContainerGenerator.ContainerFromItem(quadrant) is not FrameworkElement el) continue;
+            if (qHost.ItemContainerGenerator.ContainerFromItem(quadrant) is not FrameworkElement el) continue;
             if (!el.IsVisible) continue;
 
             var topLeft = el.TranslatePoint(new Point(0, 0), this);
@@ -3631,7 +3778,8 @@ public partial class MainWindow : Window
 
     private Point ToTreeEditorCanvasPoint(Point windowPoint)
     {
-        var vpPt = TranslatePoint(windowPoint, TreeEditorViewport);
+        if (TreeEditorViewport is not { } vp) return windowPoint;
+        var vpPt = TranslatePoint(windowPoint, vp);
         var zoom = Math.Max(0.1, _vm.GoalTreeEditor.Zoom);
         return new Point(
             (vpPt.X - _vm.GoalTreeEditor.PanX) / zoom,
@@ -3703,9 +3851,9 @@ public partial class MainWindow : Window
         return false;
     }
 
-    private bool IsInsideElement(Point p, FrameworkElement element)
+    private bool IsInsideElement(Point p, FrameworkElement? element)
     {
-        if (!element.IsVisible || element.ActualWidth <= 0 || element.ActualHeight <= 0) return false;
+        if (element is null || !element.IsVisible || element.ActualWidth <= 0 || element.ActualHeight <= 0) return false;
         var topLeft = element.TranslatePoint(new Point(0, 0), this);
         return new Rect(topLeft, element.RenderSize).Contains(p);
     }
@@ -3807,17 +3955,26 @@ public partial class MainWindow : Window
         Motion.AnimateOpacity(page, 1, Motion.M);
     }
 
-    private static void AnimateModalVisibility(
+    private void AnimateModalVisibility(
         Grid layer,
         Border scrim,
         Border dialog,
         ScaleTransform scale,
         TranslateTransform shift,
+        ContentControl bodyHost,
+        string templateKey,
         bool open,
         Func<bool> isStillOpen)
     {
         if (open)
         {
+            var desired = (ControlTemplate)FindResource(templateKey);
+            if (!ReferenceEquals(bodyHost.Template, desired))
+            {
+                bodyHost.Template = desired;
+                bodyHost.ApplyTemplate();
+            }
+
             layer.Visibility = Visibility.Visible;
             layer.IsHitTestVisible = true;
 
@@ -3849,7 +4006,11 @@ public partial class MainWindow : Window
             Motion.AnimateOffsetY(shift, 6, Motion.S, Motion.EaseIn);
             Motion.AnimateOpacity(dialog, 0, Motion.S, Motion.EaseIn, () =>
             {
-                if (!isStillOpen()) layer.Visibility = Visibility.Collapsed;
+                if (!isStillOpen())
+                {
+                    layer.Visibility = Visibility.Collapsed;
+                    bodyHost.Template = null;
+                }
             });
         }
     }
@@ -3893,8 +4054,6 @@ public partial class MainWindow : Window
 
     private void OnTaskTouched(TaskVM task)
     {
-        _notifications.ResetTaskFires(task);
-
         Dispatcher.BeginInvoke(new Action(() =>
         {
             FrameworkElement? target = null;
@@ -3950,8 +4109,9 @@ public partial class MainWindow : Window
         return null;
     }
 
-    private static T? FindDescendant<T>(DependencyObject root, Func<T, bool>? match = null) where T : DependencyObject
+    private static T? FindDescendant<T>(DependencyObject? root, Func<T, bool>? match = null) where T : DependencyObject
     {
+        if (root is null) return null;
         var queue = new Queue<DependencyObject>();
         queue.Enqueue(root);
 

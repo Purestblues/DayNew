@@ -1,13 +1,12 @@
-using System.Drawing.Imaging;
 using System.Globalization;
 using System.IO;
 using System.Windows;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using DayNew.Core;
 using DayNew.ViewModels;
 using Microsoft.Toolkit.Uwp.Notifications;
 using Microsoft.Win32;
-using Drawing = System.Drawing;
 
 namespace DayNew.Services;
 
@@ -380,14 +379,21 @@ public sealed class NotificationService : IDisposable
             var path = Path.Combine(StoreFile.Folder, "toast-icon.png");
             if (!File.Exists(path))
             {
-                var exePath = Environment.ProcessPath;
-                if (!string.IsNullOrEmpty(exePath))
+                var resourceStream = Application.GetResourceStream(
+                    new Uri("pack://application:,,,/DayNew;component/Assets/DayNew.ico", UriKind.Absolute));
+                if (resourceStream is not null)
                 {
-                    using var icon = Drawing.Icon.ExtractAssociatedIcon(exePath);
-                    if (icon is not null)
+                    using var stream = resourceStream.Stream;
+                    var decoder = new IconBitmapDecoder(stream, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
+                    var frame = decoder.Frames
+                        .OrderByDescending(f => f.PixelWidth)
+                        .FirstOrDefault();
+                    if (frame is not null)
                     {
-                        using var bmp = icon.ToBitmap();
-                        bmp.Save(path, ImageFormat.Png);
+                        var encoder = new PngBitmapEncoder();
+                        encoder.Frames.Add(frame);
+                        using var fs = File.Create(path);
+                        encoder.Save(fs);
                     }
                 }
             }

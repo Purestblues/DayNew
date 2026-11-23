@@ -21,6 +21,9 @@ public sealed class MainViewModel : ObservableObject
     private readonly DispatcherTimer _autoSyncTimer = new();
     private readonly DispatcherTimer _periodicSyncTimer = new();
     private bool _hasInitialized;
+    private bool _hasActiveView = true;
+    private bool _uiDirty;
+    private bool _timelineDirty;
     private bool _suppressAutoSyncSchedule;
     private McpServerService? _mcpServer;
     private string _mcpPortText = "";
@@ -861,8 +864,18 @@ public sealed class MainViewModel : ObservableObject
     public (int TodayPending, int OverdueCount) GetSummaryCounts()
     {
         var today = DateTime.Today;
-        var todayPending = _all.Count(t => !t.Done && t.Due?.Date == today);
-        return (todayPending, OverdueLane.Count);
+        var todayPending = 0;
+        var overdueCount = 0;
+
+        foreach (var t in _all)
+        {
+            if (t.Done || t.Due is not { } d) continue;
+            var date = d.Date;
+            if (date == today) todayPending++;
+            else if (date < today) overdueCount++;
+        }
+
+        return (todayPending, overdueCount);
     }
 
     public bool CompleteTaskById(string taskId)
@@ -880,8 +893,9 @@ public sealed class MainViewModel : ObservableObject
         set => Set(ref _isDockExpanded, value);
     }
 
-    public MainViewModel()
+    public MainViewModel(bool deferUiBuild = false)
     {
+        _hasActiveView = !deferUiBuild;
         _webDavPasswordCache = Settings.GetWebDavPassword();
         _mcpPortText = Settings.McpPort.ToString();
         Editor = new ScheduleEditorVM(this);
@@ -936,7 +950,15 @@ public sealed class MainViewModel : ObservableObject
         };
 
         LoadOrSeed();
-        Rebuild();
+        if (deferUiBuild)
+        {
+            _uiDirty = true;
+            _timelineDirty = true;
+        }
+        else
+        {
+            Rebuild();
+        }
         _hasInitialized = true;
 
         _autoSyncTimer.Tick += async (_, _) =>
@@ -1051,6 +1073,7 @@ public sealed class MainViewModel : ObservableObject
             OnPropertyChanged(nameof(IsPlaceholder));
             OnPropertyChanged(nameof(CurrentTitle));
             OnPropertyChanged(nameof(CurrentBlurb));
+            if (value.Kind == PageKind.Timeline && _hasActiveView) EnsureTimelineReady();
         }
     }
 
@@ -1158,8 +1181,73 @@ public sealed class MainViewModel : ObservableObject
 
     // ---------------- 重建档位 ----------------
 
+    public void EnsureUiReady()
+    {
+        _hasActiveView = true;
+        if (_uiDirty || _timelineBuiltDate != DateTime.Today)
+        {
+            _uiDirty = false;
+            Rebuild();
+        }
+        else if (IsTimeline && _timelineDirty)
+        {
+            EnsureTimelineReady();
+        }
+    }
+
+    public void EnsureTimelineReady()
+    {
+        if (!_hasActiveView)
+        {
+            _timelineDirty = true;
+            return;
+        }
+
+        if (_timelineDirty || TimelineDays.Count == 0 || _timelineBuiltDate != DateTime.Today)
+        {
+            _timelineDirty = false;
+            RebuildTimeline();
+        }
+    }
+
+    /// <summary>窗口销毁退回托盘时清空派生 UI 集合与时间轴画刷，只保留底层 _store。</summary>
+    public void ReleaseUiCaches()
+    {
+        _hasActiveView = false;
+        _uiDirty = true;
+        _timelineDirty = true;
+
+        foreach (var lane in Lanes) lane.Items.Clear();
+        ActiveGoals.Clear();
+        CompletedGoals.Clear();
+        foreach (var goal in Goals) goal.Tasks.Clear();
+        TagRows.Clear();
+        PersonRows.Clear();
+        LocationRows.Clear();
+        foreach (var quadrant in Quadrants) quadrant.Items.Clear();
+        DeadlineGroups.Clear();
+        FutureTasks.Clear();
+        TagDetailDays.Clear();
+        TimelineDays.Clear();
+        TimelineHours.Clear();
+        GridBrush = Brushes.Transparent;
+        OnPropertyChanged(nameof(GridBrush));
+    }
+
     public void Rebuild()
     {
+        if (!_hasActiveView)
+        {
+            _uiDirty = true;
+            _timelineDirty = true;
+            _file.MarkDirty(_store);
+            if (_hasInitialized) ScheduleAutoSync();
+            var (pendingHeadless, overdueHeadless) = GetSummaryCounts();
+            SummaryChanged?.Invoke(pendingHeadless, overdueHeadless);
+            return;
+        }
+
+        _uiDirty = false;
         foreach (var lane in Lanes) lane.Items.Clear();
 
         foreach (var task in _all.OrderBy(t => t.Order))
@@ -1217,7 +1305,19 @@ public sealed class MainViewModel : ObservableObject
         _file.MarkDirty(_store);
         if (_hasInitialized) ScheduleAutoSync();
 
-        RebuildTimeline();
+        if (IsTimeline)
+        {
+            _timelineDirty = false;
+            RebuildTimeline();
+        }
+        else
+        {
+            _timelineDirty = true;
+            if (TimelineDays.Count > 0) TimelineDays.Clear();
+            if (TimelineHours.Count > 0) TimelineHours.Clear();
+            GridBrush = Brushes.Transparent;
+        }
+
         if (IsTagDetailOpen) RebuildTagDetail();
 
         var (todayPending, overdueCount) = GetSummaryCounts();
@@ -1519,7 +1619,15 @@ public sealed class MainViewModel : ObservableObject
     {
         _file.MarkDirty(_store);
         if (_hasInitialized) ScheduleAutoSync();
-        RebuildTimeline();
+        if (_hasActiveView && IsTimeline)
+        {
+            _timelineDirty = false;
+            RebuildTimeline();
+        }
+        else
+        {
+            _timelineDirty = true;
+        }
     }
 
     public void OpenTagDetail(TagVM tag)
@@ -1851,7 +1959,18 @@ public sealed class MainViewModel : ObservableObject
     }
 
     /// <summary>主题切换后重画网格线（画刷里带颜色，不重建就还是旧主题）。</summary>
-    public void RefreshTimelineBrushes() => RebuildTimeline();
+    public void RefreshTimelineBrushes()
+    {
+        if (_hasActiveView && IsTimeline)
+        {
+            _timelineDirty = false;
+            RebuildTimeline();
+        }
+        else
+        {
+            _timelineDirty = true;
+        }
+    }
 
     private int TickStepMinutes()
     {
@@ -2235,7 +2354,15 @@ public sealed class MainViewModel : ObservableObject
 
         foreach (var task in _all) task.NotifyGoalDisplayChanged();
         foreach (var preset in _store.Presets) preset.RefreshSummary();
-        RebuildTimeline();
+        if (IsTimeline)
+        {
+            _timelineDirty = false;
+            RebuildTimeline();
+        }
+        else
+        {
+            _timelineDirty = true;
+        }
         if (IsTagDetailOpen) RebuildTagDetail();
         if (IsPresetManagerOpen) PresetManager.RefreshPicksPreservingSelection();
     }

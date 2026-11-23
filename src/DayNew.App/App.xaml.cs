@@ -1,7 +1,7 @@
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows;
-using System.Windows.Interop;
+using System.Windows.Threading;
 using DayNew.Services;
 using DayNew.ViewModels;
 using DayNew.Views;
@@ -18,10 +18,22 @@ public partial class App : Application
 
     private const string MutexName = @"Local\DayNew.SingleInstance";
     private const string WindowTitle = "日新 DayNew";
+    private const string WakeupWindowTitle = "DayNew.WakeupHost";
 
     public static bool StartupSilent { get; set; }
 
     public static readonly uint WmShowMainWindow = RegisterWindowMessage("DayNew.ShowMainWindow");
+
+    private MainViewModel? _vm;
+    private Win32MessageWindow? _wakeupWindow;
+    private TrayService? _tray;
+    private NotificationService? _notifications;
+    private McpServerService? _mcpServer;
+    private DispatcherTimer? _trimTimer;
+    private Rect? _savedWindowBounds;
+    private WindowState? _savedWindowState;
+    private bool _exiting;
+    private bool _cleanedUp;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -45,23 +57,172 @@ public partial class App : Application
         try
         {
             ThemeService.ApplyInitial();
-            var window = new MainWindow();
-            MainWindow = window;
+
+            _vm = new MainViewModel(deferUiBuild: StartupSilent);
+
+            _wakeupWindow = new Win32MessageWindow(WakeupWindowTitle, HandleWakeupMessage);
+
+            _tray = new TrayService(
+                _wakeupWindow.Handle,
+                onOpen: ShowMainWindow,
+                onToggleWindow: ToggleMainWindow,
+                getNotifyEnabled: () => _vm.NotifyEnabled,
+                setNotifyEnabled: v => _vm.NotifyEnabled = v,
+                getAutoStartEnabled: () => _vm.AutoStartEnabled,
+                setAutoStartEnabled: v => _vm.AutoStartEnabled = v,
+                onExit: ExitApplication);
+
+            _notifications = new NotificationService(
+                _vm.Settings,
+                () => _vm.AllSchedules,
+                onOpenWindow: ShowMainWindow,
+                onCompleteTask: id =>
+                {
+                    if (_vm.CompleteTaskById(id)) _vm.FlushSave();
+                });
+
+            _vm.TaskTouched += _notifications.ResetTaskFires;
+            _vm.SummaryChanged += _tray.UpdateTooltip;
+
+            _mcpServer = new McpServerService(_vm, Dispatcher);
+            _vm.AttachMcpServer(_mcpServer);
+            _mcpServer.StartOrRestart();
+
+            var (todayPending, overdueCount) = _vm.GetSummaryCounts();
+            _tray.UpdateTooltip(todayPending, overdueCount);
+
+            _trimTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1500) };
+            _trimTimer.Tick += (_, _) =>
+            {
+                _trimTimer.Stop();
+                if (MainWindow is null && !_exiting)
+                    TrimMemoryInBackground();
+            };
 
             if (StartupSilent)
             {
-                // 只建 HWND 并挂载消息钩子，不弹窗，确保后台静默常驻且可被单实例再次唤醒
-                new WindowInteropHelper(window).EnsureHandle();
+                // 无头托盘静默常驻：不创建 MainWindow，也不触发 WPF 渲染管线，只做启动后一次内存修剪
+                _trimTimer.Start();
             }
             else
             {
-                window.Show();
+                ShowMainWindow();
             }
         }
         catch (Exception ex)
         {
             LogError("OnStartup", ex);
             Shutdown(1);
+        }
+    }
+
+    private IntPtr? HandleWakeupMessage(uint msg, IntPtr wParam, IntPtr lParam)
+    {
+        if (msg == WmShowMainWindow)
+        {
+            Dispatcher.BeginInvoke(ShowMainWindow);
+            return IntPtr.Zero;
+        }
+
+        if (_tray?.HandleWindowMessage(msg, lParam) == true)
+            return IntPtr.Zero;
+
+        return null;
+    }
+
+    public void ShowMainWindow()
+    {
+        if (_exiting || _vm is null || _notifications is null) return;
+
+        _trimTimer?.Stop();
+        _vm.EnsureUiReady();
+
+        if (MainWindow is MainWindow existing)
+        {
+            existing.ShowFromTray();
+            return;
+        }
+
+        var mw = new MainWindow(
+            _vm,
+            onHideToTray: HideMainWindowToTray,
+            onExitApp: ExitApplication,
+            onTestNotify: () => _notifications.SendTestNotification(),
+            savedBounds: _savedWindowBounds,
+            savedState: _savedWindowState);
+
+        MainWindow = mw;
+        mw.Closed += (_, _) => OnMainWindowClosed(mw);
+        mw.Show();
+        mw.Activate();
+    }
+
+    private void ToggleMainWindow()
+    {
+        if (MainWindow is MainWindow mw && mw.IsVisible && mw.WindowState != WindowState.Minimized && mw.IsActive)
+            HideMainWindowToTray();
+        else
+            ShowMainWindow();
+    }
+
+    private void HideMainWindowToTray()
+    {
+        if (MainWindow is not MainWindow mw) return;
+        CaptureWindowBounds(mw);
+        mw.CloseToTray();
+    }
+
+    private void OnMainWindowClosed(MainWindow mw)
+    {
+        CaptureWindowBounds(mw);
+        if (ReferenceEquals(MainWindow, mw))
+            MainWindow = null;
+
+        if (_exiting) return;
+
+        _vm?.ReleaseUiCaches();
+        _trimTimer?.Stop();
+        _trimTimer?.Start();
+    }
+
+    private void CaptureWindowBounds(MainWindow mw)
+    {
+        var bounds = mw.WindowState == WindowState.Normal
+            ? new Rect(mw.Left, mw.Top, mw.Width, mw.Height)
+            : mw.RestoreBounds;
+
+        if (bounds.Width > 0 && bounds.Height > 0 && !double.IsNaN(bounds.Left) && !double.IsNaN(bounds.Top))
+            _savedWindowBounds = bounds;
+
+        _savedWindowState = mw.WindowState == WindowState.Minimized
+            ? WindowState.Normal
+            : mw.WindowState;
+    }
+
+    private void ExitApplication()
+    {
+        if (_exiting) return;
+        _exiting = true;
+        _trimTimer?.Stop();
+
+        if (MainWindow is MainWindow mw)
+            mw.ForceCloseForExit();
+
+        Shutdown();
+    }
+
+    private static void TrimMemoryInBackground()
+    {
+        try
+        {
+            GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, blocking: true, compacting: true);
+            GC.WaitForPendingFinalizers();
+            GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, blocking: true, compacting: true);
+            SetProcessWorkingSetSizeEx(GetCurrentProcess(), new IntPtr(-1), new IntPtr(-1), 0);
+        }
+        catch
+        {
+            // 内存修剪失败不影响后台常驻
         }
     }
 
@@ -82,10 +243,25 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
-        if (MainWindow is MainWindow mw)
-            mw.CleanupOnExit();
-        else
-            (MainWindow?.DataContext as MainViewModel)?.FlushSave();
+        if (!_cleanedUp)
+        {
+            _cleanedUp = true;
+            _exiting = true;
+            _trimTimer?.Stop();
+
+            if (_vm is not null)
+            {
+                if (_notifications is not null) _vm.TaskTouched -= _notifications.ResetTaskFires;
+                if (_tray is not null) _vm.SummaryChanged -= _tray.UpdateTooltip;
+                _vm.StopBackgroundTimers();
+                _vm.FlushSave();
+            }
+
+            _mcpServer?.Dispose();
+            _notifications?.Dispose();
+            _tray?.Dispose();
+            _wakeupWindow?.Dispose();
+        }
 
         try
         {
@@ -100,10 +276,11 @@ public partial class App : Application
         base.OnExit(e);
     }
 
-    /// <summary>已经开着（含隐藏在托盘里）就把那个窗口拉到前面，而不是再开一个。</summary>
+    /// <summary>已经开着（含无头驻留在托盘里）就把窗口拉到前面，而不是再开一个。</summary>
     private static void ActivateExistingWindow()
     {
-        var handle = FindWindow(null, WindowTitle);
+        var handle = FindWindow(null, WakeupWindowTitle);
+        if (handle == IntPtr.Zero) handle = FindWindow(null, WindowTitle);
         if (handle == IntPtr.Zero) return;
 
         GetWindowThreadProcessId(handle, out var pid);
@@ -126,4 +303,14 @@ public partial class App : Application
 
     [DllImport("user32.dll")]
     private static extern bool AllowSetForegroundWindow(uint dwProcessId);
+
+    [DllImport("kernel32.dll")]
+    private static extern IntPtr GetCurrentProcess();
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool SetProcessWorkingSetSizeEx(
+        IntPtr hProcess,
+        IntPtr dwMinimumWorkingSetSize,
+        IntPtr dwMaximumWorkingSetSize,
+        uint flags);
 }
