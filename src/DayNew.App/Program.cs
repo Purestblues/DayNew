@@ -19,6 +19,12 @@ public static class Program
             })
             .Run();
 
+        if (args.Any(a => string.Equals(a, "--mcp", StringComparison.OrdinalIgnoreCase)))
+        {
+            Environment.ExitCode = McpStdioBridge.Run(args);
+            return;
+        }
+
         App.StartupSilent = args.Any(a => string.Equals(a, "--tray", StringComparison.OrdinalIgnoreCase));
 
         var app = new App();

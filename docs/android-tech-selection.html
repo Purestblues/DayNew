@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>日新 DayNew · P4 安卓端技术选型与架构图谱</title>
+<style>
+:root{
+  color-scheme:light;
+  --surface-0:#ECEFF4; --surface-1:#E5E9F0; --surface-2:#FFFFFF; --surface-3:#F2F4F8; --surface-4:#FFFFFF;
+  --border-subtle:#D8DEE9; --border-strong:#C2CAD8;
+  --text-primary:#2E3440; --text-secondary:#646E82; --text-tertiary:#677389; --text-disabled:#9AA3B5;
+  --accent:#527CE6; --accent-tint:rgba(82,124,230,.14); --selection-pill:#D2DEF5;
+  --success:#5C9A64; --success-tint:rgba(92,154,100,.13);
+  --warning:#C98A3E; --warning-tint:rgba(201,138,62,.13);
+  --danger:#BF616A; --danger-tint:rgba(191,97,106,.13);
+  --kmp:#6B8AE6; --flutter:#7FA89B; --maui:#9A90AC;
+  --hover-overlay:rgba(46,52,64,.05);
+  --r-xs:4px; --r-sm:6px; --r-md:8px; --r-lg:12px; --r-pill:9999px;
+  --sh-card:0 1px 2px rgba(46,52,64,.05);
+  --ease-standard:cubic-bezier(.4,0,.2,1); --dur-xs:90ms; --dur-s:150ms; --dur-m:225ms;
+}
+:root[data-theme='dark']{
+  color-scheme:dark;
+  --surface-0:#181A20; --surface-1:#13151A; --surface-2:#21252E; --surface-3:#282D38; --surface-4:#2E3440;
+  --border-subtle:#2A303C; --border-strong:#3B4252;
+  --text-primary:#ECEFF4; --text-secondary:#A5B0C2; --text-tertiary:#8C97AB; --text-disabled:#687285;
+  --accent:#78A0F0; --accent-tint:rgba(120,160,240,.15); --selection-pill:#2A3856;
+  --success:#A3BE8C; --success-tint:rgba(163,190,140,.14);
+  --warning:#EBCB8B; --warning-tint:rgba(235,203,139,.14);
+  --danger:#D6747D; --danger-tint:rgba(214,116,125,.14);
+  --kmp:#81A1C1; --flutter:#88C0D0; --maui:#B48EAD;
+  --hover-overlay:rgba(236,239,244,.07);
+  --sh-card:0 1px 2px rgba(0,0,0,.22);
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--surface-0); color:var(--text-primary);
+  font:13.5px/1.62 -apple-system,BlinkMacSystemFont,'Inter','Segoe UI Variable Text','Segoe UI','HarmonyOS Sans SC','PingFang SC','Microsoft YaHei UI',sans-serif;
+  font-feature-settings:'tnum' 1; font-variant-numeric:tabular-nums;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1080px;margin:0 auto;padding:44px 28px 88px}
+header.top{display:flex;align-items:flex-start;justify-content:space-between;gap:24px;padding-bottom:22px;border-bottom:1px solid var(--border-subtle)}
+h1{margin:0 0 6px;font-size:21px;font-weight:650;letter-spacing:-.01em}
+.sub{color:var(--text-secondary);font-size:12.5px}
+.actions{display:flex;gap:8px;align-items:center}
+.themebtn{
+  appearance:none;background:var(--surface-2);border:1px solid var(--border-subtle);color:var(--text-secondary);
+  border-radius:var(--r-sm);padding:6px 12px;font:inherit;font-size:12px;cursor:pointer;
+  transition:background var(--dur-xs) var(--ease-standard),color var(--dur-xs),border-color var(--dur-xs)
+}
+.themebtn:hover{background:var(--surface-3);color:var(--text-primary);border-color:var(--border-strong)}
+
+section{margin-top:38px}
+.eyebrow{font-size:12px;font-weight:600;color:var(--text-secondary);letter-spacing:.06em;margin-bottom:6px}
+h2{margin:0 0 14px;font-size:16px;font-weight:650}
+h3{margin:0 0 10px;font-size:13.5px;font-weight:650}
+p{margin:0 0 12px;color:var(--text-secondary)}
+p strong{color:var(--text-primary)}
+code{font-family:'Cascadia Code','JetBrains Mono',Consolas,monospace;font-size:11.5px;background:var(--surface-3);padding:1px 5px;border-radius:var(--r-xs);border:1px solid var(--border-subtle)}
+
+.tag{display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:var(--r-pill);font-size:11px;font-weight:600}
+.tag.ok{background:var(--success-tint);color:var(--success)}
+.tag.accent{background:var(--accent-tint);color:var(--accent)}
+.tag.warn{background:var(--warning-tint);color:var(--warning)}
+.tag.no{background:var(--danger-tint);color:var(--danger)}
+
+.verdict{
+  margin-top:20px;background:var(--surface-2);border:1px solid var(--border-subtle);border-radius:var(--r-lg);
+  padding:18px 20px;box-shadow:var(--sh-card);display:grid;grid-template-columns:1.5fr 1fr;gap:18px;align-items:center;
+}
+.verdict-title{font-size:15px;font-weight:650;margin:4px 0 8px;color:var(--text-primary)}
+.kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.kpi{background:var(--surface-3);border:1px solid var(--border-subtle);border-radius:var(--r-md);padding:10px 12px}
+.kpi .val{font-size:18px;font-weight:700;color:var(--accent);line-height:1.25}
+.kpi .lbl{font-size:11px;color:var(--text-tertiary);margin-top:3px}
+
+.grid2{display:grid;grid-template-columns:1.05fr 1fr;gap:16px;align-items:stretch}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.panel{background:var(--surface-2);border:1px solid var(--border-subtle);border-radius:var(--r-lg);padding:16px;box-shadow:var(--sh-card)}
+
+/* Radar + score bars */
+.radar-wrap{display:flex;flex-direction:column;align-items:center;gap:10px}
+.radar-legend{display:flex;flex-wrap:wrap;gap:8px;justify-content:center}
+.leg-btn{
+  appearance:none;background:var(--surface-3);border:1px solid var(--border-subtle);color:var(--text-secondary);
+  border-radius:var(--r-pill);padding:4px 10px;font:inherit;font-size:11.5px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;
+  transition:border-color var(--dur-xs) var(--ease-standard),background var(--dur-xs),color var(--dur-xs);
+}
+.leg-btn:hover,.leg-btn.active{border-color:var(--accent);color:var(--text-primary);background:var(--accent-tint)}
+.dot{width:8px;height:8px;border-radius:9999px;display:inline-block}
+
+.score-list{display:flex;flex-direction:column;gap:12px}
+.score-item{background:var(--surface-3);border:1px solid var(--border-subtle);border-radius:var(--r-md);padding:12px 14px}
+.score-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:8px}
+.score-name{font-weight:650;font-size:13px;display:flex;align-items:center;gap:8px}
+.score-num{font-size:16px;font-weight:700}
+.bar-track{height:8px;border-radius:var(--r-pill);background:var(--surface-1);overflow:hidden;border:1px solid var(--border-subtle)}
+.bar-fill{height:100%;border-radius:var(--r-pill);transition:width var(--dur-m) var(--ease-standard)}
+.sub-bars{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:8px;font-size:11px;color:var(--text-tertiary)}
+.sub-bars span strong{display:block;color:var(--text-secondary);font-size:11.5px}
+
+/* Sync Architecture */
+.arch{background:var(--surface-1);border:1px solid var(--border-subtle);border-radius:var(--r-lg);padding:18px}
+.arch-row{display:grid;grid-template-columns:1fr auto 1.05fr auto 1fr;gap:12px;align-items:stretch}
+.node{background:var(--surface-2);border:1px solid var(--border-subtle);border-radius:var(--r-md);padding:14px;display:flex;flex-direction:column;gap:8px}
+.node.hub{border-color:var(--border-strong);background:var(--surface-3)}
+.node-title{font-weight:650;font-size:13px;display:flex;justify-content:space-between;align-items:center;gap:6px}
+.subbox{background:var(--surface-3);border:1px solid var(--border-subtle);border-radius:var(--r-sm);padding:8px 10px;font-size:11.5px;color:var(--text-secondary)}
+.node.hub .subbox{background:var(--surface-2)}
+.arch-arrow{display:flex;flex-direction:column;justify-content:center;align-items:center;gap:6px;font-size:11px;color:var(--text-tertiary);min-width:74px;text-align:center}
+.pill-arrow{background:var(--surface-2);border:1px solid var(--border-subtle);border-radius:var(--r-pill);padding:3px 9px;color:var(--accent);font-weight:600;white-space:nowrap}
+.golden-bar{
+  margin-top:12px;background:var(--surface-2);border:1px dashed var(--border-strong);border-radius:var(--r-md);
+  padding:10px 14px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--text-secondary)
+}
+
+/* Wireframe mapping Desktop -> Phone -> Widget */
+.wf-grid{display:grid;grid-template-columns:1.25fr 0.95fr 0.85fr;gap:14px;align-items:stretch}
+.wf{background:var(--surface-1);border:1px solid var(--border-subtle);border-radius:var(--r-lg);padding:14px;display:flex;flex-direction:column}
+.wf-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;font-size:12px;font-weight:650;color:var(--text-secondary)}
+.desk-cols{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;flex:1}
+.desk-col{background:var(--surface-2);border:1px solid var(--border-subtle);border-radius:var(--r-sm);padding:7px}
+.desk-col h5{margin:0 0 6px;font-size:10.5px;color:var(--text-tertiary);display:flex;justify-content:space-between}
+.mini-card{background:var(--surface-3);border:1px solid var(--border-subtle);border-radius:var(--r-xs);padding:5px 6px;font-size:10.5px;margin-bottom:5px}
+.mini-card.dragged{background:var(--selection-pill);border-color:var(--accent)}
+
+.phone-shell{
+  background:var(--surface-0);border:1px solid var(--border-strong);border-radius:16px;padding:10px;
+  display:flex;flex-direction:column;gap:8px;flex:1;
+}
+.capsule-bar{display:grid;grid-template-columns:repeat(5,1fr);gap:4px}
+.cap{
+  text-align:center;font-size:10.5px;padding:5px 2px;border-radius:var(--r-pill);
+  background:var(--surface-2);border:1px solid var(--border-subtle);color:var(--text-secondary);
+}
+.cap.active{background:var(--selection-pill);border-color:var(--accent);color:var(--text-primary);font-weight:650}
+.cap.drop-hot{border-style:dashed;border-color:var(--accent);color:var(--accent);background:var(--accent-tint)}
+.phone-list{display:flex;flex-direction:column;gap:6px;flex:1}
+.p-card{background:var(--surface-2);border:1px solid var(--border-subtle);border-radius:var(--r-md);padding:8px 10px;font-size:11.5px;display:flex;justify-content:space-between;align-items:center}
+.p-card.lift{background:var(--selection-pill);border-color:var(--accent);transform:translateX(4px)}
+.p-card.gap{border-style:dashed;border-color:var(--border-strong);background:transparent;color:var(--text-disabled);justify-content:center;font-size:10.5px;padding:5px}
+.goal-dock{display:flex;gap:6px;flex-wrap:wrap;padding-top:6px;border-top:1px solid var(--border-subtle)}
+.g-chip{font-size:10.5px;padding:3px 8px;border-radius:var(--r-pill);background:var(--surface-3);border:1px solid var(--border-subtle);color:var(--text-secondary);display:inline-flex;align-items:center;gap:4px}
+
+.widget-box{background:var(--surface-2);border:1px solid var(--border-subtle);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:7px}
+.w-row{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:var(--r-sm);background:var(--surface-3);border:1px solid var(--border-subtle);font-size:11.5px}
+.chk{width:14px;height:14px;border-radius:4px;border:1.5px solid var(--border-strong);flex-shrink:0}
+.chk.done{background:var(--success);border-color:var(--success)}
+.w-note{margin-top:auto;font-size:11px;color:var(--text-tertiary);padding-top:6px;border-top:1px solid var(--border-subtle)}
+
+table{width:100%;border-collapse:collapse;background:var(--surface-2);border:1px solid var(--border-subtle);border-radius:var(--r-md);overflow:hidden;font-size:12.5px}
+th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--border-subtle);vertical-align:top}
+th{background:var(--surface-3);font-weight:600;color:var(--text-secondary);font-size:11.5px;letter-spacing:.03em}
+tr:last-child td{border-bottom:none}
+
+footer{margin-top:48px;padding-top:18px;border-top:1px solid var(--border-subtle);color:var(--text-tertiary);font-size:11.5px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px}
+
+@media (max-width:920px){
+  .verdict,.grid2,.grid3,.arch-row,.wf-grid{grid-template-columns:1fr}
+  .arch-arrow{flex-direction:row;padding:4px 0}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="top">
+  <div>
+    <h1>日新 DayNew · P4 安卓端技术选型可视化图谱</h1>
+    <div class="sub">权重：原生体验优先（45%） · 同步一致性（25%） · 体积冷启动（15%） · 单人维护（15%） ｜ 伴随文档：docs/android-tech-selection.md</div>
+  </div>
+  <div class="actions">
+    <button class="themebtn" id="themeBtn">切换明暗</button>
+  </div>
+</header>
+
+<div class="verdict">
+  <div>
+    <span class="tag ok">P4 最终结论</span>
+    <div class="verdict-title">原生 Kotlin + Jetpack Compose（内部拆分纯 Kotlin <code>:core-sync</code> 模块）</div>
+    <p style="margin:0;font-size:12.5px">Win 端跨端对齐核仅约千行纯逻辑，通过 <strong>Golden Test Vectors</strong> 即可保证 100% 协议一致；把原生资源全部押在 Glance 桌面小组件、AlarmManager 精确闹钟、系统分享接入与 120Hz 拖拽手感上。</p>
+  </div>
+  <div class="kpis">
+    <div class="kpi"><div class="val">91.8</div><div class="lbl">原生 Compose 加权分</div></div>
+    <div class="kpi"><div class="val">6~10 MB</div><div class="lbl">Release 包体估算</div></div>
+    <div class="kpi"><div class="val">~1,000 行</div><div class="lbl">核心契约移植规模</div></div>
+  </div>
+</div>
+
+<section>
+  <div class="eyebrow">01 · 五维能力雷达与加权评分</div>
+  <h2>按「原生体验优先」权重评估四条技术路线</h2>
+  <div class="grid2">
+    <div class="panel radar-wrap">
+      <div class="radar-legend" id="radarLegend"></div>
+      <svg id="radarSvg" viewBox="0 0 420 330" width="100%" style="max-width:420px;height:auto" role="img" aria-label="安卓技术栈五维能力对比雷达图"></svg>
+      <div style="font-size:11px;color:var(--text-tertiary)">点击上方图例可单独高亮对应技术路线（雷达图外圈为 100 分）</div>
+    </div>
+
+    <div class="panel score-list">
+      <div class="score-item" style="border-color:var(--accent)">
+        <div class="score-head">
+          <div class="score-name"><span class="dot" style="background:var(--accent)"></span>Kotlin + Jetpack Compose <span class="tag ok">首选</span></div>
+          <div class="score-num" style="color:var(--accent)">91.8</div>
+        </div>
+        <div class="bar-track"><div class="bar-fill" style="width:91.8%;background:var(--accent)"></div></div>
+        <div class="sub-bars">
+          <span>小组件 <strong>96</strong></span>
+          <span>闹钟唤醒 <strong>96</strong></span>
+          <span>协议一致 <strong>90</strong></span>
+          <span>冷启动 <strong>92</strong></span>
+        </div>
+      </div>
+
+      <div class="score-item">
+        <div class="score-head">
+          <div class="score-name"><span class="dot" style="background:var(--kmp)"></span>KMP + Compose Multiplatform <span class="tag accent">备选</span></div>
+          <div class="score-num">85.6</div>
+        </div>
+        <div class="bar-track"><div class="bar-fill" style="width:85.6%;background:var(--kmp)"></div></div>
+        <div class="sub-bars">
+          <span>小组件 <strong>90</strong></span>
+          <span>闹钟唤醒 <strong>92</strong></span>
+          <span>协议一致 <strong>92</strong></span>
+          <span>单人维护 <strong>68</strong></span>
+        </div>
+      </div>
+
+      <div class="score-item">
+        <div class="score-head">
+          <div class="score-name"><span class="dot" style="background:var(--flutter)"></span>Flutter (Dart 自绘 + 原生通道) <span class="tag warn">不推荐</span></div>
+          <div class="score-num">71.5</div>
+        </div>
+        <div class="bar-track"><div class="bar-fill" style="width:71.5%;background:var(--flutter)"></div></div>
+        <div class="sub-bars">
+          <span>小组件 <strong>58</strong></span>
+          <span>闹钟唤醒 <strong>64</strong></span>
+          <span>协议一致 <strong>78</strong></span>
+          <span>体积启动 <strong>68</strong></span>
+        </div>
+      </div>
+
+      <div class="score-item">
+        <div class="score-head">
+          <div class="score-name"><span class="dot" style="background:var(--maui)"></span>.NET MAUI / Avalonia (C# 复用) <span class="tag no">已排除</span></div>
+          <div class="score-num">65.6</div>
+        </div>
+        <div class="bar-track"><div class="bar-fill" style="width:65.6%;background:var(--maui)"></div></div>
+        <div class="sub-bars">
+          <span>小组件 <strong>45</strong></span>
+          <span>闹钟唤醒 <strong>52</strong></span>
+          <span>协议一致 <strong>98</strong></span>
+          <span>体积启动 <strong>42</strong></span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="eyebrow">02 · 跨端同步契约架构</div>
+  <h2>Win (WPF C#) ↔ 坚果云 WebDAV ↔ Android (:core-sync Kotlin)</h2>
+  <div class="arch">
+    <div class="arch-row">
+      <div class="node">
+        <div class="node-title">Windows 端 (已落地 P2-B) <span class="tag ok">C# .NET 10</span></div>
+        <div class="subbox"><strong>实体与状态</strong><br><code>DayStore</code> + <code>data.json</code> + <code>completions.ndjson</code></div>
+        <div class="subbox"><strong>同步核</strong><br><code>HlcClock</code> (<code>{phys:x12}-{cnt:x4}-{dev}</code>)<br><code>SyncMergeEngine</code> · <code>RemindRules</code></div>
+        <div class="subbox"><strong>只写自有快照</strong><br><code>device-win-&lt;id&gt;.json.gz</code> (camelCase JSON)</div>
+      </div>
+
+      <div class="arch-arrow">
+        <span class="pill-arrow">PUT .tmp → MOVE</span>
+        <span>仅本地指纹变了才上传</span>
+        <span class="pill-arrow">PROPFIND + ETag</span>
+        <span>ETag 没变跳过下载</span>
+      </div>
+
+      <div class="node hub">
+        <div class="node-title">坚果云 WebDAV 目录 <span class="tag accent">零服务端代码</span></div>
+        <div class="subbox"><strong>device-win-*.json.gz</strong><br>Windows 端独占写入</div>
+        <div class="subbox"><strong>device-android-*.json.gz</strong><br>Android 端独占写入</div>
+        <div class="subbox"><strong>HTTP 协议约定</strong><br>Depth:1 列目录 · <code>503/429</code> 退避重试 · 免费额度充裕</div>
+      </div>
+
+      <div class="arch-arrow">
+        <span class="pill-arrow">ETag 增量拉取</span>
+        <span>WorkManager 6s 防抖</span>
+        <span class="pill-arrow">GZip PUT 上传</span>
+        <span>Widget/通知完立即排同步</span>
+      </div>
+
+      <div class="node">
+        <div class="node-title">Android 端 (P4 推荐架构) <span class="tag accent">Kotlin</span></div>
+        <div class="subbox"><strong><code>:core-sync</code> 纯 Kotlin 模块</strong><br>零 <code>android.*</code> 依赖，未来可零成本开 KMP</div>
+        <div class="subbox"><strong>对齐契约</strong><br><code>camelCase</code> 序列化 · <code>fieldHlcs</code> · 墓碑仲裁 · <code>[冲突]</code> 副本</div>
+        <div class="subbox"><strong><code>:app</code> 原生宿主</strong><br>Compose UI · Glance Widget · AlarmManager · Share</div>
+      </div>
+    </div>
+
+    <div class="golden-bar">
+      <span><strong>一致性锁死机制：</strong>仓库共享 <code>tests/golden-sync-vectors.json</code>（HLC 字典序 / 墓碑复活 / 核心 4 字段冲突克隆 / GZip 互解），C# 与 Kotlin CI 双方同时跑通。</span>
+      <span class="tag ok">无需公共运行时，照样 100% 协议同构</span>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="eyebrow">03 · 交互与原生触点映射</div>
+  <h2>保持「看见就拖，不填表」：从桌面横排到手机竖屏 + 桌面小组件</h2>
+  <div class="wf-grid">
+    <div class="wf">
+      <div class="wf-head"><span>桌面端原貌（4 档位横排 + 目标）</span><span class="tag accent">WPF</span></div>
+      <div class="desk-cols">
+        <div class="desk-col"><h5>今天 <span>3</span></h5><div class="mini-card">写周报</div><div class="mini-card dragged">拖出卡片 →</div></div>
+        <div class="desk-col"><h5>明天 <span>1</span></h5><div class="mini-card">体检预约</div></div>
+        <div class="desk-col"><h5>本周 <span>2</span></h5><div class="mini-card">买滤芯</div></div>
+        <div class="desk-col"><h5>目标 <span>2</span></h5><div class="mini-card">● 考证</div><div class="mini-card">● 装修</div></div>
+      </div>
+      <div class="w-note">横拖直接改 <code>due</code>，纵拖开缝改 <code>order</code>，零弹窗填表。</div>
+    </div>
+
+    <div class="wf">
+      <div class="wf-head"><span>手机端主屏（Compose 竖屏映射）</span><span class="tag ok">120Hz 手势</span></div>
+      <div class="phone-shell">
+        <div class="capsule-bar">
+          <div class="cap">逾期</div>
+          <div class="cap active">今天</div>
+          <div class="cap drop-hot">明天 ✦</div>
+          <div class="cap">本周</div>
+          <div class="cap">之后</div>
+        </div>
+        <div class="phone-list">
+          <div class="p-card lift"><span>⋮⋮ 体检预约 · 14:00</span><span style="font-size:10.5px;color:var(--accent)">拖向胶囊</span></div>
+          <div class="p-card gap">其它卡片平滑下移开缝 (90-150ms)</div>
+          <div class="p-card"><span>○ 交水电费 · 生活</span><span style="font-size:10.5px;color:var(--text-tertiary)">pre5</span></div>
+        </div>
+        <div class="goal-dock">
+          <span class="g-chip"><span class="dot" style="background:var(--accent)"></span>拖到底部目标芯片 → 挂 Goal</span>
+        </div>
+      </div>
+      <div class="w-note"><code>HorizontalPager</code> 左右滑切档；长按拖拽即高亮顶部档位胶囊。</div>
+    </div>
+
+    <div class="wf">
+      <div class="wf-head"><span>安卓桌面小组件（主屏外高频）</span><span class="tag ok">Glance</span></div>
+      <div class="widget-box" style="flex:1">
+        <div style="display:flex;justify-content:space-between;align-items:center;font-size:11.5px;font-weight:650">
+          <span>今天 · 3 项未完</span>
+          <span style="color:var(--accent)">＋ 快速记录</span>
+        </div>
+        <div class="w-row"><span class="chk done"></span><span style="text-decoration:line-through;color:var(--text-disabled)">吃药 · 08:30</span></div>
+        <div class="w-row"><span class="chk"></span><span>提交报销单</span></div>
+        <div class="w-row"><span class="chk"></span><span>取快递 · 18:00</span></div>
+        <div class="w-note">点复选框即刻改本地库 + 追加 <code>CompletionEntry</code> + 排 6s 后静默同步，无需启动主界面。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="eyebrow">04 · 四大原生体验实现对比</div>
+  <h2>为什么原生 Compose 在关键边界上显著省心</h2>
+  <table>
+    <tr>
+      <th style="width:18%">原生能力边界</th>
+      <th style="width:30%">Kotlin + Jetpack Compose（方案 A）</th>
+      <th style="width:26%">KMP + CMP（方案 B）</th>
+      <th style="width:26%">Flutter（方案 C）</th>
+    </tr>
+    <tr>
+      <td><strong>桌面小组件<br>AppWidget</strong></td>
+      <td>Jetpack Glance 用类 Compose Kotlin 直写；点勾选直接复用 <code>:core-sync</code> 仓储与 <code>CompletionLog</code>，零跨运行时同步问题。</td>
+      <td><code>androidMain</code> 写 Glance，共用 <code>commonMain</code> 仓储，但多模块 Gradle 构建复杂度上升。</td>
+      <td>无法直接在 Glance 跑 Dart；需维护一套 Kotlin XML/Glance + SharedPreferences 回传通道，易出现状态延迟。</td>
+    </tr>
+    <tr>
+      <td><strong>精确闹钟提醒<br>pre15/pre5/start/end</strong></td>
+      <td><code>AlarmManager.setExactAndAllowWhileIdle</code> + <code>BroadcastReceiver</code>；系统唤醒时仅加载轻量 JVM 类，触发通知栏「完成 / 延后」。</td>
+      <td>与原生 A 相似，实现位于 <code>androidMain</code>，无功能缺失。</td>
+      <td>闹钟响起时若在通知栏点「完成」并触发同步，要么拉起 Dart Engine，要么在 Kotlin 里重写一遍业务写盘与同步。</td>
+    </tr>
+    <tr>
+      <td><strong>系统分享收纳<br>ACTION_SEND</strong></td>
+      <td>独立透明 <code>BottomSheetActivity</code>，冷启动 &lt; 150ms 弹出，选中文字一键扔入「今天」或「未来事项」。</td>
+      <td>原生体验，仅多一层 KMP 依赖包装。</td>
+      <td>单独 Activity 拉起 FlutterEngine 易见短暂白屏或显存开销。</td>
+    </tr>
+    <tr>
+      <td><strong>Nord Frost UI<br>与 120Hz 手感</strong></td>
+      <td>直接套用 <code>android-compose.md</code>（<code>shadowElevation=0.dp</code> 列表零阴影 + <code>1.dp</code> 描边 + <code>90/150/225ms</code> 动效），贴合系统返回手势。</td>
+      <td>Android 上由 CMP 编译为 Jetpack Compose，多了一层 Skia/资源适配考量。</td>
+      <td>帧率同样稳定 120Hz，但中文系统字体渲染、阴影/滚动物理及预测性返回偶有非原生割裂感。</td>
+    </tr>
+  </table>
+</section>
+
+<footer>
+  <span>日新 DayNew · P4 技术选型调研交付物（代码未开工，仅作选型与架构蓝图）</span>
+  <span>2026-11-23 · 遵循 Nord Frost UI 规范</span>
+</footer>
+
+</div>
+<script>
+(function(){
+  const btn = document.getElementById('themeBtn');
+  btn.addEventListener('click', function(){
+    const el = document.documentElement;
+    el.setAttribute('data-theme', el.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+  });
+
+  const axes = [
+    '小组件/闹钟',
+    '120Hz 手感',
+    '协议一致性',
+    '体积与冷启',
+    '单人维护度'
+  ];
+
+  // Scores aligned with the weighted criteria in android-tech-selection.md
+  // Axis 0 uses average of Widget (96/90/58/45) & Alarm (96/92/64/52)
+  const stacks = [
+    { id:'compose', name:'Kotlin + Compose', color:'var(--accent)', fill:'rgba(120,160,240,0.22)', vals:[96, 92, 90, 92, 85] },
+    { id:'kmp',     name:'KMP + CMP',        color:'var(--kmp)',    fill:'rgba(129,161,193,0.14)', vals:[91, 86, 92, 80, 68] },
+    { id:'flutter', name:'Flutter',          color:'var(--flutter)',fill:'rgba(136,192,208,0.12)', vals:[61, 88, 78, 68, 76] },
+    { id:'maui',    name:'.NET MAUI',        color:'var(--maui)',   fill:'rgba(180,142,173,0.10)', vals:[49, 64, 98, 42, 74] }
+  ];
+
+  const svg = document.getElementById('radarSvg');
+  const legend = document.getElementById('radarLegend');
+  const cx = 210, cy = 168, R = 114;
+  let focusId = 'compose';
+
+  function pt(i, score){
+    const angle = (-90 + i * 72) * Math.PI / 180;
+    const r = R * (score / 100);
+    return [cx + r * Math.cos(angle), cy + r * Math.sin(angle)];
+  }
+
+  function renderRadar(){
+    const parts = [];
+    // Rings 20, 40, 60, 80, 100
+    [20,40,60,80,100].forEach(level => {
+      const pts = axes.map((_, i) => pt(i, level).map(n => n.toFixed(1)).join(',')).join(' ');
+      parts.push(`<polygon points="${pts}" fill="none" stroke="var(--border-subtle)" stroke-width="${level===100?1.2:1}" />`);
+    });
+    // Spokes & labels
+    axes.forEach((label, i) => {
+      const [x, y] = pt(i, 100);
+      parts.push(`<line x1="${cx}" y1="${cy}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}" stroke="var(--border-subtle)" stroke-width="1" />`);
+      const [lx, ly] = pt(i, 121);
+      const anchor = Math.abs(lx - cx) < 12 ? 'middle' : (lx > cx ? 'start' : 'end');
+      parts.push(`<text x="${lx.toFixed(1)}" y="${(ly+4).toFixed(1)}" text-anchor="${anchor}" fill="var(--text-secondary)" font-size="11.5" font-weight="600">${label}</text>`);
+    });
+    // Polygons
+    stacks.forEach(s => {
+      const isFocus = !focusId || focusId === s.id;
+      const pts = s.vals.map((v, i) => pt(i, v).map(n => n.toFixed(1)).join(',')).join(' ');
+      const opacity = isFocus ? 1 : 0.25;
+      const strokeW = focusId === s.id ? 2.4 : 1.5;
+      parts.push(`<polygon points="${pts}" fill="${isFocus ? s.fill : 'transparent'}" stroke="${s.color}" stroke-width="${strokeW}" opacity="${opacity}" />`);
+      if (focusId === s.id){
+        s.vals.forEach((v, i) => {
+          const [px, py] = pt(i, v);
+          parts.push(`<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="3.5" fill="${s.color}" />`);
+        });
+      }
+    });
+    svg.innerHTML = parts.join('');
+  }
+
+  stacks.forEach(s => {
+    const b = document.createElement('button');
+    b.className = 'leg-btn' + (focusId === s.id ? ' active' : '');
+    b.innerHTML = `<span class="dot" style="background:${s.color}"></span>${s.name}`;
+    b.addEventListener('click', () => {
+      focusId = (focusId === s.id) ? '' : s.id;
+      Array.from(legend.children).forEach((el, idx) => {
+        el.classList.toggle('active', focusId === stacks[idx].id);
+      });
+      renderRadar();
+    });
+    legend.appendChild(b);
+  });
+
+  renderRadar();
+})();
+</script>
+</body>
+</html>

@@ -199,7 +199,9 @@ public sealed class ScheduleEditorVM : ObservableObject
 
     public bool IsEditing => Task is not null;
 
-    public string Header => IsNew ? "新建日程" : "编辑日程";
+    public string Header => IsNew
+        ? (!HasDue ? "新建未来事项" : !HasTime ? "新建截止事项" : "新建日程")
+        : "编辑日程";
 
     public ObservableCollection<TagPickVM> TagPicks { get; } = new();
 
@@ -215,6 +217,8 @@ public sealed class ScheduleEditorVM : ObservableObject
     private string _repeat = "";
     private bool _isUrgent;
     private bool _isImportant;
+    private bool _hasDue = true;
+    private bool _hasTime = true;
     private DateTime _date = DateTime.Today;
     private string _startText = "09:00";
     private string _endText = "09:30";
@@ -274,6 +278,38 @@ public sealed class ScheduleEditorVM : ObservableObject
         set => Set(ref _isImportant, value);
     }
 
+    public bool HasDue
+    {
+        get => _hasDue;
+        set
+        {
+            if (!Set(ref _hasDue, value)) return;
+            if (!value && _hasTime)
+            {
+                _hasTime = false;
+                OnPropertyChanged(nameof(HasTime));
+            }
+            OnPropertyChanged(nameof(Header));
+            _owner.RefreshEditorHint();
+        }
+    }
+
+    public bool HasTime
+    {
+        get => _hasTime;
+        set
+        {
+            if (!Set(ref _hasTime, value)) return;
+            if (value && !_hasDue)
+            {
+                _hasDue = true;
+                OnPropertyChanged(nameof(HasDue));
+            }
+            OnPropertyChanged(nameof(Header));
+            _owner.RefreshEditorHint();
+        }
+    }
+
     public DateTime Date
     {
         get => _date;
@@ -321,11 +357,57 @@ public sealed class ScheduleEditorVM : ObservableObject
     /// <summary>「不重复」用一个内部值 none，实体里还是空字符串。</summary>
     public const string NoRepeat = "none";
 
-    public void StepDay(int days) => Date = Date.AddDays(days);
+    public void StepDay(int days)
+    {
+        if (!HasDue) HasDue = true;
+        Date = Date.AddDays(days);
+    }
 
     // ---------------- 打开 ----------------
 
     public void OpenNew(DateTime date, int startMinutes, int endMinutes)
+    {
+        ResetCommonNew();
+        _hasDue = true;
+        _hasTime = true;
+        _date = date.Date;
+        _startText = Clock(startMinutes);
+        _endText = Clock(endMinutes);
+
+        BuildPicks(Array.Empty<TagVM>(), Array.Empty<GoalBindingVM>());
+        RaiseAll();
+        _owner.RefreshEditorHint();
+    }
+
+    public void OpenNewDeadline(DateTime date)
+    {
+        ResetCommonNew();
+        _hasDue = true;
+        _hasTime = false;
+        _date = date.Date;
+        _startText = "09:00";
+        _endText = "09:30";
+
+        BuildPicks(Array.Empty<TagVM>(), Array.Empty<GoalBindingVM>());
+        RaiseAll();
+        _owner.RefreshEditorHint();
+    }
+
+    public void OpenNewFuture()
+    {
+        ResetCommonNew();
+        _hasDue = false;
+        _hasTime = false;
+        _date = DateTime.Today;
+        _startText = "09:00";
+        _endText = "09:30";
+
+        BuildPicks(Array.Empty<TagVM>(), Array.Empty<GoalBindingVM>());
+        RaiseAll();
+        _owner.RefreshEditorHint();
+    }
+
+    private void ResetCommonNew()
     {
         Task = null;
         _title = "";
@@ -337,13 +419,6 @@ public sealed class ScheduleEditorVM : ObservableObject
         _newTagText = "";
         _hintText = "";
         _errorText = "";
-        _date = date.Date;
-        _startText = Clock(startMinutes);
-        _endText = Clock(endMinutes);
-
-        BuildPicks(Array.Empty<TagVM>(), Array.Empty<GoalBindingVM>());
-        RaiseAll();
-        _owner.RefreshEditorHint();
     }
 
     public void OpenExisting(TaskVM task)
@@ -358,13 +433,23 @@ public sealed class ScheduleEditorVM : ObservableObject
         _newTagText = "";
         _hintText = "";
         _errorText = "";
+        _hasDue = task.Due.HasValue;
         _date = task.Due?.Date ?? DateTime.Today;
+        _hasTime = task.Due.HasValue && task.HasTime;
 
-        var start = (int)(task.StartTime?.TotalMinutes ?? 9 * 60);
-        var end = (int)(task.EndTime?.TotalMinutes ?? start + 30);
-        if (end <= start) end = start + 30;
-        _startText = Clock(start);
-        _endText = Clock(end);
+        if (_hasTime)
+        {
+            var start = (int)task.StartTime!.Value.TotalMinutes;
+            var end = (int)task.EndTime!.Value.TotalMinutes;
+            if (end <= start) end = start + 30;
+            _startText = Clock(start);
+            _endText = Clock(end);
+        }
+        else
+        {
+            _startText = "09:00";
+            _endText = "09:30";
+        }
 
         BuildPicks(task.Tags, task.GoalBindings);
         RaiseAll();
@@ -456,6 +541,8 @@ public sealed class ScheduleEditorVM : ObservableObject
         OnPropertyChanged(nameof(Repeat));
         OnPropertyChanged(nameof(IsUrgent));
         OnPropertyChanged(nameof(IsImportant));
+        OnPropertyChanged(nameof(HasDue));
+        OnPropertyChanged(nameof(HasTime));
         OnPropertyChanged(nameof(Date));
         OnPropertyChanged(nameof(DateText));
         OnPropertyChanged(nameof(StartText));

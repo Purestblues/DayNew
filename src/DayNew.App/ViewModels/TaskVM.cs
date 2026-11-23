@@ -17,6 +17,10 @@ public sealed class TaskVM : ObservableObject
 
     private string _id = Guid.NewGuid().ToString("N")[..10];
 
+    /// <summary>混合逻辑时钟与字段级时间戳（仅同步使用，UI 不展示）。</summary>
+    public string Hlc { get; set; } = "";
+    public Dictionary<string, string> FieldHlcs { get; set; } = new(StringComparer.Ordinal);
+
     private string _title = "";
     private string _note = "";
     private bool _done;

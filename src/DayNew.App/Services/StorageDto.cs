@@ -32,6 +32,9 @@ public sealed class GoalDto
     public double? RootY { get; set; }
     public List<GoalNodeDto> Nodes { get; set; } = new();
     public List<GoalEdgeDto> Edges { get; set; } = new();
+    public string Hlc { get; set; } = "";
+    public bool Del { get; set; }
+    public Dictionary<string, string>? FieldHlcs { get; set; }
 }
 
 public sealed class GoalNodeDto
@@ -66,6 +69,9 @@ public sealed class TagDto
     public string Id { get; set; } = "";
     public string Name { get; set; } = "";
     public string Color { get; set; } = "";
+    public string Hlc { get; set; } = "";
+    public bool Del { get; set; }
+    public Dictionary<string, string>? FieldHlcs { get; set; }
 }
 
 public sealed class ScheduleDto
@@ -95,6 +101,12 @@ public sealed class ScheduleDto
     public List<string> TagIds { get; set; } = new();
 
     public int Order { get; set; }
+
+    public string Hlc { get; set; } = "";
+
+    public bool Del { get; set; }
+
+    public Dictionary<string, string>? FieldHlcs { get; set; }
 }
 
 public sealed class PresetDto
@@ -109,4 +121,17 @@ public sealed class PresetDto
     public string? GoalId { get; set; }
     public List<GoalRefDto> GoalRefs { get; set; } = new();
     public List<string> TagIds { get; set; } = new();
+    public string Hlc { get; set; } = "";
+    public bool Del { get; set; }
+    public Dictionary<string, string>? FieldHlcs { get; set; }
+}
+
+/// <summary>每设备上传到 WebDAV 的全量 gzip 快照契约（device-&lt;deviceId&gt;.json.gz）。</summary>
+public sealed class DeviceSnapshotDto
+{
+    public int Version { get; set; } = 1;
+    public string DeviceId { get; set; } = "";
+    public string SnapshotHlc { get; set; } = "";
+    public StoreDto Store { get; set; } = new();
+    public List<CompletionLog.CompletionEntry> Completions { get; set; } = new();
 }

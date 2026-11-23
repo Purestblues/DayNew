@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Windows;
 using System.Windows.Media;
+using System.Windows.Threading;
 using DayNew.Core;
 using DayNew.Services;
 
@@ -17,12 +18,26 @@ public sealed class MainViewModel : ObservableObject
     private readonly DayStore _store = new();
     private readonly StoreFile _file = new();
     private readonly CompletionLog _history = new();
+    private readonly DispatcherTimer _autoSyncTimer = new();
+    private readonly DispatcherTimer _periodicSyncTimer = new();
+    private bool _hasInitialized;
+    private bool _suppressAutoSyncSchedule;
+    private McpServerService? _mcpServer;
+    private string _mcpPortText = "";
+    private string _mcpTokenCache = "";
+    private bool _isMcpTokenRevealed;
 
     public event Action<string, bool>? ToastRequested;
     public event Action<TaskVM>? TaskTouched;
     public event Action<int, int>? SummaryChanged;
 
     public AppSettings Settings { get; } = AppSettings.Load();
+
+    internal DayStore Store => _store;
+
+    internal CompletionLog History => _history;
+
+    internal void NotifyTaskTouched(TaskVM task) => TaskTouched?.Invoke(task);
 
     public IReadOnlyList<TaskVM> AllSchedules => _all;
 
@@ -51,10 +66,17 @@ public sealed class MainViewModel : ObservableObject
 
     private bool _isEditorOpen;
     private bool _isSettingsOpen;
+    private bool _isImportConfirmOpen;
+    private bool _isWebDavBusy;
     private bool _isPresetManagerOpen;
     private bool _isTagDetailOpen;
     private bool _isGoalTreeEditorOpen;
     private bool _isGoalPickerOpen;
+    private string _webDavPasswordCache = "";
+    private DataTransferService.ImportPackagePreview? _pendingImportPackage;
+    private string _pendingImportFileName = "";
+    private string _pendingImportSummary = "";
+    private string _pendingImportCurrentNote = "";
     private TagVM? _selectedTagDetail;
     private GoalVM? _selectedGoalDetail;
     private GoalNodeVM? _selectedGoalNodeDetail;
@@ -70,6 +92,30 @@ public sealed class MainViewModel : ObservableObject
     {
         get => _isSettingsOpen;
         private set => Set(ref _isSettingsOpen, value);
+    }
+
+    public bool IsImportConfirmOpen
+    {
+        get => _isImportConfirmOpen;
+        private set => Set(ref _isImportConfirmOpen, value);
+    }
+
+    public string PendingImportFileName
+    {
+        get => _pendingImportFileName;
+        private set => Set(ref _pendingImportFileName, value);
+    }
+
+    public string PendingImportSummary
+    {
+        get => _pendingImportSummary;
+        private set => Set(ref _pendingImportSummary, value);
+    }
+
+    public string PendingImportCurrentNote
+    {
+        get => _pendingImportCurrentNote;
+        private set => Set(ref _pendingImportCurrentNote, value);
     }
 
     public bool IsPresetManagerOpen
@@ -241,6 +287,424 @@ public sealed class MainViewModel : ObservableObject
 
     public string AppVersion => "v" + (typeof(MainViewModel).Assembly.GetName().Version?.ToString(3) ?? "0.1.0");
 
+    public string WebDavUrl
+    {
+        get => Settings.WebDavUrl;
+        set
+        {
+            var next = value ?? "";
+            if (Settings.WebDavUrl == next) return;
+            Settings.WebDavUrl = next;
+            Settings.Save();
+            OnPropertyChanged();
+        }
+    }
+
+    public string WebDavUser
+    {
+        get => Settings.WebDavUser;
+        set
+        {
+            var next = value ?? "";
+            if (Settings.WebDavUser == next) return;
+            Settings.WebDavUser = next;
+            Settings.Save();
+            OnPropertyChanged();
+        }
+    }
+
+    public string WebDavPassword
+    {
+        get => _webDavPasswordCache;
+        set
+        {
+            var next = value ?? "";
+            if (_webDavPasswordCache == next) return;
+            _webDavPasswordCache = next;
+            Settings.SetWebDavPassword(next);
+            Settings.Save();
+            OnPropertyChanged();
+        }
+    }
+
+    public bool IsWebDavBusy
+    {
+        get => _isWebDavBusy;
+        private set
+        {
+            if (!Set(ref _isWebDavBusy, value)) return;
+            OnPropertyChanged(nameof(IsWebDavIdle));
+        }
+    }
+
+    public bool IsWebDavIdle => !IsWebDavBusy;
+
+    public bool AutoSyncEnabled
+    {
+        get => Settings.AutoSyncEnabled;
+        set
+        {
+            if (Settings.AutoSyncEnabled == value) return;
+            Settings.AutoSyncEnabled = value;
+            Settings.Save();
+            OnPropertyChanged();
+
+            if (value)
+            {
+                _periodicSyncTimer.Start();
+                Notify("已开启多设备自动同步");
+                ScheduleAutoSync(delaySeconds: 1);
+            }
+            else
+            {
+                _autoSyncTimer.Stop();
+                _periodicSyncTimer.Stop();
+                Notify("已关闭多设备自动同步");
+            }
+        }
+    }
+
+    public string WebDavStatusText
+    {
+        get
+        {
+            if (!string.IsNullOrWhiteSpace(Settings.LastWebDavSyncAt))
+                return $"上次同步：{Settings.LastWebDavSyncAt}";
+            if (!string.IsNullOrWhiteSpace(Settings.LastWebDavBackupAt))
+                return $"上次云备份：{Settings.LastWebDavBackupAt}";
+            return "未同步";
+        }
+    }
+
+    public async Task SyncWebDavNowAsync(bool silent = false)
+    {
+        if (IsWebDavBusy) return;
+        if (string.IsNullOrWhiteSpace(WebDavUrl) ||
+            string.IsNullOrWhiteSpace(WebDavUser) ||
+            string.IsNullOrEmpty(WebDavPassword))
+        {
+            if (!silent) ValidateWebDavInputs();
+            return;
+        }
+
+        _autoSyncTimer.Stop();
+        IsWebDavBusy = true;
+        try
+        {
+            var result = await WebDavService.SyncMultiDeviceAsync(_store, _file, _history, Settings);
+            OnPropertyChanged(nameof(WebDavStatusText));
+
+            if (result.StoreChanged)
+            {
+                _suppressAutoSyncSchedule = true;
+                try
+                {
+                    Rebuild();
+                }
+                finally
+                {
+                    _suppressAutoSyncSchedule = false;
+                }
+            }
+
+            if (!silent || result.ConflictCopiesCount > 0 || result.StoreChanged)
+            {
+                var msg = result.ConflictCopiesCount > 0
+                    ? $"同步完成（拉取 {result.UpdatedCount} 处更新，保留 {result.ConflictCopiesCount} 条冲突副本）"
+                    : result.StoreChanged
+                        ? $"同步完成（已合并 {result.UpdatedCount} 处远端更新）"
+                        : result.UploadedOwn
+                            ? "同步完成（已上传本机最新快照）"
+                            : "云端与本机已是最新状态";
+                Notify(msg, highlight: result.ConflictCopiesCount > 0);
+            }
+        }
+        catch (Exception ex)
+        {
+            if (!silent)
+                Notify($"同步失败：{ex.Message}", highlight: true);
+        }
+        finally
+        {
+            IsWebDavBusy = false;
+        }
+    }
+
+    public void StopBackgroundTimers()
+    {
+        _autoSyncTimer.Stop();
+        _periodicSyncTimer.Stop();
+    }
+
+    // ---------------- P3: AI 与 MCP 接口 ----------------
+
+    public void AttachMcpServer(McpServerService server)
+    {
+        _mcpServer = server;
+        _mcpServer.StatusChanged += () => OnPropertyChanged(nameof(McpStatusText));
+        OnPropertyChanged(nameof(McpStatusText));
+    }
+
+    public bool McpEnabled
+    {
+        get => Settings.McpEnabled;
+        set
+        {
+            if (Settings.McpEnabled == value) return;
+            Settings.McpEnabled = value;
+            Settings.Save();
+            OnPropertyChanged();
+            _mcpServer?.StartOrRestart();
+            OnPropertyChanged(nameof(McpStatusText));
+
+            if (value)
+            {
+                if (!string.IsNullOrEmpty(_mcpServer?.LastError))
+                    Notify(_mcpServer.LastError, highlight: true);
+                else
+                    Notify($"已开启 MCP 接口（127.0.0.1:{Settings.McpPort}/mcp）");
+            }
+            else
+            {
+                Notify("已关闭 MCP 接口");
+            }
+        }
+    }
+
+    public string McpPortText
+    {
+        get => _mcpPortText;
+        set => Set(ref _mcpPortText, value ?? "");
+    }
+
+    public string McpEndpointText => $"http://127.0.0.1:{Settings.McpPort}/mcp";
+
+    public bool IsMcpTokenRevealed
+    {
+        get => _isMcpTokenRevealed;
+        private set
+        {
+            if (!Set(ref _isMcpTokenRevealed, value)) return;
+            OnPropertyChanged(nameof(McpTokenDisplayText));
+            OnPropertyChanged(nameof(McpTokenRevealButtonText));
+        }
+    }
+
+    public string McpTokenRevealButtonText => IsMcpTokenRevealed ? "隐藏" : "显示";
+
+    public string McpTokenDisplayText
+    {
+        get
+        {
+            var token = GetMcpTokenPlain();
+            return IsMcpTokenRevealed ? token : "dn_" + new string('•', 16);
+        }
+    }
+
+    public string McpStatusText
+    {
+        get
+        {
+            if (!Settings.McpEnabled) return "已关闭";
+            if (!string.IsNullOrWhiteSpace(_mcpServer?.LastError)) return _mcpServer.LastError;
+            if (_mcpServer is { IsListening: true }) return $"运行中 · :{Settings.McpPort}";
+            return "已开启";
+        }
+    }
+
+    public string GetMcpTokenPlain()
+    {
+        if (string.IsNullOrEmpty(_mcpTokenCache))
+            _mcpTokenCache = Settings.GetMcpToken();
+        return _mcpTokenCache;
+    }
+
+    public void ApplyMcpPort()
+    {
+        var raw = (McpPortText ?? "").Trim();
+        if (!int.TryParse(raw, out var port) || port is < 1024 or > 65535)
+        {
+            Notify("端口范围需在 1024–65535 之间", highlight: true);
+            McpPortText = Settings.McpPort.ToString();
+            return;
+        }
+
+        if (Settings.McpPort == port)
+        {
+            Notify($"当前已监听端口 {port}");
+            return;
+        }
+
+        Settings.McpPort = port;
+        Settings.Save();
+        OnPropertyChanged(nameof(McpEndpointText));
+        _mcpServer?.StartOrRestart();
+        OnPropertyChanged(nameof(McpStatusText));
+
+        if (!string.IsNullOrEmpty(_mcpServer?.LastError))
+            Notify(_mcpServer.LastError, highlight: true);
+        else
+            Notify($"MCP 端口已更新为 {port}");
+    }
+
+    public void ToggleMcpTokenReveal() => IsMcpTokenRevealed = !IsMcpTokenRevealed;
+
+    public void RegenerateMcpToken()
+    {
+        _mcpTokenCache = Settings.RegenerateMcpToken();
+        OnPropertyChanged(nameof(McpTokenDisplayText));
+        Notify("已重新生成 MCP Bearer Token（旧连接需同步更新）");
+    }
+
+    public string BuildMcpJsonConfig()
+    {
+        var exePath = Environment.ProcessPath;
+        if (string.IsNullOrWhiteSpace(exePath) || !exePath.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+            exePath = Path.Combine(AppContext.BaseDirectory, "DayNew.exe");
+
+        var payload = new
+        {
+            mcpServers = new Dictionary<string, object>
+            {
+                ["daynew"] = new
+                {
+                    type = "http",
+                    url = McpEndpointText,
+                    headers = new Dictionary<string, string>
+                    {
+                        ["Authorization"] = $"Bearer {GetMcpTokenPlain()}"
+                    }
+                },
+                ["daynew-stdio"] = new
+                {
+                    command = exePath,
+                    args = new[] { "--mcp" }
+                }
+            }
+        };
+
+        return System.Text.Json.JsonSerializer.Serialize(payload, StoreFile.JsonOptions);
+    }
+
+    public string BuildMcpInstallPrompt()
+    {
+        var exePath = Environment.ProcessPath;
+        if (string.IsNullOrWhiteSpace(exePath) || !exePath.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+            exePath = Path.Combine(AppContext.BaseDirectory, "DayNew.exe");
+
+        return $"""
+            请帮我把「日新 DayNew」本地 MCP 服务接入到当前客户端中，按「HTTP 优先、STDIO 回退」配置并完成自检：
+            1. 首选方式（Streamable HTTP）：
+               - 端点：{McpEndpointText}
+               - 请求头：Authorization: Bearer {GetMcpTokenPlain()}
+               （日新在 Windows 托盘常驻时即可响应；请确保已在日新「设置 → AI 与 MCP 接口」中开启开关）
+            2. 回退方式（仅当当前客户端不支持带 Header 的 HTTP MCP 时使用 STDIO 桥接）：
+               - 命令：{exePath}
+               - 参数：["--mcp"]
+            3. 配置完成后请立即调用一次只读工具 `get_overview` 验证连通性与今日待办读取；
+            4. 注意安全规则：删除类工具（delete_schedule / delete_tag / delete_goal）必须先向我说明待删明细与影响范围并征得同意，且执行时日新本机仍会弹出置顶确认窗由我当场点击许可。
+            """;
+    }
+
+    private void ScheduleAutoSync(int delaySeconds = 6)
+    {
+        if (_suppressAutoSyncSchedule || !Settings.AutoSyncEnabled) return;
+        if (string.IsNullOrWhiteSpace(WebDavUrl) ||
+            string.IsNullOrWhiteSpace(WebDavUser) ||
+            string.IsNullOrEmpty(WebDavPassword))
+        {
+            return;
+        }
+
+        _autoSyncTimer.Stop();
+        _autoSyncTimer.Interval = TimeSpan.FromSeconds(Math.Max(1, delaySeconds));
+        _autoSyncTimer.Start();
+    }
+
+    public async Task TestWebDavConnectionAsync()
+    {
+        if (IsWebDavBusy) return;
+        if (!ValidateWebDavInputs()) return;
+
+        IsWebDavBusy = true;
+        try
+        {
+            var (ok, message) = await WebDavService.TestConnectionAsync(WebDavUrl, WebDavUser, WebDavPassword);
+            Notify(message, highlight: !ok);
+        }
+        catch (Exception ex)
+        {
+            Notify($"连接失败：{ex.Message}", highlight: true);
+        }
+        finally
+        {
+            IsWebDavBusy = false;
+        }
+    }
+
+    public async Task UploadWebDavBackupAsync()
+    {
+        if (IsWebDavBusy) return;
+        if (!ValidateWebDavInputs()) return;
+
+        IsWebDavBusy = true;
+        try
+        {
+            var backupAt = await WebDavService.UploadBackupZipAsync(
+                _store, _file, _history, WebDavUrl, WebDavUser, WebDavPassword);
+            Settings.LastWebDavBackupAt = backupAt;
+            Settings.Save();
+            OnPropertyChanged(nameof(WebDavStatusText));
+            Notify($"已上传云端备份（{WebDavService.CloudBackupFileName}）");
+        }
+        catch (Exception ex)
+        {
+            Notify($"上传云端备份失败：{ex.Message}", highlight: true);
+        }
+        finally
+        {
+            IsWebDavBusy = false;
+        }
+    }
+
+    public async Task DownloadWebDavBackupAsync()
+    {
+        if (IsWebDavBusy) return;
+        if (!ValidateWebDavInputs()) return;
+
+        IsWebDavBusy = true;
+        try
+        {
+            var localZip = await WebDavService.DownloadBackupZipAsync(WebDavUrl, WebDavUser, WebDavPassword);
+            BeginImportData(localZip);
+        }
+        catch (Exception ex)
+        {
+            Notify($"拉取云端备份失败：{ex.Message}", highlight: true);
+        }
+        finally
+        {
+            IsWebDavBusy = false;
+        }
+    }
+
+    private bool ValidateWebDavInputs()
+    {
+        if (string.IsNullOrWhiteSpace(WebDavUrl))
+        {
+            Notify("请先填写 WebDAV 地址", highlight: true);
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(WebDavUser) || string.IsNullOrEmpty(WebDavPassword))
+        {
+            Notify("请先填写账号与密码", highlight: true);
+            return false;
+        }
+
+        return true;
+    }
+
     public void OpenSettings()
     {
         OnPropertyChanged(nameof(AutoStartEnabled));
@@ -259,6 +723,86 @@ public sealed class MainViewModel : ObservableObject
         catch
         {
             Notify("无法打开数据目录", highlight: true);
+        }
+    }
+
+    public void ExportAllData(string targetZipPath)
+    {
+        try
+        {
+            DataTransferService.ExportToZip(_store, _file, _history, targetZipPath);
+            Notify($"已导出全部数据至 {Path.GetFileName(targetZipPath)}");
+        }
+        catch (Exception ex)
+        {
+            Notify($"导出失败：{ex.Message}", highlight: true);
+        }
+    }
+
+    public void BeginImportData(string sourcePath)
+    {
+        try
+        {
+            var pkg = DataTransferService.InspectPackage(sourcePath);
+            _pendingImportPackage = pkg;
+            PendingImportFileName = pkg.FileName;
+            PendingImportSummary = pkg.HasCompletionsEntry
+                ? $"包含 {pkg.ScheduleCount} 条日程、{pkg.GoalCount} 个目标、{pkg.TagCount} 个标签、{pkg.PresetCount} 个快捷卡片，以及 {pkg.CompletionCount} 条完成记录。"
+                : $"仅包含 data.json（{pkg.ScheduleCount} 条日程、{pkg.GoalCount} 个目标、{pkg.TagCount} 个标签、{pkg.PresetCount} 个快捷卡片），不含完成记录。";
+            PendingImportCurrentNote =
+                $"当前库有 {_store.Schedules.Count} 条日程、{_store.Goals.Count} 个目标、{_store.Tags.Count} 个标签。执行前将自动在 backups 目录备份当前全部数据。";
+            IsImportConfirmOpen = true;
+        }
+        catch (Exception ex)
+        {
+            _pendingImportPackage = null;
+            Notify($"无法读取备份：{ex.Message}", highlight: true);
+        }
+    }
+
+    public void ConfirmImportMerge() => ExecuteImport(merge: true);
+
+    public void ConfirmImportOverwrite() => ExecuteImport(merge: false);
+
+    public void CancelImportConfirm()
+    {
+        _pendingImportPackage = null;
+        IsImportConfirmOpen = false;
+    }
+
+    private void ExecuteImport(bool merge)
+    {
+        if (_pendingImportPackage is not { } pkg)
+        {
+            IsImportConfirmOpen = false;
+            return;
+        }
+
+        try
+        {
+            DeadlinePicker.Close();
+            if (IsGoalPickerOpen) CloseGoalPicker();
+            if (IsGoalTreeEditorOpen) CloseGoalTreeEditor();
+            if (IsEditorOpen) CloseEditor();
+            if (IsPresetManagerOpen) ClosePresetManager();
+            if (IsTagDetailOpen) CloseTagDetail();
+            CollapseAll();
+
+            var result = DataTransferService.ApplyImport(pkg, merge, _store, _file, _history);
+            if (!merge && !_store.HasLoadedPresets && _store.Presets.Count == 0)
+                SeedDefaultPresets();
+
+            _pendingImportPackage = null;
+            IsImportConfirmOpen = false;
+            Rebuild();
+
+            var backupName = Path.GetFileName(result.BackupPath);
+            var modeText = merge ? "已按 ID 合并导入" : "已覆盖导入";
+            Notify($"{modeText}（原数据已备份为 {backupName}）");
+        }
+        catch (Exception ex)
+        {
+            Notify($"导入失败：{ex.Message}", highlight: true);
         }
     }
 
@@ -286,6 +830,8 @@ public sealed class MainViewModel : ObservableObject
 
     public MainViewModel()
     {
+        _webDavPasswordCache = Settings.GetWebDavPassword();
+        _mcpPortText = Settings.McpPort.ToString();
         Editor = new ScheduleEditorVM(this);
         PresetManager = new PresetManagerVM(this);
         GoalTreeEditor = new GoalTreeEditorVM(this);
@@ -315,6 +861,11 @@ public sealed class MainViewModel : ObservableObject
                 "长期目标，比如「学 Python」。任务是它的子项。目标和标签互不干扰：目标回答「为了什么」，标签回答「是什么」。"),
             new(PageKind.Eisenhower, "艾森豪威尔看板", "\uE80A",
                 "四象限看板。紧急和重要都靠你手动标记，把卡片拖进哪个格子就改哪个标记。"),
+            new(PageKind.Deadlines, "截止日期", "\uE73A",
+                "只设了截止日期的事件，以及设了截止日的目标和子目标，按日期分组查看。",
+                hasTopDivider: true),
+            new(PageKind.Future, "未来事项", "\uEA80",
+                "没有明确截止日期、只是将来要做的事，单独收纳在这里，不占「之后」档位。"),
             new(PageKind.Overdue, "逾期", "\uE823",
                 "已过截止日还没完成的日程都收在这里，勾选完成、移到今天，或双击细改。")
         };
@@ -334,6 +885,21 @@ public sealed class MainViewModel : ObservableObject
 
         LoadOrSeed();
         Rebuild();
+        _hasInitialized = true;
+
+        _autoSyncTimer.Tick += async (_, _) =>
+        {
+            _autoSyncTimer.Stop();
+            await SyncWebDavNowAsync(silent: true);
+        };
+        _periodicSyncTimer.Interval = TimeSpan.FromMinutes(5);
+        _periodicSyncTimer.Tick += async (_, _) => await SyncWebDavNowAsync(silent: true);
+
+        if (Settings.AutoSyncEnabled)
+        {
+            _periodicSyncTimer.Start();
+            ScheduleAutoSync(delaySeconds: 3);
+        }
     }
 
     public ObservableCollection<LaneVM> Lanes { get; }
@@ -362,6 +928,19 @@ public sealed class MainViewModel : ObservableObject
 
     public ObservableCollection<QuadrantVM> Quadrants { get; } = new();
 
+    public ObservableCollection<DeadlineDayGroupVM> DeadlineGroups { get; } = new();
+
+    public ObservableCollection<TaskVM> FutureTasks { get; } = new();
+
+    private int _deadlineCount;
+    public int DeadlineCount
+    {
+        get => _deadlineCount;
+        private set => Set(ref _deadlineCount, value);
+    }
+
+    public int FutureTaskCount => FutureTasks.Count;
+
     private string _goalInput = "";
     public string GoalInput
     {
@@ -381,6 +960,8 @@ public sealed class MainViewModel : ObservableObject
             OnPropertyChanged(nameof(IsGoals));
             OnPropertyChanged(nameof(IsTags));
             OnPropertyChanged(nameof(IsEisenhower));
+            OnPropertyChanged(nameof(IsDeadlines));
+            OnPropertyChanged(nameof(IsFuture));
             OnPropertyChanged(nameof(IsOverduePage));
             OnPropertyChanged(nameof(IsPlaceholder));
             OnPropertyChanged(nameof(CurrentTitle));
@@ -398,9 +979,13 @@ public sealed class MainViewModel : ObservableObject
 
     public bool IsEisenhower => SelectedNav.Kind == PageKind.Eisenhower;
 
+    public bool IsDeadlines => SelectedNav.Kind == PageKind.Deadlines;
+
+    public bool IsFuture => SelectedNav.Kind == PageKind.Future;
+
     public bool IsOverduePage => SelectedNav.Kind == PageKind.Overdue;
 
-    public bool IsPlaceholder => SelectedNav.Kind is not (PageKind.Overview or PageKind.Timeline or PageKind.Tags or PageKind.Goals or PageKind.Eisenhower or PageKind.Overdue);
+    public bool IsPlaceholder => SelectedNav.Kind is not (PageKind.Overview or PageKind.Timeline or PageKind.Tags or PageKind.Goals or PageKind.Eisenhower or PageKind.Deadlines or PageKind.Future or PageKind.Overdue);
 
     public string CurrentTitle => SelectedNav.Title;
 
@@ -456,15 +1041,16 @@ public sealed class MainViewModel : ObservableObject
         return today.AddDays(offset == 0 ? 7 : offset);
     }
 
-    private static LaneKind LaneFor(TaskVM t)
+    internal static LaneKind? LaneFor(TaskVM t)
     {
-        // 无日期任务并入「之后」的末尾（排序值最大时自然沉到最后）
-        if (t.Due is not { } due) return LaneKind.Later;
+        // 无日期任务只在「未来事项」页显示，不再进入概览的「之后」档位
+        if (t.Due is not { } due) return null;
 
         var today = DateTime.Today;
         var d = due.Date;
 
-        if (d < today) return t.Done ? LaneKind.Today : LaneKind.Overdue;
+        // 过去日期已完成的日程留作历史（视图时间轴与完成日志可见），不再混入「今天」
+        if (d < today) return t.Done ? null : LaneKind.Overdue;
         if (d == today) return LaneKind.Today;
         if (d == today.AddDays(1)) return LaneKind.Tomorrow;
         if (d <= EndOfWeek()) return LaneKind.ThisWeek;
@@ -492,7 +1078,10 @@ public sealed class MainViewModel : ObservableObject
         foreach (var lane in Lanes) lane.Items.Clear();
 
         foreach (var task in _all.OrderBy(t => t.Order))
-            LaneOfKind(LaneFor(task)).Items.Add(task);
+        {
+            if (LaneFor(task) is { } kind)
+                LaneOfKind(kind).Items.Add(task);
+        }
 
         SyncGoalGroups();
 
@@ -540,16 +1129,75 @@ public sealed class MainViewModel : ObservableObject
 
         NavItems.First(n => n.Kind == PageKind.Overdue).BadgeCount = OverdueLane.Count;
 
+        RebuildDeadlines();
+        RebuildFutureTasks();
+
         OnPropertyChanged(nameof(StatusLeft));
         OnPropertyChanged(nameof(StatusRight));
 
         _file.MarkDirty(_store);
+        if (_hasInitialized) ScheduleAutoSync();
 
         RebuildTimeline();
         if (IsTagDetailOpen) RebuildTagDetail();
 
         var (todayPending, overdueCount) = GetSummaryCounts();
         SummaryChanged?.Invoke(todayPending, overdueCount);
+    }
+
+    private void RebuildDeadlines()
+    {
+        var byDate = new SortedDictionary<DateTime, DeadlineDayGroupVM>();
+
+        DeadlineDayGroupVM GroupFor(DateTime date)
+        {
+            var key = date.Date;
+            if (!byDate.TryGetValue(key, out var group))
+            {
+                group = new DeadlineDayGroupVM(key);
+                byDate[key] = group;
+            }
+            return group;
+        }
+
+        foreach (var goal in Goals)
+        {
+            if (goal.IsCompleted) continue;
+
+            if (goal.Due is { } goalDue)
+                GroupFor(goalDue).Goals.Add(new DeadlineGoalItemVM(goal, node: null, goalDue));
+
+            foreach (var node in goal.Nodes)
+            {
+                if (!node.IsCompleted && node.Due is { } nodeDue)
+                    GroupFor(nodeDue).Goals.Add(new DeadlineGoalItemVM(goal, node, nodeDue));
+            }
+        }
+
+        foreach (var task in _all.OrderBy(t => t.Order))
+        {
+            if (task.Done || task.Due is not { } due || task.HasTime) continue;
+            GroupFor(due).Tasks.Add(task);
+        }
+
+        DeadlineGroups.Clear();
+        var total = 0;
+        foreach (var group in byDate.Values)
+        {
+            DeadlineGroups.Add(group);
+            total += group.TotalCount;
+        }
+
+        DeadlineCount = total;
+    }
+
+    private void RebuildFutureTasks()
+    {
+        FutureTasks.Clear();
+        foreach (var task in _all.Where(t => t.Due is null).OrderBy(t => t.Done).ThenBy(t => t.Order))
+            FutureTasks.Add(task);
+
+        OnPropertyChanged(nameof(FutureTaskCount));
     }
 
     private void SyncGoalGroups()
@@ -622,7 +1270,7 @@ public sealed class MainViewModel : ObservableObject
 
     public void Delete(TaskVM task)
     {
-        _all.Remove(task);
+        _store.RemoveSchedule(task);
         Rebuild();
         Notify($"已删除「{task.Title}」");
     }
@@ -640,6 +1288,16 @@ public sealed class MainViewModel : ObservableObject
                 ? "明天"
                 : $"{date:M月d日}";
         Notify($"已移到{label}");
+    }
+
+    public void MoveToFuture(TaskVM task)
+    {
+        task.Due = null;
+        task.StartTime = null;
+        task.EndTime = null;
+        Rebuild();
+        TaskTouched?.Invoke(task);
+        Notify("已移到「未来事项」");
     }
 
     public void CycleRepeat(TaskVM task)
@@ -660,6 +1318,7 @@ public sealed class MainViewModel : ObservableObject
 
         task.Remind = next;
         _file.MarkDirty(_store);
+        if (_hasInitialized) ScheduleAutoSync();
         TaskTouched?.Invoke(task);
     }
 
@@ -1365,6 +2024,8 @@ public sealed class MainViewModel : ObservableObject
     public void OnGoalStructureChanged(bool rebuildTimelineAndCards)
     {
         _file.MarkDirty(_store);
+        if (_hasInitialized) ScheduleAutoSync();
+        RebuildDeadlines();
         if (!rebuildTimelineAndCards) return;
 
         foreach (var task in _all) task.NotifyGoalDisplayChanged();
@@ -1443,6 +2104,20 @@ public sealed class MainViewModel : ObservableObject
         IsEditorOpen = true;
     }
 
+    /// <summary>截止日期页点击「新建」→ 弹窗新建仅设截止日期、不占具体时段的日程。</summary>
+    public void OpenNewDeadlineSchedule(DateTime? date = null)
+    {
+        Editor.OpenNewDeadline(date ?? DateTime.Today);
+        IsEditorOpen = true;
+    }
+
+    /// <summary>未来事项页点击「新建」→ 弹窗新建无日期的未来事项。</summary>
+    public void OpenNewFutureSchedule()
+    {
+        Editor.OpenNewFuture();
+        IsEditorOpen = true;
+    }
+
     public void OpenSchedule(TaskVM task)
     {
         Editor.OpenExisting(task);
@@ -1455,6 +2130,12 @@ public sealed class MainViewModel : ObservableObject
     public void RefreshEditorHint()
     {
         Editor.SetError("");
+
+        if (!Editor.HasDue || !Editor.HasTime)
+        {
+            Editor.SetHint("");
+            return;
+        }
 
         if (!Editor.TryReadTime(out var start, out var end))
         {
@@ -1481,14 +2162,21 @@ public sealed class MainViewModel : ObservableObject
 
     public void SaveEditor()
     {
-        if (!Editor.TryReadTime(out var start, out var end))
-        {
-            Editor.SetError("时间看不懂，写成 9:30 这样");
-            return;
-        }
+        var start = 0;
+        var duration = 0;
+        var free = 0;
 
-        var duration = Math.Max(1, end - start);
-        var free = FindFreeStart(Editor.Date, start, duration, Editor.Task);
+        if (Editor.HasDue && Editor.HasTime)
+        {
+            if (!Editor.TryReadTime(out start, out var end))
+            {
+                Editor.SetError("时间看不懂，写成 9:30 这样");
+                return;
+            }
+
+            duration = Math.Max(1, end - start);
+            free = FindFreeStart(Editor.Date, start, duration, Editor.Task);
+        }
 
         var title = (Editor.Title ?? "").Trim();
         if (title.Length == 0) title = "未命名";
@@ -1503,9 +2191,25 @@ public sealed class MainViewModel : ObservableObject
         task.IsUrgent = Editor.IsUrgent;
         task.IsImportant = Editor.IsImportant;
         task.SetGoalBindings(Editor.SelectedGoalBindings);
-        task.Due = Editor.Date.Date;
-        task.StartTime = TimeSpan.FromMinutes(free);
-        task.EndTime = TimeSpan.FromMinutes(free + duration);
+
+        if (!Editor.HasDue)
+        {
+            task.Due = null;
+            task.StartTime = null;
+            task.EndTime = null;
+        }
+        else if (!Editor.HasTime)
+        {
+            task.Due = Editor.Date.Date;
+            task.StartTime = null;
+            task.EndTime = null;
+        }
+        else
+        {
+            task.Due = Editor.Date.Date;
+            task.StartTime = TimeSpan.FromMinutes(free);
+            task.EndTime = TimeSpan.FromMinutes(free + duration);
+        }
 
         task.Tags.Clear();
         foreach (var tag in ResolveSelectedTags(Editor.SelectedTagPicks)) task.Tags.Add(tag);
@@ -1514,7 +2218,7 @@ public sealed class MainViewModel : ObservableObject
         Rebuild();
         TaskTouched?.Invoke(task);
 
-        if (free != start)
+        if (Editor.HasDue && Editor.HasTime && free != start)
             Notify($"已避开冲突，保存至 {Clock(free)}–{Clock(free + duration)}", highlight: true);
         else
             Notify(isNew ? $"已创建「{title}」" : $"已保存「{title}」");
@@ -1632,6 +2336,7 @@ public sealed class MainViewModel : ObservableObject
 
         _store.RemovePreset(preset);
         _file.MarkDirty(_store);
+        if (_hasInitialized) ScheduleAutoSync();
         Notify($"已删除快捷卡片「{preset.DisplayTitle}」");
     }
 
@@ -1713,7 +2418,7 @@ public sealed class MainViewModel : ObservableObject
         foreach (var preset in _store.Presets.Where(p => p.HasGoalRef(goal)))
             preset.SetGoalBindings(preset.GoalBindings.Where(b => !ReferenceEquals(b.Goal, goal)));
 
-        Goals.Remove(goal);
+        _store.RemoveGoal(goal);
         Rebuild();
         Notify($"已删除目标「{goal.Title}」");
     }

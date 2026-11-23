@@ -32,6 +32,10 @@ public sealed class SchedulePresetVM : ObservableObject
         set { if (!string.IsNullOrWhiteSpace(value)) _id = value; }
     }
 
+    /// <summary>混合逻辑时钟与字段级时间戳（仅同步使用，UI 不展示）。</summary>
+    public string Hlc { get; set; } = "";
+    public Dictionary<string, string> FieldHlcs { get; set; } = new(StringComparer.Ordinal);
+
     public string Title
     {
         get => _title;

@@ -19,6 +19,10 @@ public sealed class TagVM : ObservableObject
 
     public string Id { get; }
 
+    /// <summary>混合逻辑时钟与字段级时间戳（仅同步使用，UI 不展示）。</summary>
+    public string Hlc { get; set; } = "";
+    public Dictionary<string, string> FieldHlcs { get; set; } = new(StringComparer.Ordinal);
+
     /// <summary>强调色。标签在卡片上就是一个色点 + 文字，一眼能分堆。</summary>
     public Brush Color { get; set; } = Brushes.Transparent;
 

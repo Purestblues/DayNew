@@ -21,9 +21,11 @@ public partial class MainWindow : Window
     private readonly MainViewModel _vm = new();
     private readonly TrayService _tray;
     private readonly NotificationService _notifications;
+    private readonly McpServerService _mcpServer;
     private bool _allowExit;
     private bool _hasCentered;
     private bool _cleanedUp;
+    private bool _syncingPasswordBox;
 
     private Point _pressPoint;
     private TaskVM? _pressedTask;
@@ -167,6 +169,10 @@ public partial class MainWindow : Window
                 if (_vm.CompleteTaskById(id)) _vm.FlushSave();
             });
 
+        _mcpServer = new McpServerService(_vm, Dispatcher);
+        _vm.AttachMcpServer(_mcpServer);
+        _mcpServer.StartOrRestart();
+
         var (todayPending, overdueCount) = _vm.GetSummaryCounts();
         _tray.UpdateTooltip(todayPending, overdueCount);
 
@@ -243,8 +249,14 @@ public partial class MainWindow : Window
             AnimateModalVisibility(EditorLayer, EditorScrim, EditorDialog, EditorScale, EditorShift,
                 _vm.IsEditorOpen, () => _vm.IsEditorOpen);
         else if (e.PropertyName == nameof(MainViewModel.IsSettingsOpen))
+        {
+            if (_vm.IsSettingsOpen) SyncWebDavPasswordBox();
             AnimateModalVisibility(SettingsLayer, SettingsScrim, SettingsDialog, SettingsScale, SettingsShift,
                 _vm.IsSettingsOpen, () => _vm.IsSettingsOpen);
+        }
+        else if (e.PropertyName == nameof(MainViewModel.IsImportConfirmOpen))
+            AnimateModalVisibility(ImportConfirmLayer, ImportConfirmScrim, ImportConfirmDialog, ImportConfirmScale, ImportConfirmShift,
+                _vm.IsImportConfirmOpen, () => _vm.IsImportConfirmOpen);
         else if (e.PropertyName == nameof(MainViewModel.IsPresetManagerOpen))
             AnimateModalVisibility(PresetManagerLayer, PresetManagerScrim, PresetManagerDialog, PresetManagerScale, PresetManagerShift,
                 _vm.IsPresetManagerOpen, () => _vm.IsPresetManagerOpen);
@@ -331,7 +343,7 @@ public partial class MainWindow : Window
 
     private bool HandleHorizontalWheel(int delta)
     {
-        if (_vm.DeadlinePicker.IsOpen || _vm.IsGoalPickerOpen || _vm.IsGoalTreeEditorOpen || _vm.IsEditorOpen || _vm.IsSettingsOpen || _vm.IsPresetManagerOpen) return false;
+        if (_vm.DeadlinePicker.IsOpen || _vm.IsGoalPickerOpen || _vm.IsGoalTreeEditorOpen || _vm.IsEditorOpen || _vm.IsImportConfirmOpen || _vm.IsSettingsOpen || _vm.IsPresetManagerOpen) return false;
 
         var pos = Mouse.GetPosition(this);
         ScrollViewer? target = null;
@@ -487,6 +499,7 @@ public partial class MainWindow : Window
         _vm.DeadlinePicker.Close();
         _vm.CloseGoalPicker();
         _vm.CloseGoalTreeEditor();
+        _vm.CancelImportConfirm();
         _vm.CloseSettings();
         _vm.ClosePresetManager();
         _vm.CloseTagDetail();
@@ -513,6 +526,8 @@ public partial class MainWindow : Window
         if (_cleanedUp) return;
         _cleanedUp = true;
         _nowLineTimer.Stop();
+        _vm.StopBackgroundTimers();
+        _mcpServer.Dispose();
         _vm.FlushSave();
         _notifications.Dispose();
         _tray.Dispose();
@@ -530,6 +545,114 @@ public partial class MainWindow : Window
 
     private void SettingsDefaultRemind_Click(object sender, RoutedEventArgs e)
         => HandleRemindChipClick(sender, _vm.ToggleDefaultRemindNode);
+
+    private void ExportData_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new Microsoft.Win32.SaveFileDialog
+        {
+            Title = "导出全部数据",
+            DefaultExt = ".daynew.zip",
+            AddExtension = true,
+            Filter = "日新备份包 (*.daynew.zip)|*.daynew.zip|ZIP 压缩包 (*.zip)|*.zip",
+            FileName = $"DayNew-备份-{DateTime.Now:yyyyMMdd}.daynew.zip"
+        };
+
+        if (dialog.ShowDialog(this) == true)
+            _vm.ExportAllData(dialog.FileName);
+    }
+
+    private void ImportData_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = "选择要导入的备份包或数据文件",
+            Filter = "日新备份包或数据文件 (*.daynew.zip;*.zip;*.json)|*.daynew.zip;*.zip;*.json|所有文件 (*.*)|*.*"
+        };
+
+        if (dialog.ShowDialog(this) == true)
+            _vm.BeginImportData(dialog.FileName);
+    }
+
+    private void ImportConfirmScrim_Click(object sender, MouseButtonEventArgs e) => _vm.CancelImportConfirm();
+
+    private void ImportConfirmCancel_Click(object sender, RoutedEventArgs e) => _vm.CancelImportConfirm();
+
+    private void ImportConfirmMerge_Click(object sender, RoutedEventArgs e) => _vm.ConfirmImportMerge();
+
+    private void ImportConfirmOverwrite_Click(object sender, RoutedEventArgs e) => _vm.ConfirmImportOverwrite();
+
+    private void SyncWebDavPasswordBox()
+    {
+        if (WebDavPasswordBox.Password == _vm.WebDavPassword) return;
+        _syncingPasswordBox = true;
+        try
+        {
+            WebDavPasswordBox.Password = _vm.WebDavPassword;
+        }
+        finally
+        {
+            _syncingPasswordBox = false;
+        }
+    }
+
+    private void WebDavPasswordBox_PasswordChanged(object sender, RoutedEventArgs e)
+    {
+        if (_syncingPasswordBox) return;
+        _vm.WebDavPassword = WebDavPasswordBox.Password;
+    }
+
+    private async void WebDavTest_Click(object sender, RoutedEventArgs e) => await _vm.TestWebDavConnectionAsync();
+
+    private async void WebDavUpload_Click(object sender, RoutedEventArgs e) => await _vm.UploadWebDavBackupAsync();
+
+    private async void WebDavRestore_Click(object sender, RoutedEventArgs e) => await _vm.DownloadWebDavBackupAsync();
+
+    private async void WebDavSyncNow_Click(object sender, RoutedEventArgs e) => await _vm.SyncWebDavNowAsync();
+
+    private void McpApplyPort_Click(object sender, RoutedEventArgs e) => _vm.ApplyMcpPort();
+
+    private void McpToggleReveal_Click(object sender, RoutedEventArgs e) => _vm.ToggleMcpTokenReveal();
+
+    private void McpCopyToken_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            Clipboard.SetText(_vm.GetMcpTokenPlain());
+            ShowToast("已复制 MCP Bearer Token", highlight: false);
+        }
+        catch
+        {
+            ShowToast("复制失败，请手动复制", highlight: true);
+        }
+    }
+
+    private void McpRegenerateToken_Click(object sender, RoutedEventArgs e) => _vm.RegenerateMcpToken();
+
+    private void McpCopyJson_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            Clipboard.SetText(_vm.BuildMcpJsonConfig());
+            ShowToast("已复制 MCP JSON 配置片段", highlight: false);
+        }
+        catch
+        {
+            ShowToast("复制失败，请手动复制", highlight: true);
+        }
+    }
+
+    private void McpCopyPrompt_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            Clipboard.SetText(_vm.BuildMcpInstallPrompt());
+            ShowToast("已复制安装提示词（HTTP 优先、STDIO 回退）", highlight: false);
+        }
+        catch
+        {
+            ShowToast("复制失败，请手动复制", highlight: true);
+        }
+    }
 
     // ==================== 卡片内操作 ====================
 
@@ -642,6 +765,33 @@ public partial class MainWindow : Window
     private void MenuMoveTomorrow_Click(object sender, RoutedEventArgs e)
     {
         if (MenuTask(sender) is { } task) _vm.MoveToDay(task, DateTime.Today.AddDays(1));
+    }
+
+    private void MenuMoveFuture_Click(object sender, RoutedEventArgs e)
+    {
+        if (MenuTask(sender) is { } task) _vm.MoveToFuture(task);
+    }
+
+    private void AddDeadline_Click(object sender, RoutedEventArgs e)
+    {
+        _vm.CollapseAll();
+        _vm.OpenNewDeadlineSchedule();
+        FocusEditorTitle();
+    }
+
+    private void AddFuture_Click(object sender, RoutedEventArgs e)
+    {
+        _vm.CollapseAll();
+        _vm.OpenNewFutureSchedule();
+        FocusEditorTitle();
+    }
+
+    private void DeadlineGoal_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: DeadlineGoalItemVM item }) return;
+        _vm.OpenGoalTreeEditor(item.Goal);
+        if (item.Node is { } node)
+            _vm.GoalTreeEditor.SelectNodeOnly(node);
     }
 
     private void MenuDelete_Click(object sender, RoutedEventArgs e)
@@ -1103,7 +1253,7 @@ public partial class MainWindow : Window
 
     private void PageTimeline_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
     {
-        if (_vm.IsEditorOpen || _vm.IsSettingsOpen || _vm.IsPresetManagerOpen) return;
+        if (_vm.IsEditorOpen || _vm.IsImportConfirmOpen || _vm.IsSettingsOpen || _vm.IsPresetManagerOpen) return;
 
         StopScrollAnimation();
 
@@ -1370,6 +1520,13 @@ public partial class MainWindow : Window
                 return;
             }
 
+            if (_vm.IsImportConfirmOpen)
+            {
+                _vm.CancelImportConfirm();
+                e.Handled = true;
+                return;
+            }
+
             if (_vm.IsSettingsOpen)
             {
                 _vm.CloseSettings();
@@ -1410,7 +1567,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var modalBlocksGlobal = _vm.DeadlinePicker.IsOpen || _vm.IsEditorOpen || _vm.IsSettingsOpen || _vm.IsPresetManagerOpen || _vm.IsTagDetailOpen;
+        var modalBlocksGlobal = _vm.DeadlinePicker.IsOpen || _vm.IsEditorOpen || _vm.IsImportConfirmOpen || _vm.IsSettingsOpen || _vm.IsPresetManagerOpen || _vm.IsTagDetailOpen;
         var canSpacePan = (!_vm.DeadlinePicker.IsOpen && (_vm.IsGoalPickerOpen || _vm.IsGoalTreeEditorOpen || (!modalBlocksGlobal && (_vm.IsTimeline || _vm.IsGoals))))
                           && Keyboard.FocusedElement is not TextBoxBase;
 
@@ -1475,7 +1632,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (_vm.IsEditorOpen || _vm.IsSettingsOpen || _vm.IsPresetManagerOpen || _vm.IsTagDetailOpen || _vm.IsGoalPickerOpen || _vm.IsGoalTreeEditorOpen)
+        if (_vm.IsEditorOpen || _vm.IsImportConfirmOpen || _vm.IsSettingsOpen || _vm.IsPresetManagerOpen || _vm.IsTagDetailOpen || _vm.IsGoalPickerOpen || _vm.IsGoalTreeEditorOpen)
             return;
 
         if (_vm.IsGoals && FindAncestorTag(src, "goalcanvas") is FrameworkElement { DataContext: GoalVM goalCard } && !IsInteractive(src))
@@ -1730,7 +1887,7 @@ public partial class MainWindow : Window
         }
 
         // 弹窗开着时，底下的东西一概不接鼠标
-        if (_vm.IsEditorOpen || _vm.IsSettingsOpen || _vm.IsPresetManagerOpen) return;
+        if (_vm.IsEditorOpen || _vm.IsImportConfirmOpen || _vm.IsSettingsOpen || _vm.IsPresetManagerOpen) return;
 
         if (IsInteractive(src))
         {
@@ -3517,6 +3674,8 @@ public partial class MainWindow : Window
             PageKind.Goals => PageGoals,
             PageKind.Tags => PageTags,
             PageKind.Eisenhower => PageEisenhower,
+            PageKind.Deadlines => PageDeadlines,
+            PageKind.Future => PageFuture,
             PageKind.Overdue => PageOverdue,
             _ => PagePlaceholder
         };
@@ -3585,6 +3744,12 @@ public partial class MainWindow : Window
 
     private void ShowToast(string message, bool highlight)
     {
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.BeginInvoke(() => ShowToast(message, highlight));
+            return;
+        }
+
         _toastSeq++;
         _toastTimer.Stop();
 
@@ -3626,6 +3791,10 @@ public partial class MainWindow : Window
                 target = FindDescendant<Border>(TagDetailDaysHost, b => Equals(b.Tag, "tagtaskcard") && ReferenceEquals(b.DataContext, task));
             else if (_vm.IsOverview)
                 target = FindDescendant<Border>(LanesHost, b => Equals(b.Tag, "card") && ReferenceEquals(b.DataContext, task));
+            else if (_vm.IsDeadlines)
+                target = FindDescendant<Border>(DeadlinesHost, b => Equals(b.Tag, "card") && ReferenceEquals(b.DataContext, task));
+            else if (_vm.IsFuture)
+                target = FindDescendant<Border>(FutureHost, b => Equals(b.Tag, "card") && ReferenceEquals(b.DataContext, task));
             else if (_vm.IsOverduePage)
                 target = FindDescendant<Border>(OverdueHost, b => Equals(b.Tag, "card") && ReferenceEquals(b.DataContext, task));
             else if (_vm.IsEisenhower)

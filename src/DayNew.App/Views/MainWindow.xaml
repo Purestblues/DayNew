@@ -84,6 +84,7 @@
                         <MenuItem Header="标记完成 / 取消" Click="MenuToggleDone_Click"/>
                         <MenuItem Header="移到今天" Click="MenuMoveToday_Click"/>
                         <MenuItem Header="移到明天" Click="MenuMoveTomorrow_Click"/>
+                        <MenuItem Header="移到未来事项" Click="MenuMoveFuture_Click"/>
                         <Separator/>
                         <MenuItem Header="删除" Click="MenuDelete_Click"/>
                     </ContextMenu>
@@ -1898,6 +1899,211 @@
                         </ItemsControl>
                     </Grid>
 
+                    <!-- 截止日期页：按天分组展示仅设截止日的日程 + 设了截止日的目标/子目标 -->
+                    <Grid x:Name="PageDeadlines" Margin="24,14,24,0"
+                          Visibility="{Binding IsDeadlines, Converter={StaticResource BoolToVisible}}">
+                        <Grid.RenderTransform>
+                            <TranslateTransform/>
+                        </Grid.RenderTransform>
+                        <DockPanel>
+                            <Grid DockPanel.Dock="Top" Margin="0,0,0,14">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="截止日期" FontSize="16" FontWeight="SemiBold"
+                                                   VerticalAlignment="Center"/>
+                                        <TextBlock Text="{Binding DeadlineCount}" Style="{StaticResource Eyebrow}"
+                                                   Foreground="{DynamicResource TextTertiary}"
+                                                   VerticalAlignment="Center" Margin="8,2,0,0"/>
+                                    </StackPanel>
+                                    <TextBlock Text="只设了截止日、不占具体时段的日程，以及设了截止日的目标与子目标，按日期分组。"
+                                               Style="{StaticResource Caption}" Margin="0,4,0,0"/>
+                                </StackPanel>
+                                <Button x:Name="AddDeadlineButton" Grid.Column="1"
+                                        Style="{StaticResource PrimaryButton}" Padding="12,6"
+                                        VerticalAlignment="Top"
+                                        AutomationProperties.Name="新建截止事项"
+                                        AutomationProperties.AutomationId="AddDeadlineButton"
+                                        Click="AddDeadline_Click">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="&#xE710;" FontFamily="{StaticResource IconFont}"
+                                                   FontSize="10.5" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                        <TextBlock Text="新建" FontSize="12.5" FontWeight="SemiBold"
+                                                   VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+                            </Grid>
+
+                            <Grid>
+                                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                    <ItemsControl x:Name="DeadlinesHost" ItemsSource="{Binding DeadlineGroups}"
+                                                  Margin="0,0,0,16">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate DataType="{x:Type vm:DeadlineDayGroupVM}">
+                                                <StackPanel Margin="0,0,0,18">
+                                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                                        <TextBlock x:Name="groupHeader" Text="{Binding HeaderText}"
+                                                                   FontSize="13.5" FontWeight="SemiBold"
+                                                                   Foreground="{DynamicResource TextPrimary}"
+                                                                   VerticalAlignment="Center"/>
+                                                        <TextBlock Text="{Binding TotalCount}" Style="{StaticResource Eyebrow}"
+                                                                   Foreground="{DynamicResource TextTertiary}"
+                                                                   VerticalAlignment="Center" Margin="8,2,0,0"/>
+                                                    </StackPanel>
+
+                                                    <ItemsControl ItemsSource="{Binding Goals}"
+                                                                  Margin="0,0,0,8"
+                                                                  Visibility="{Binding HasGoals, Converter={StaticResource BoolToVisible}}">
+                                                        <ItemsControl.ItemsPanel>
+                                                            <ItemsPanelTemplate>
+                                                                <core:ResponsiveGridPanel MinColumnWidth="252" ColumnGap="12" RowGap="8"/>
+                                                            </ItemsPanelTemplate>
+                                                        </ItemsControl.ItemsPanel>
+                                                        <ItemsControl.ItemTemplate>
+                                                            <DataTemplate DataType="{x:Type vm:DeadlineGoalItemVM}">
+                                                                <Button Style="{StaticResource DeadlineGoalCardButton}"
+                                                                        Tag="{Binding}"
+                                                                        ToolTip="点击打开目标树编辑"
+                                                                        AutomationProperties.Name="{Binding Title}"
+                                                                        Click="DeadlineGoal_Click">
+                                                                    <Grid>
+                                                                        <Grid.ColumnDefinitions>
+                                                                            <ColumnDefinition Width="Auto"/>
+                                                                            <ColumnDefinition Width="*"/>
+                                                                            <ColumnDefinition Width="Auto"/>
+                                                                            <ColumnDefinition Width="Auto"/>
+                                                                        </Grid.ColumnDefinitions>
+                                                                        <Ellipse Width="7" Height="7" Fill="{Binding Color}"
+                                                                                 VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                                                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                                                            <TextBlock Text="{Binding Title}" FontSize="13" FontWeight="SemiBold"
+                                                                                       Foreground="{DynamicResource TextPrimary}"
+                                                                                       TextTrimming="CharacterEllipsis"/>
+                                                                            <TextBlock Text="{Binding SubLabel}" Style="{StaticResource Caption}"
+                                                                                       Margin="0,1,0,0" TextTrimming="CharacterEllipsis"/>
+                                                                        </StackPanel>
+                                                                        <Border Grid.Column="2" Background="{DynamicResource Surface3}"
+                                                                                CornerRadius="4" Padding="6,2" Margin="8,0,0,0"
+                                                                                VerticalAlignment="Center"
+                                                                                Visibility="{Binding HasProgress, Converter={StaticResource BoolToVisible}}">
+                                                                            <TextBlock Text="{Binding ProgressText}" FontSize="11" FontWeight="Medium"
+                                                                                       Foreground="{DynamicResource TextSecondary}"
+                                                                                       Typography.NumeralAlignment="Tabular"/>
+                                                                        </Border>
+                                                                        <TextBlock Grid.Column="3" Text="&#xE76C;"
+                                                                                   FontFamily="{StaticResource IconFont}" FontSize="10"
+                                                                                   Foreground="{DynamicResource TextDisabled}"
+                                                                                   VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                                                    </Grid>
+                                                                </Button>
+                                                            </DataTemplate>
+                                                        </ItemsControl.ItemTemplate>
+                                                    </ItemsControl>
+
+                                                    <ItemsControl ItemsSource="{Binding Tasks}"
+                                                                  ItemTemplate="{StaticResource TaskCardTemplate}"
+                                                                  Visibility="{Binding HasTasks, Converter={StaticResource BoolToVisible}}">
+                                                        <ItemsControl.ItemsPanel>
+                                                            <ItemsPanelTemplate>
+                                                                <core:ResponsiveGridPanel MinColumnWidth="252" ColumnGap="12" RowGap="4"/>
+                                                            </ItemsPanelTemplate>
+                                                        </ItemsControl.ItemsPanel>
+                                                    </ItemsControl>
+                                                </StackPanel>
+                                                <DataTemplate.Triggers>
+                                                    <DataTrigger Binding="{Binding IsToday}" Value="True">
+                                                        <Setter TargetName="groupHeader" Property="Foreground" Value="{DynamicResource Accent}"/>
+                                                    </DataTrigger>
+                                                    <DataTrigger Binding="{Binding IsOverdue}" Value="True">
+                                                        <Setter TargetName="groupHeader" Property="Foreground" Value="{DynamicResource Danger}"/>
+                                                    </DataTrigger>
+                                                </DataTemplate.Triggers>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </ScrollViewer>
+
+                                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center"
+                                            IsHitTestVisible="False"
+                                            Visibility="{Binding DeadlineCount, Converter={StaticResource ZeroToVisible}}">
+                                    <TextBlock Text="没有待办截止事项" FontSize="15" FontWeight="SemiBold"
+                                               HorizontalAlignment="Center"
+                                               Foreground="{DynamicResource TextSecondary}"/>
+                                    <TextBlock Text="只设截止日不占时段的日程，以及设了截止日的目标会收在这里"
+                                               Style="{StaticResource Caption}"
+                                               HorizontalAlignment="Center" Margin="0,6,0,0"/>
+                                </StackPanel>
+                            </Grid>
+                        </DockPanel>
+                    </Grid>
+
+                    <!-- 未来事项页：无明确截止日期、只是将来要做的事情 -->
+                    <Grid x:Name="PageFuture" Margin="24,14,24,0"
+                          Visibility="{Binding IsFuture, Converter={StaticResource BoolToVisible}}">
+                        <Grid.RenderTransform>
+                            <TranslateTransform/>
+                        </Grid.RenderTransform>
+                        <DockPanel>
+                            <Grid DockPanel.Dock="Top" Margin="0,0,0,14">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="未来事项" FontSize="16" FontWeight="SemiBold"
+                                                   VerticalAlignment="Center"/>
+                                        <TextBlock Text="{Binding FutureTaskCount}" Style="{StaticResource Eyebrow}"
+                                                   Foreground="{DynamicResource TextTertiary}"
+                                                   VerticalAlignment="Center" Margin="8,2,0,0"/>
+                                    </StackPanel>
+                                    <TextBlock Text="暂时没有明确日期、将来要做的事；确定时间后可右键移到今天/明天，或双击设定日期。"
+                                               Style="{StaticResource Caption}" Margin="0,4,0,0"/>
+                                </StackPanel>
+                                <Button x:Name="AddFutureButton" Grid.Column="1"
+                                        Style="{StaticResource PrimaryButton}" Padding="12,6"
+                                        VerticalAlignment="Top"
+                                        AutomationProperties.Name="新建未来事项"
+                                        AutomationProperties.AutomationId="AddFutureButton"
+                                        Click="AddFuture_Click">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="&#xE710;" FontFamily="{StaticResource IconFont}"
+                                                   FontSize="10.5" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                        <TextBlock Text="新建" FontSize="12.5" FontWeight="SemiBold"
+                                                   VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+                            </Grid>
+
+                            <Grid>
+                                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                    <ItemsControl x:Name="FutureHost" ItemsSource="{Binding FutureTasks}"
+                                                  ItemTemplate="{StaticResource TaskCardTemplate}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <core:ResponsiveGridPanel MinColumnWidth="252" ColumnGap="12" RowGap="4"/>
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                    </ItemsControl>
+                                </ScrollViewer>
+
+                                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center"
+                                            IsHitTestVisible="False"
+                                            Visibility="{Binding FutureTaskCount, Converter={StaticResource ZeroToVisible}}">
+                                    <TextBlock Text="还没有未来事项" FontSize="15" FontWeight="SemiBold"
+                                               HorizontalAlignment="Center"
+                                               Foreground="{DynamicResource TextSecondary}"/>
+                                    <TextBlock Text="把暂时没定日期的想法收在这里，不会稀释「之后」档位"
+                                               Style="{StaticResource Caption}"
+                                               HorizontalAlignment="Center" Margin="0,6,0,0"/>
+                                </StackPanel>
+                            </Grid>
+                        </DockPanel>
+                    </Grid>
+
                     <!-- 逾期页：网格卡片，窗口越宽列越多 -->
                     <Grid x:Name="PageOverdue" Margin="24,14,24,0"
                           Visibility="{Binding IsOverduePage, Converter={StaticResource BoolToVisible}}">
@@ -2258,38 +2464,73 @@
                                     <ColumnDefinition Width="*"/>
                                 </Grid.ColumnDefinitions>
                                 <TextBlock Text="日期" Style="{StaticResource EditorLabel}"/>
-                                <StackPanel Grid.Column="1" Orientation="Horizontal">
-                                    <Button Style="{StaticResource GhostButton}" Content="&#xE76B;"
-                                            FontFamily="{StaticResource IconFont}" FontSize="10.5"
-                                            Padding="7,5" ToolTip="前一天" AutomationProperties.Name="前一天"
-                                            Click="EditorPrevDay_Click"/>
-                                    <TextBlock Text="{Binding Editor.DateText}" FontSize="13" FontWeight="Medium"
-                                               VerticalAlignment="Center" Margin="8,0"/>
-                                    <Button Style="{StaticResource GhostButton}" Content="&#xE76C;"
-                                            FontFamily="{StaticResource IconFont}" FontSize="10.5"
-                                            Padding="7,5" ToolTip="后一天" AutomationProperties.Name="后一天"
-                                            Click="EditorNextDay_Click"/>
-                                </StackPanel>
+                                <Grid Grid.Column="1">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                        <ToggleButton x:Name="EditorHasDueToggle" Style="{StaticResource SwitchToggle}"
+                                                      AutomationProperties.Name="指定日期"
+                                                      AutomationProperties.AutomationId="EditorHasDueToggle"
+                                                      IsChecked="{Binding Editor.HasDue, Mode=TwoWay}"/>
+                                        <TextBlock Text="不定日期" FontSize="12.5" FontWeight="Medium"
+                                                   Foreground="{DynamicResource TextTertiary}"
+                                                   VerticalAlignment="Center" Margin="10,0,0,0"
+                                                   Visibility="{Binding Editor.HasDue, Converter={StaticResource BoolToVisible}, ConverterParameter=invert}"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="12,0,0,0"
+                                                VerticalAlignment="Center"
+                                                Visibility="{Binding Editor.HasDue, Converter={StaticResource BoolToVisible}}">
+                                        <Button Style="{StaticResource GhostButton}" Content="&#xE76B;"
+                                                FontFamily="{StaticResource IconFont}" FontSize="10.5"
+                                                Padding="7,5" ToolTip="前一天" AutomationProperties.Name="前一天"
+                                                Click="EditorPrevDay_Click"/>
+                                        <TextBlock Text="{Binding Editor.DateText}" FontSize="13" FontWeight="Medium"
+                                                   VerticalAlignment="Center" Margin="8,0"/>
+                                        <Button Style="{StaticResource GhostButton}" Content="&#xE76C;"
+                                                FontFamily="{StaticResource IconFont}" FontSize="10.5"
+                                                Padding="7,5" ToolTip="后一天" AutomationProperties.Name="后一天"
+                                                Click="EditorNextDay_Click"/>
+                                    </StackPanel>
+                                </Grid>
                             </Grid>
 
                             <!-- 起止时间 -->
                             <Grid Margin="0,10,0,0">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="58"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="*"/>
                                 </Grid.ColumnDefinitions>
                                 <TextBlock Text="时间" Style="{StaticResource EditorLabel}"/>
-                                <TextBox Grid.Column="1" Style="{StaticResource SubtleInput}" Width="88" Height="34"
-                                         HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
-                                         Text="{Binding Editor.StartText, UpdateSourceTrigger=PropertyChanged}"/>
-                                <TextBlock Grid.Column="2" Text="–" Margin="8,0" VerticalAlignment="Center"
-                                           Foreground="{DynamicResource TextTertiary}"/>
-                                <TextBox Grid.Column="3" Style="{StaticResource SubtleInput}" Width="88" Height="34"
-                                         HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
-                                         Text="{Binding Editor.EndText, UpdateSourceTrigger=PropertyChanged}"/>
+                                <Grid Grid.Column="1">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                        <ToggleButton x:Name="EditorHasTimeToggle" Style="{StaticResource SwitchToggle}"
+                                                      AutomationProperties.Name="指定时间"
+                                                      AutomationProperties.AutomationId="EditorHasTimeToggle"
+                                                      IsChecked="{Binding Editor.HasTime, Mode=TwoWay}"/>
+                                        <TextBlock Text="不占具体时段" FontSize="12.5" FontWeight="Medium"
+                                                   Foreground="{DynamicResource TextTertiary}"
+                                                   VerticalAlignment="Center" Margin="10,0,0,0"
+                                                   Visibility="{Binding Editor.HasTime, Converter={StaticResource BoolToVisible}, ConverterParameter=invert}"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="12,0,0,0"
+                                                VerticalAlignment="Center"
+                                                Visibility="{Binding Editor.HasTime, Converter={StaticResource BoolToVisible}}">
+                                        <TextBox Style="{StaticResource SubtleInput}" Width="88" Height="34"
+                                                 HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                                                 Text="{Binding Editor.StartText, UpdateSourceTrigger=PropertyChanged}"/>
+                                        <TextBlock Text="–" Margin="8,0" VerticalAlignment="Center"
+                                                   Foreground="{DynamicResource TextTertiary}"/>
+                                        <TextBox Style="{StaticResource SubtleInput}" Width="88" Height="34"
+                                                 HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                                                 Text="{Binding Editor.EndText, UpdateSourceTrigger=PropertyChanged}"/>
+                                    </StackPanel>
+                                </Grid>
                             </Grid>
 
                             <!-- 冲突提示：边打字边算 -->
@@ -2418,7 +2659,8 @@
                             </Grid>
 
                             <!-- 提醒 -->
-                            <Grid Margin="0,12,0,0">
+                            <Grid Margin="0,12,0,0"
+                                  Visibility="{Binding Editor.HasTime, Converter={StaticResource BoolToVisible}}">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="58"/>
                                     <ColumnDefinition Width="*"/>
@@ -2621,7 +2863,7 @@
 
                             <Border Background="{DynamicResource Surface3}" CornerRadius="8"
                                     BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="1"
-                                    Padding="14,12">
+                                    Padding="14,12" Margin="0,0,0,10">
                                 <StackPanel>
                                     <TextBlock Text="新建日程默认提醒" FontSize="13.5" FontWeight="SemiBold"/>
                                     <TextBlock Text="在时间轴拖出日程或新增快捷卡片时默认勾选的提醒节点"
@@ -2648,6 +2890,249 @@
                                                       IsChecked="{Binding IsDefaultRemindEnd, Mode=OneWay}"
                                                       Click="SettingsDefaultRemind_Click"/>
                                     </WrapPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Background="{DynamicResource Surface3}" CornerRadius="8"
+                                    BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="1"
+                                    Padding="14,12" Margin="0,0,0,10">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Margin="0,0,12,0">
+                                        <TextBlock Text="数据备份与迁移" FontSize="13.5" FontWeight="SemiBold"/>
+                                        <TextBlock Text="一键导出全部日程、目标、标签、预设与完成记录（.daynew.zip）；导入前会自动备份当前数据"
+                                                   Style="{StaticResource Caption}" Margin="0,3,0,0" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                        <Button Style="{StaticResource GhostButton}" Content="导出数据"
+                                                Background="{DynamicResource Surface2}"
+                                                Padding="10,5" Margin="0,0,6,0"
+                                                AutomationProperties.Name="导出数据"
+                                                AutomationProperties.AutomationId="ExportDataButton"
+                                                Click="ExportData_Click"/>
+                                        <Button Style="{StaticResource GhostButton}" Content="导入数据"
+                                                Background="{DynamicResource Surface2}"
+                                                Padding="10,5"
+                                                AutomationProperties.Name="导入数据"
+                                                AutomationProperties.AutomationId="ImportDataButton"
+                                                Click="ImportData_Click"/>
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+
+                            <Border Background="{DynamicResource Surface3}" CornerRadius="8"
+                                    BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="1"
+                                    Padding="14,12" Margin="0,0,0,10">
+                                <StackPanel>
+                                    <Grid>
+                                        <TextBlock Text="WebDAV 多端同步与备份" FontSize="13.5" FontWeight="SemiBold"
+                                                   VerticalAlignment="Center"/>
+                                        <TextBlock Text="{Binding WebDavStatusText}" Style="{StaticResource Caption}"
+                                                   HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                                    </Grid>
+                                    <TextBlock Text="兼容坚果云 WebDAV；应用专属密码经 Windows DPAPI 加密存于本机"
+                                               Style="{StaticResource Caption}" Margin="0,3,0,10" TextWrapping="Wrap"/>
+
+                                    <Grid Margin="0,0,0,7">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="46"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="地址" Style="{StaticResource EditorLabel}" Margin="0" VerticalAlignment="Center"/>
+                                        <TextBox Grid.Column="1" Style="{StaticResource SubtleInput}"
+                                                 Background="{DynamicResource Surface2}"
+                                                 Height="30" VerticalContentAlignment="Center"
+                                                 AutomationProperties.Name="WebDAV 地址"
+                                                 AutomationProperties.AutomationId="WebDavUrlBox"
+                                                 Text="{Binding WebDavUrl, UpdateSourceTrigger=PropertyChanged}"/>
+                                    </Grid>
+
+                                    <Grid Margin="0,0,0,7">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="46"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="账号" Style="{StaticResource EditorLabel}" Margin="0" VerticalAlignment="Center"/>
+                                        <TextBox Grid.Column="1" Style="{StaticResource SubtleInput}"
+                                                 Background="{DynamicResource Surface2}"
+                                                 Height="30" VerticalContentAlignment="Center"
+                                                 AutomationProperties.Name="WebDAV 账号"
+                                                 AutomationProperties.AutomationId="WebDavUserBox"
+                                                 Text="{Binding WebDavUser, UpdateSourceTrigger=PropertyChanged}"/>
+                                    </Grid>
+
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="46"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="密码" Style="{StaticResource EditorLabel}" Margin="0" VerticalAlignment="Center"/>
+                                        <PasswordBox x:Name="WebDavPasswordBox" Grid.Column="1"
+                                                     Style="{StaticResource SubtlePasswordBox}"
+                                                     Background="{DynamicResource Surface2}"
+                                                     Height="30" VerticalContentAlignment="Center"
+                                                     ToolTip="坚果云第三方应用管理中生成的应用专属密码"
+                                                     AutomationProperties.Name="WebDAV 应用专属密码"
+                                                     AutomationProperties.AutomationId="WebDavPasswordBox"
+                                                     PasswordChanged="WebDavPasswordBox_PasswordChanged"/>
+                                    </Grid>
+
+                                    <Grid Margin="0,10,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Margin="0,0,12,0">
+                                            <TextBlock Text="开启多设备自动同步" FontSize="12.5" FontWeight="SemiBold"/>
+                                            <TextBlock Text="每台设备独立写入 .json.gz 快照，启动与变动时自动 HLC 字段级合并"
+                                                       Style="{StaticResource Caption}" Margin="0,2,0,0" TextWrapping="Wrap"/>
+                                        </StackPanel>
+                                        <ToggleButton Grid.Column="1" Style="{StaticResource SwitchToggle}"
+                                                      VerticalAlignment="Center"
+                                                      IsChecked="{Binding AutoSyncEnabled, Mode=TwoWay}"
+                                                      AutomationProperties.Name="开启多设备自动同步"
+                                                      AutomationProperties.AutomationId="AutoSyncToggle"/>
+                                    </Grid>
+
+                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
+                                        <Button Style="{StaticResource GhostButton}" Content="测试连接"
+                                                Background="{DynamicResource Surface2}"
+                                                Padding="10,5" Margin="0,0,6,0"
+                                                IsEnabled="{Binding IsWebDavIdle}"
+                                                AutomationProperties.Name="测试连接"
+                                                AutomationProperties.AutomationId="WebDavTestButton"
+                                                Click="WebDavTest_Click"/>
+                                        <Button Style="{StaticResource GhostButton}" Content="上传备份"
+                                                Background="{DynamicResource Surface2}"
+                                                Padding="10,5" Margin="0,0,6,0"
+                                                IsEnabled="{Binding IsWebDavIdle}"
+                                                AutomationProperties.Name="上传备份"
+                                                AutomationProperties.AutomationId="WebDavUploadButton"
+                                                Click="WebDavUpload_Click"/>
+                                        <Button Style="{StaticResource GhostButton}" Content="从云端恢复"
+                                                Background="{DynamicResource Surface2}"
+                                                Padding="10,5" Margin="0,0,6,0"
+                                                IsEnabled="{Binding IsWebDavIdle}"
+                                                AutomationProperties.Name="从云端恢复"
+                                                AutomationProperties.AutomationId="WebDavRestoreButton"
+                                                Click="WebDavRestore_Click"/>
+                                        <Button Style="{StaticResource PrimaryButton}" Content="立即同步"
+                                                Padding="12,5" FontSize="12"
+                                                IsEnabled="{Binding IsWebDavIdle}"
+                                                AutomationProperties.Name="立即同步"
+                                                AutomationProperties.AutomationId="WebDavSyncButton"
+                                                Click="WebDavSyncNow_Click"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Background="{DynamicResource Surface3}" CornerRadius="8"
+                                    BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="1"
+                                    Padding="14,12">
+                                <StackPanel>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Margin="0,0,12,0">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="AI 与 MCP 接口" FontSize="13.5" FontWeight="SemiBold"
+                                                           VerticalAlignment="Center"/>
+                                                <TextBlock Text="{Binding McpStatusText}" Style="{StaticResource Caption}"
+                                                           Margin="10,0,0,0" VerticalAlignment="Center"
+                                                           TextTrimming="CharacterEllipsis"/>
+                                            </StackPanel>
+                                            <TextBlock Text="内嵌 127.0.0.1 HTTP /mcp（默认关闭，支持 --mcp 回退）；增改直连，删除弹出本机置顶确认窗"
+                                                       Style="{StaticResource Caption}" Margin="0,3,0,0" TextWrapping="Wrap"/>
+                                        </StackPanel>
+                                        <ToggleButton Grid.Column="1" Style="{StaticResource SwitchToggle}"
+                                                      VerticalAlignment="Center"
+                                                      IsChecked="{Binding McpEnabled, Mode=TwoWay}"
+                                                      AutomationProperties.Name="开启 AI 与 MCP 接口"
+                                                      AutomationProperties.AutomationId="McpEnabledToggle"/>
+                                    </Grid>
+
+                                    <Grid Margin="0,10,0,7">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="46"/>
+                                            <ColumnDefinition Width="82"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="端口" Style="{StaticResource EditorLabel}" Margin="0" VerticalAlignment="Center"/>
+                                        <TextBox Grid.Column="1" Style="{StaticResource SubtleInput}"
+                                                 Background="{DynamicResource Surface2}"
+                                                 Height="30" VerticalContentAlignment="Center"
+                                                 AutomationProperties.Name="MCP 监听端口"
+                                                 AutomationProperties.AutomationId="McpPortBox"
+                                                 Text="{Binding McpPortText, UpdateSourceTrigger=PropertyChanged}"/>
+                                        <Button Grid.Column="2" Style="{StaticResource GhostButton}" Content="应用"
+                                                Background="{DynamicResource Surface2}"
+                                                Padding="10,5" Margin="6,0,8,0"
+                                                AutomationProperties.Name="应用 MCP 端口"
+                                                AutomationProperties.AutomationId="McpApplyPortButton"
+                                                Click="McpApplyPort_Click"/>
+                                        <TextBlock Grid.Column="3" Text="{Binding McpEndpointText}"
+                                                   Style="{StaticResource Caption}"
+                                                   VerticalAlignment="Center"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   ToolTip="{Binding McpEndpointText}"/>
+                                    </Grid>
+
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="46"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="密钥" Style="{StaticResource EditorLabel}" Margin="0" VerticalAlignment="Center"/>
+                                        <TextBox Grid.Column="1" Style="{StaticResource SubtleInput}"
+                                                 Background="{DynamicResource Surface2}"
+                                                 Height="30" VerticalContentAlignment="Center"
+                                                 IsReadOnly="True"
+                                                 AutomationProperties.Name="MCP Bearer Token"
+                                                 AutomationProperties.AutomationId="McpTokenBox"
+                                                 Text="{Binding McpTokenDisplayText, Mode=OneWay}"/>
+                                        <StackPanel Grid.Column="2" Orientation="Horizontal" Margin="6,0,0,0">
+                                            <Button Style="{StaticResource GhostButton}"
+                                                    Content="{Binding McpTokenRevealButtonText}"
+                                                    Background="{DynamicResource Surface2}"
+                                                    Padding="8,5" Margin="0,0,4,0"
+                                                    AutomationProperties.Name="显示或隐藏 MCP 密钥"
+                                                    AutomationProperties.AutomationId="McpToggleRevealButton"
+                                                    Click="McpToggleReveal_Click"/>
+                                            <Button Style="{StaticResource GhostButton}" Content="复制"
+                                                    Background="{DynamicResource Surface2}"
+                                                    Padding="8,5" Margin="0,0,4,0"
+                                                    AutomationProperties.Name="复制 MCP 密钥"
+                                                    AutomationProperties.AutomationId="McpCopyTokenButton"
+                                                    Click="McpCopyToken_Click"/>
+                                            <Button Style="{StaticResource GhostButton}" Content="重置"
+                                                    Background="{DynamicResource Surface2}"
+                                                    Padding="8,5"
+                                                    AutomationProperties.Name="重置 MCP 密钥"
+                                                    AutomationProperties.AutomationId="McpRegenerateTokenButton"
+                                                    Click="McpRegenerateToken_Click"/>
+                                        </StackPanel>
+                                    </Grid>
+
+                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
+                                        <Button Style="{StaticResource GhostButton}" Content="复制 JSON 配置"
+                                                Background="{DynamicResource Surface2}"
+                                                Padding="10,5" Margin="0,0,6,0"
+                                                AutomationProperties.Name="复制 MCP JSON 配置"
+                                                AutomationProperties.AutomationId="McpCopyJsonButton"
+                                                Click="McpCopyJson_Click"/>
+                                        <Button Style="{StaticResource PrimaryButton}" Content="复制安装提示词"
+                                                Padding="12,5" FontSize="12"
+                                                AutomationProperties.Name="复制 MCP 安装提示词"
+                                                AutomationProperties.AutomationId="McpCopyPromptButton"
+                                                Click="McpCopyPrompt_Click"/>
+                                    </StackPanel>
                                 </StackPanel>
                             </Border>
                         </StackPanel>
@@ -3891,6 +4376,111 @@
                                Margin="0,6,0,0" TextWrapping="Wrap"
                                Visibility="{Binding DeadlinePicker.ErrorText, Converter={StaticResource EmptyToCollapsed}}"/>
                 </StackPanel>
+            </Border>
+        </Grid>
+
+        <!-- ================= 导入确认浮层（置于设置浮层之上） ================= -->
+        <Grid x:Name="ImportConfirmLayer" Grid.RowSpan="2" Visibility="Collapsed">
+            <Border x:Name="ImportConfirmScrim" Background="{DynamicResource Scrim}" Opacity="0"
+                    MouseLeftButtonDown="ImportConfirmScrim_Click"/>
+            <Border x:Name="ImportConfirmDialog" Width="468"
+                    VerticalAlignment="Center" HorizontalAlignment="Center"
+                    Background="{DynamicResource Surface4}"
+                    BorderBrush="{DynamicResource BorderStrong}" BorderThickness="1"
+                    CornerRadius="12" ClipToBounds="True"
+                    Opacity="0" RenderTransformOrigin="0.5,0.5">
+                <Border.RenderTransform>
+                    <TransformGroup>
+                        <ScaleTransform x:Name="ImportConfirmScale" ScaleX="0.97" ScaleY="0.97"/>
+                        <TranslateTransform x:Name="ImportConfirmShift" Y="10"/>
+                    </TransformGroup>
+                </Border.RenderTransform>
+                <Border.Effect>
+                    <DropShadowEffect Color="Black" BlurRadius="24" ShadowDepth="8" Direction="270" Opacity="0.28"/>
+                </Border.Effect>
+                <DockPanel>
+                    <Grid DockPanel.Dock="Top" Margin="20,16,14,10">
+                        <TextBlock Text="导入数据" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                        <Button Style="{StaticResource GhostButton}" Content="&#xE711;"
+                                FontFamily="{StaticResource IconFont}" FontSize="11"
+                                HorizontalAlignment="Right" ToolTip="关闭（Esc）"
+                                AutomationProperties.Name="关闭"
+                                AutomationProperties.AutomationId="ImportConfirmCloseButton"
+                                Click="ImportConfirmCancel_Click"/>
+                    </Grid>
+
+                    <Border DockPanel.Dock="Bottom" BorderBrush="{DynamicResource BorderSubtle}"
+                            BorderThickness="0,1,0,0" Padding="20,10,16,12">
+                        <Button Style="{StaticResource GhostButton}" Content="取消"
+                                Padding="14,5" HorizontalAlignment="Right"
+                                AutomationProperties.Name="取消"
+                                AutomationProperties.AutomationId="ImportConfirmCancelButton"
+                                Click="ImportConfirmCancel_Click"/>
+                    </Border>
+
+                    <StackPanel Margin="20,4,20,18">
+                        <Border Background="{DynamicResource Surface3}" CornerRadius="8"
+                                BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="1"
+                                Padding="14,12" Margin="0,0,0,10">
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                                    <TextBlock Text="&#xE8E5;" FontFamily="{StaticResource IconFont}" FontSize="13"
+                                               Foreground="{DynamicResource Accent}" VerticalAlignment="Center" Margin="0,0,7,0"/>
+                                    <TextBlock Text="{Binding PendingImportFileName}" FontSize="13.5" FontWeight="SemiBold"
+                                               TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                                </StackPanel>
+                                <TextBlock Text="{Binding PendingImportSummary}" Style="{StaticResource Caption}"
+                                           Foreground="{DynamicResource TextSecondary}" TextWrapping="Wrap"/>
+                                <TextBlock Text="{Binding PendingImportCurrentNote}" Style="{StaticResource Caption}"
+                                           Margin="0,6,0,0" TextWrapping="Wrap"/>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Background="{DynamicResource Surface3}" CornerRadius="8"
+                                BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="1"
+                                Padding="14,12" Margin="0,0,0,10">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Margin="0,0,12,0" VerticalAlignment="Center">
+                                    <TextBlock Text="按 ID 合并" FontSize="13.5" FontWeight="SemiBold"/>
+                                    <TextBlock Text="保留两边独有条目，相同 ID 以导入文件为准；完成记录去重合并"
+                                               Style="{StaticResource Caption}" Margin="0,3,0,0" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <Button Grid.Column="1" Style="{StaticResource PrimaryButton}" Content="合并导入"
+                                        Padding="14,6" VerticalAlignment="Center"
+                                        AutomationProperties.Name="合并导入"
+                                        AutomationProperties.AutomationId="ImportMergeButton"
+                                        Click="ImportConfirmMerge_Click"/>
+                            </Grid>
+                        </Border>
+
+                        <Border Background="{DynamicResource Surface3}" CornerRadius="8"
+                                BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="1"
+                                Padding="14,12">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Margin="0,0,12,0" VerticalAlignment="Center">
+                                    <TextBlock Text="覆盖当前数据" FontSize="13.5" FontWeight="SemiBold"/>
+                                    <TextBlock Text="用导入文件完全替换当前日程、目标、标签、预设与完成记录"
+                                               Style="{StaticResource Caption}" Margin="0,3,0,0" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <Button Grid.Column="1" Style="{StaticResource GhostButton}" Content="覆盖导入"
+                                        Background="{DynamicResource Surface2}"
+                                        Foreground="{DynamicResource Danger}"
+                                        Padding="14,6" VerticalAlignment="Center"
+                                        AutomationProperties.Name="覆盖导入"
+                                        AutomationProperties.AutomationId="ImportOverwriteButton"
+                                        Click="ImportConfirmOverwrite_Click"/>
+                            </Grid>
+                        </Border>
+                    </StackPanel>
+                </DockPanel>
             </Border>
         </Grid>
 

@@ -416,6 +416,52 @@
         </Setter>
     </Style>
 
+    <Style x:Key="SubtlePasswordBox" TargetType="PasswordBox">
+        <Setter Property="FontFamily" Value="{StaticResource AppFont}"/>
+        <Setter Property="FontSize" Value="13"/>
+        <Setter Property="FontWeight" Value="Medium"/>
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimary}"/>
+        <Setter Property="CaretBrush" Value="{DynamicResource Accent}"/>
+        <Setter Property="Background" Value="{DynamicResource Surface3}"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="PasswordBox">
+                    <Grid>
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="1"
+                                CornerRadius="6" Padding="7,4">
+                            <ScrollViewer x:Name="PART_ContentHost" Focusable="False"/>
+                        </Border>
+                        <Border x:Name="focusRing" CornerRadius="6"
+                                BorderBrush="{DynamicResource Accent}" BorderThickness="1"
+                                Opacity="0" IsHitTestVisible="False"/>
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Trigger.EnterActions>
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="focusRing" Storyboard.TargetProperty="Opacity"
+                                                         To="1" Duration="{StaticResource DurXs}" EasingFunction="{StaticResource EaseOut}"/>
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </Trigger.EnterActions>
+                            <Trigger.ExitActions>
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="focusRing" Storyboard.TargetProperty="Opacity"
+                                                         To="0" Duration="{StaticResource DurXs}" EasingFunction="{StaticResource EaseOut}"/>
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </Trigger.ExitActions>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <!-- ============ 标签 chip ============ -->
     <Style x:Key="TagChip" TargetType="Border">
         <Setter Property="Background" Value="{DynamicResource Surface3}"/>
@@ -447,21 +493,29 @@
                     <Setter Property="Template">
                         <Setter.Value>
                             <ControlTemplate TargetType="ListBoxItem">
-                                <Border x:Name="bd" Background="Transparent" CornerRadius="8" Height="38"
-                                        RenderTransformOrigin="0.5,0.5">
-                                    <Border.RenderTransform>
-                                        <ScaleTransform x:Name="bdScale" ScaleX="1" ScaleY="1"/>
-                                    </Border.RenderTransform>
-                                    <Grid>
-                                        <Border x:Name="hoverLayer" Background="{DynamicResource HoverOverlay}"
-                                                CornerRadius="8" Opacity="0" IsHitTestVisible="False"/>
-                                        <Border x:Name="pillLayer" Background="{DynamicResource SelectionPill}"
-                                                CornerRadius="8" Opacity="0" IsHitTestVisible="False"/>
-                                        <ContentPresenter VerticalAlignment="Center" Margin="10,0"/>
-                                    </Grid>
-                                </Border>
+                                <StackPanel>
+                                    <Border x:Name="topDivider" Height="1" Margin="6,6,6,7"
+                                            Background="{DynamicResource BorderSubtle}"
+                                            Visibility="Collapsed"/>
+                                    <Border x:Name="bd" Background="Transparent" CornerRadius="8" Height="38"
+                                            RenderTransformOrigin="0.5,0.5">
+                                        <Border.RenderTransform>
+                                            <ScaleTransform x:Name="bdScale" ScaleX="1" ScaleY="1"/>
+                                        </Border.RenderTransform>
+                                        <Grid>
+                                            <Border x:Name="hoverLayer" Background="{DynamicResource HoverOverlay}"
+                                                    CornerRadius="8" Opacity="0" IsHitTestVisible="False"/>
+                                            <Border x:Name="pillLayer" Background="{DynamicResource SelectionPill}"
+                                                    CornerRadius="8" Opacity="0" IsHitTestVisible="False"/>
+                                            <ContentPresenter VerticalAlignment="Center" Margin="10,0"/>
+                                        </Grid>
+                                    </Border>
+                                </StackPanel>
                                 <ControlTemplate.Triggers>
-                                    <Trigger Property="IsMouseOver" Value="True">
+                                    <DataTrigger Binding="{Binding HasTopDivider}" Value="True">
+                                        <Setter TargetName="topDivider" Property="Visibility" Value="Visible"/>
+                                    </DataTrigger>
+                                    <Trigger SourceName="bd" Property="IsMouseOver" Value="True">
                                         <Trigger.EnterActions>
                                             <BeginStoryboard>
                                                 <Storyboard>
@@ -1105,6 +1159,59 @@
             <Setter.Value>
                 <ControlTemplate TargetType="{x:Type Separator}">
                     <Border Height="{TemplateBinding Height}" Background="{TemplateBinding Background}"/>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- ============ 截止日期页：目标条目卡片按钮 ============ -->
+    <Style x:Key="DeadlineGoalCardButton" TargetType="Button">
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
+        <Setter Property="Padding" Value="12,9"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="bd" Background="{DynamicResource Surface2}"
+                            BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="1"
+                            CornerRadius="8" Padding="{TemplateBinding Padding}"
+                            RenderTransformOrigin="0.5,0.5">
+                        <Border.RenderTransform>
+                            <ScaleTransform x:Name="bdScale" ScaleX="1" ScaleY="1"/>
+                        </Border.RenderTransform>
+                        <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                          VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource BorderStrong}"/>
+                            <Setter TargetName="bd" Property="Background" Value="{DynamicResource Surface3}"/>
+                        </Trigger>
+                        <Trigger Property="IsPressed" Value="True">
+                            <Trigger.EnterActions>
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="bdScale" Storyboard.TargetProperty="ScaleX"
+                                                         To="0.985" Duration="{StaticResource DurXs}" EasingFunction="{StaticResource EaseOut}"/>
+                                        <DoubleAnimation Storyboard.TargetName="bdScale" Storyboard.TargetProperty="ScaleY"
+                                                         To="0.985" Duration="{StaticResource DurXs}" EasingFunction="{StaticResource EaseOut}"/>
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </Trigger.EnterActions>
+                            <Trigger.ExitActions>
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="bdScale" Storyboard.TargetProperty="ScaleX"
+                                                         To="1" Duration="{StaticResource DurS}" EasingFunction="{StaticResource EaseOut}"/>
+                                        <DoubleAnimation Storyboard.TargetName="bdScale" Storyboard.TargetProperty="ScaleY"
+                                                         To="1" Duration="{StaticResource DurS}" EasingFunction="{StaticResource EaseOut}"/>
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </Trigger.ExitActions>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value>
         </Setter>

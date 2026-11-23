@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using DayNew.Core;
 using DayNew.ViewModels;
 
 namespace DayNew.Services;
@@ -20,6 +21,18 @@ public sealed class DayStore
     public ObservableCollection<TagVM> Tags { get; } = new();
 
     public ObservableCollection<SchedulePresetVM> Presets { get; } = new();
+
+    /// <summary>墓碑集合（Del=true），仅用于多端同步传播删除语义，不进入 UI 活跃列表。</summary>
+    public List<ScheduleDto> DeletedSchedules { get; } = new();
+    public List<GoalDto> DeletedGoals { get; } = new();
+    public List<TagDto> DeletedTags { get; } = new();
+    public List<PresetDto> DeletedPresets { get; } = new();
+
+    /// <summary>上次落盘/加载的字段基线，用于精确检测哪些字段发生了实质变化再推进字段 HLC。</summary>
+    internal Dictionary<string, ScheduleDto> BaselineSchedules { get; } = new(StringComparer.Ordinal);
+    internal Dictionary<string, GoalDto> BaselineGoals { get; } = new(StringComparer.Ordinal);
+    internal Dictionary<string, TagDto> BaselineTags { get; } = new(StringComparer.Ordinal);
+    internal Dictionary<string, PresetDto> BaselinePresets { get; } = new(StringComparer.Ordinal);
 
     /// <summary>加载旧版 data.json 时未包含 presets 字段，由上层决定是否补默认预设。</summary>
     public bool HasLoadedPresets { get; set; }
@@ -49,12 +62,19 @@ public sealed class DayStore
         return tag;
     }
 
-    /// <summary>删标签：先从所有日程和快捷预设上摘掉，再删实体。</summary>
+    /// <summary>删标签：先从所有日程和快捷预设上摘掉，再删实体并记录同步墓碑。</summary>
     public void RemoveTag(TagVM tag)
     {
         foreach (var schedule in Schedules) schedule.Tags.Remove(tag);
         foreach (var preset in Presets) preset.Tags.Remove(tag);
-        Tags.Remove(tag);
+        if (Tags.Remove(tag))
+        {
+            var dto = StoreFile.BuildRawTagDto(tag);
+            dto.Del = true;
+            dto.Hlc = HlcClock.Tick();
+            UpsertTombstone(DeletedTags, dto, t => t.Id);
+            BaselineTags.Remove(tag.Id);
+        }
     }
 
     // ---------------- 目标 ----------------
@@ -65,6 +85,18 @@ public sealed class DayStore
         goal.AutoLayout();
         Goals.Add(goal);
         return goal;
+    }
+
+    public void RemoveGoal(GoalVM goal)
+    {
+        if (Goals.Remove(goal))
+        {
+            var dto = StoreFile.BuildRawGoalDto(goal);
+            dto.Del = true;
+            dto.Hlc = HlcClock.Tick();
+            UpsertTombstone(DeletedGoals, dto, g => g.Id);
+            BaselineGoals.Remove(goal.Id);
+        }
     }
 
     /// <summary>目标配色，取自 Nord Frost 的分类色板；与主题无关，深浅底都看得清。</summary>
@@ -117,7 +149,17 @@ public sealed class DayStore
         return schedule;
     }
 
-    public void RemoveSchedule(TaskVM schedule) => Schedules.Remove(schedule);
+    public void RemoveSchedule(TaskVM schedule)
+    {
+        if (Schedules.Remove(schedule))
+        {
+            var dto = StoreFile.BuildRawScheduleDto(schedule);
+            dto.Del = true;
+            dto.Hlc = HlcClock.Tick();
+            UpsertTombstone(DeletedSchedules, dto, s => s.Id);
+            BaselineSchedules.Remove(schedule.Id);
+        }
+    }
 
     /// <summary>把顺序值重新压紧成 1024、2048……方便后续插入。</summary>
     public void Reindex(IEnumerable<TaskVM> ordered)
@@ -137,5 +179,30 @@ public sealed class DayStore
         return preset;
     }
 
-    public void RemovePreset(SchedulePresetVM preset) => Presets.Remove(preset);
+    public void RemovePreset(SchedulePresetVM preset)
+    {
+        if (Presets.Remove(preset))
+        {
+            var dto = StoreFile.BuildRawPresetDto(preset);
+            dto.Del = true;
+            dto.Hlc = HlcClock.Tick();
+            UpsertTombstone(DeletedPresets, dto, p => p.Id);
+            BaselinePresets.Remove(preset.Id);
+        }
+    }
+
+    internal static void UpsertTombstone<T>(List<T> tombstones, T item, Func<T, string> getId)
+    {
+        var id = getId(item);
+        if (string.IsNullOrWhiteSpace(id)) return;
+        for (var i = 0; i < tombstones.Count; i++)
+        {
+            if (string.Equals(getId(tombstones[i]), id, StringComparison.Ordinal))
+            {
+                tombstones[i] = item;
+                return;
+            }
+        }
+        tombstones.Add(item);
+    }
 }

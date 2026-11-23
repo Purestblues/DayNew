@@ -16,10 +16,13 @@ namespace DayNew.Services;
 /// </summary>
 public sealed class CompletionLog
 {
+    private static readonly object FileLock = new();
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        PropertyNameCaseInsensitive = true
     };
 
     public static string Path => System.IO.Path.Combine(StoreFile.Folder, "completions.ndjson");
@@ -29,17 +32,20 @@ public sealed class CompletionLog
     {
         try
         {
-            Directory.CreateDirectory(StoreFile.Folder);
-
-            var entry = new CompletionEntry
+            lock (FileLock)
             {
-                Id = scheduleId,
-                For = forDate?.ToString("yyyy-MM-dd"),
-                At = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
-                Done = done
-            };
+                Directory.CreateDirectory(StoreFile.Folder);
 
-            File.AppendAllText(Path, JsonSerializer.Serialize(entry, JsonOptions) + Environment.NewLine);
+                var entry = new CompletionEntry
+                {
+                    Id = scheduleId,
+                    For = forDate?.ToString("yyyy-MM-dd"),
+                    At = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
+                    Done = done
+                };
+
+                File.AppendAllText(Path, JsonSerializer.Serialize(entry, JsonOptions) + Environment.NewLine);
+            }
         }
         catch
         {
@@ -50,7 +56,89 @@ public sealed class CompletionLog
     /// <summary>读出所有事件（以后做统计用）。</summary>
     public IReadOnlyList<CompletionEntry> ReadAll()
     {
-        if (!File.Exists(Path)) return Array.Empty<CompletionEntry>();
+        lock (FileLock)
+        {
+            return ReadAllUnsafe();
+        }
+    }
+
+    public static IReadOnlyList<CompletionEntry> ParseLines(string ndjsonText)
+    {
+        if (string.IsNullOrWhiteSpace(ndjsonText)) return Array.Empty<CompletionEntry>();
+
+        var list = new List<CompletionEntry>();
+        using var reader = new StringReader(ndjsonText);
+        while (reader.ReadLine() is { } line)
+        {
+            if (string.IsNullOrWhiteSpace(line)) continue;
+            try
+            {
+                var entry = JsonSerializer.Deserialize<CompletionEntry>(line, JsonOptions);
+                if (entry is not null) list.Add(entry);
+            }
+            catch
+            {
+                // 坏行跳过，不影响其它记录
+            }
+        }
+
+        return list;
+    }
+
+    public static string FormatLines(IEnumerable<CompletionEntry> entries)
+    {
+        var lines = entries.Select(e => JsonSerializer.Serialize(e, JsonOptions)).ToList();
+        return lines.Count == 0 ? "" : string.Join(Environment.NewLine, lines) + Environment.NewLine;
+    }
+
+    /// <summary>覆盖导入时原子替换全部完成记录。</summary>
+    public void ReplaceAll(IEnumerable<CompletionEntry> entries)
+    {
+        lock (FileLock)
+        {
+            WriteAllUnsafe(entries);
+        }
+    }
+
+    /// <summary>合并导入时按事件签名去重追加，并保持按时间顺序排列，返回新增条数。</summary>
+    public int MergeEntries(IEnumerable<CompletionEntry> incoming)
+    {
+        lock (FileLock)
+        {
+            var current = ReadAllUnsafe();
+            var seen = new HashSet<(string Id, string For, string At, bool Done)>();
+            var combined = new List<CompletionEntry>(current.Count);
+
+            foreach (var item in current)
+            {
+                seen.Add(EntryKey(item));
+                combined.Add(item);
+            }
+
+            var added = 0;
+            foreach (var item in incoming)
+            {
+                if (seen.Add(EntryKey(item)))
+                {
+                    combined.Add(item);
+                    added++;
+                }
+            }
+
+            if (added == 0) return 0;
+
+            var ordered = combined.OrderBy(e => e.At ?? "", StringComparer.Ordinal).ToList();
+            WriteAllUnsafe(ordered);
+            return added;
+        }
+    }
+
+    private static (string Id, string For, string At, bool Done) EntryKey(CompletionEntry entry)
+        => (entry.Id ?? "", entry.For ?? "", entry.At ?? "", entry.Done);
+
+    private static List<CompletionEntry> ReadAllUnsafe()
+    {
+        if (!File.Exists(Path)) return new List<CompletionEntry>();
 
         var list = new List<CompletionEntry>();
         foreach (var line in File.ReadLines(Path))
@@ -69,6 +157,14 @@ public sealed class CompletionLog
         }
 
         return list;
+    }
+
+    private static void WriteAllUnsafe(IEnumerable<CompletionEntry> entries)
+    {
+        Directory.CreateDirectory(StoreFile.Folder);
+        var tmp = Path + ".tmp";
+        File.WriteAllText(tmp, FormatLines(entries));
+        File.Move(tmp, Path, overwrite: true);
     }
 
     public sealed class CompletionEntry

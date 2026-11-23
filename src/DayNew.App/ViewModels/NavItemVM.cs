@@ -9,6 +9,8 @@ public enum PageKind
     Tags,
     Goals,
     Eisenhower,
+    Deadlines,
+    Future,
     Overdue
 }
 
@@ -17,12 +19,13 @@ public sealed class NavItemVM : ObservableObject
 {
     private int _badgeCount;
 
-    public NavItemVM(PageKind kind, string title, string icon, string blurb)
+    public NavItemVM(PageKind kind, string title, string icon, string blurb, bool hasTopDivider = false)
     {
         Kind = kind;
         Title = title;
         Icon = icon;
         Blurb = blurb;
+        HasTopDivider = hasTopDivider;
     }
 
     public PageKind Kind { get; }
@@ -33,6 +36,8 @@ public sealed class NavItemVM : ObservableObject
     public string Icon { get; }
 
     public string Blurb { get; }
+
+    public bool HasTopDivider { get; }
 
     public int BadgeCount
     {
