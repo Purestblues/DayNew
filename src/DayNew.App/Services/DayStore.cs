@@ -20,18 +20,26 @@ public sealed class DayStore
 
     public ObservableCollection<TagVM> Tags { get; } = new();
 
+    public ObservableCollection<PersonVM> Persons { get; } = new();
+
+    public ObservableCollection<LocationVM> Locations { get; } = new();
+
     public ObservableCollection<SchedulePresetVM> Presets { get; } = new();
 
     /// <summary>墓碑集合（Del=true），仅用于多端同步传播删除语义，不进入 UI 活跃列表。</summary>
     public List<ScheduleDto> DeletedSchedules { get; } = new();
     public List<GoalDto> DeletedGoals { get; } = new();
     public List<TagDto> DeletedTags { get; } = new();
+    public List<PersonDto> DeletedPersons { get; } = new();
+    public List<LocationDto> DeletedLocations { get; } = new();
     public List<PresetDto> DeletedPresets { get; } = new();
 
     /// <summary>上次落盘/加载的字段基线，用于精确检测哪些字段发生了实质变化再推进字段 HLC。</summary>
     internal Dictionary<string, ScheduleDto> BaselineSchedules { get; } = new(StringComparer.Ordinal);
     internal Dictionary<string, GoalDto> BaselineGoals { get; } = new(StringComparer.Ordinal);
     internal Dictionary<string, TagDto> BaselineTags { get; } = new(StringComparer.Ordinal);
+    internal Dictionary<string, PersonDto> BaselinePersons { get; } = new(StringComparer.Ordinal);
+    internal Dictionary<string, LocationDto> BaselineLocations { get; } = new(StringComparer.Ordinal);
     internal Dictionary<string, PresetDto> BaselinePresets { get; } = new(StringComparer.Ordinal);
 
     /// <summary>加载旧版 data.json 时未包含 presets 字段，由上层决定是否补默认预设。</summary>
@@ -74,6 +82,82 @@ public sealed class DayStore
             dto.Hlc = HlcClock.Tick();
             UpsertTombstone(DeletedTags, dto, t => t.Id);
             BaselineTags.Remove(tag.Id);
+        }
+    }
+
+    // ---------------- 人物 ----------------
+
+    public PersonVM? FindPerson(string name)
+    {
+        var trimmed = (name ?? "").Trim().TrimStart('@');
+        if (trimmed.Length == 0) return null;
+
+        return Persons.FirstOrDefault(p => string.Equals(p.Name, trimmed, StringComparison.OrdinalIgnoreCase));
+    }
+
+    public PersonVM? GetOrCreatePerson(string name)
+    {
+        var trimmed = (name ?? "").Trim().TrimStart('@');
+        if (trimmed.Length == 0) return null;
+
+        var existing = FindPerson(trimmed);
+        if (existing is not null) return existing;
+
+        var person = new PersonVM(trimmed);
+        Persons.Add(person);
+        return person;
+    }
+
+    /// <summary>删人物：先从所有日程和快捷预设上摘掉，再删实体并记录同步墓碑。</summary>
+    public void RemovePerson(PersonVM person)
+    {
+        foreach (var schedule in Schedules) schedule.Persons.Remove(person);
+        foreach (var preset in Presets) preset.Persons.Remove(person);
+        if (Persons.Remove(person))
+        {
+            var dto = StoreFile.BuildRawPersonDto(person);
+            dto.Del = true;
+            dto.Hlc = HlcClock.Tick();
+            UpsertTombstone(DeletedPersons, dto, p => p.Id);
+            BaselinePersons.Remove(person.Id);
+        }
+    }
+
+    // ---------------- 地点 ----------------
+
+    public LocationVM? FindLocation(string name)
+    {
+        var trimmed = (name ?? "").Trim();
+        if (trimmed.Length == 0) return null;
+
+        return Locations.FirstOrDefault(l => string.Equals(l.Name, trimmed, StringComparison.OrdinalIgnoreCase));
+    }
+
+    public LocationVM? GetOrCreateLocation(string name)
+    {
+        var trimmed = (name ?? "").Trim();
+        if (trimmed.Length == 0) return null;
+
+        var existing = FindLocation(trimmed);
+        if (existing is not null) return existing;
+
+        var location = new LocationVM(trimmed);
+        Locations.Add(location);
+        return location;
+    }
+
+    /// <summary>删地点：先从所有日程和快捷预设上摘掉，再删实体并记录同步墓碑。</summary>
+    public void RemoveLocation(LocationVM location)
+    {
+        foreach (var schedule in Schedules) schedule.Locations.Remove(location);
+        foreach (var preset in Presets) preset.Locations.Remove(location);
+        if (Locations.Remove(location))
+        {
+            var dto = StoreFile.BuildRawLocationDto(location);
+            dto.Del = true;
+            dto.Hlc = HlcClock.Tick();
+            UpsertTombstone(DeletedLocations, dto, l => l.Id);
+            BaselineLocations.Remove(location.Id);
         }
     }
 

@@ -23,6 +23,8 @@ public sealed class SchedulePresetVM : ObservableObject
     public SchedulePresetVM()
     {
         Tags.CollectionChanged += OnTagsChanged;
+        Persons.CollectionChanged += OnPersonsChanged;
+        Locations.CollectionChanged += OnLocationsChanged;
         GoalBindings.CollectionChanged += OnGoalBindingsChanged;
     }
 
@@ -154,6 +156,10 @@ public sealed class SchedulePresetVM : ObservableObject
 
     public ObservableCollection<TagVM> Tags { get; } = new();
 
+    public ObservableCollection<PersonVM> Persons { get; } = new();
+
+    public ObservableCollection<LocationVM> Locations { get; } = new();
+
     public bool HasDot => Tags.Count > 0 || GoalBindings.Count > 0;
 
     public Brush DotBrush => Tags.Count > 0
@@ -164,8 +170,10 @@ public sealed class SchedulePresetVM : ObservableObject
     {
         get
         {
-            var parts = new List<string>(4) { DurationLabel };
+            var parts = new List<string>(6) { DurationLabel };
             if (Tags.Count > 0) parts.Add(string.Join(" · ", Tags.Select(t => $"#{t.Name}")));
+            if (Persons.Count > 0) parts.Add(string.Join(" · ", Persons.Select(p => p.Name)));
+            if (Locations.Count > 0) parts.Add(string.Join(" · ", Locations.Select(l => l.Name)));
             if (GoalBindings.Count > 0)
             {
                 var chips = TaskVM.BuildGoalChips(GoalBindings, compact: true);
@@ -199,6 +207,28 @@ public sealed class SchedulePresetVM : ObservableObject
         RaiseSummary();
     }
 
+    private void OnPersonsChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        if (e.OldItems is not null)
+            foreach (PersonVM person in e.OldItems) person.PropertyChanged -= OnPersonPropertyChanged;
+
+        if (e.NewItems is not null)
+            foreach (PersonVM person in e.NewItems) person.PropertyChanged += OnPersonPropertyChanged;
+
+        RaiseSummary();
+    }
+
+    private void OnLocationsChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        if (e.OldItems is not null)
+            foreach (LocationVM location in e.OldItems) location.PropertyChanged -= OnLocationPropertyChanged;
+
+        if (e.NewItems is not null)
+            foreach (LocationVM location in e.NewItems) location.PropertyChanged += OnLocationPropertyChanged;
+
+        RaiseSummary();
+    }
+
     private void OnGoalBindingsChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
         if (_suppressBindingEvents) return;
@@ -210,6 +240,16 @@ public sealed class SchedulePresetVM : ObservableObject
     private void OnTagPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(TagVM.Name)) RaiseSummary();
+    }
+
+    private void OnPersonPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(PersonVM.Name)) RaiseSummary();
+    }
+
+    private void OnLocationPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(LocationVM.Name)) RaiseSummary();
     }
 
     private void OnGoalPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -247,6 +287,10 @@ public sealed class PresetManagerVM : ObservableObject
 
     public ObservableCollection<TagPickVM> TagPicks { get; } = new();
 
+    public ObservableCollection<PersonPickVM> PersonPicks { get; } = new();
+
+    public ObservableCollection<LocationPickVM> LocationPicks { get; } = new();
+
     public ObservableCollection<GoalPickVM> GoalPicks { get; } = new();
 
     public IReadOnlyList<GoalChipVM> SelectedGoalChips => _goalDraft.BuildPreviewChips();
@@ -260,6 +304,8 @@ public sealed class PresetManagerVM : ObservableObject
     private bool _isUrgent;
     private bool _isImportant;
     private string _newTagText = "";
+    private string _newPersonText = "";
+    private string _newLocationText = "";
     private string _errorText = "";
 
     public string Title
@@ -323,7 +369,31 @@ public sealed class PresetManagerVM : ObservableObject
     public string NewTagText
     {
         get => _newTagText;
-        set => Set(ref _newTagText, value);
+        set
+        {
+            if (Set(ref _newTagText, value))
+                PickFilterHelper.Apply(TagPicks, value, '#');
+        }
+    }
+
+    public string NewPersonText
+    {
+        get => _newPersonText;
+        set
+        {
+            if (Set(ref _newPersonText, value))
+                PickFilterHelper.Apply(PersonPicks, value, '@');
+        }
+    }
+
+    public string NewLocationText
+    {
+        get => _newLocationText;
+        set
+        {
+            if (Set(ref _newLocationText, value))
+                PickFilterHelper.Apply(LocationPicks, value);
+        }
     }
 
     public string ErrorText
@@ -342,8 +412,10 @@ public sealed class PresetManagerVM : ObservableObject
         _isUrgent = false;
         _isImportant = false;
         _newTagText = "";
+        _newPersonText = "";
+        _newLocationText = "";
         _errorText = "";
-        BuildPicks(Array.Empty<TagVM>(), Array.Empty<GoalBindingVM>());
+        BuildPicks(Array.Empty<TagVM>(), Array.Empty<PersonVM>(), Array.Empty<LocationVM>(), Array.Empty<GoalBindingVM>());
         RaiseAll();
     }
 
@@ -357,16 +429,20 @@ public sealed class PresetManagerVM : ObservableObject
         _isUrgent = preset.IsUrgent;
         _isImportant = preset.IsImportant;
         _newTagText = "";
+        _newPersonText = "";
+        _newLocationText = "";
         _errorText = "";
-        BuildPicks(preset.Tags, preset.GoalBindings);
+        BuildPicks(preset.Tags, preset.Persons, preset.Locations, preset.GoalBindings);
         RaiseAll();
     }
 
     public void RefreshPicksPreservingSelection()
     {
         var selectedTags = SelectedTagPicks.Select(p => p.Tag).ToList();
+        var selectedPersons = SelectedPersonPicks.Select(p => p.Person).ToList();
+        var selectedLocations = SelectedLocationPicks.Select(p => p.Location).ToList();
         var currentBindings = _goalDraft.Bindings.ToList();
-        BuildPicks(selectedTags, currentBindings);
+        BuildPicks(selectedTags, selectedPersons, selectedLocations, currentBindings);
     }
 
     public void ClickGoalPick(GoalPickVM? pick)
@@ -398,10 +474,26 @@ public sealed class PresetManagerVM : ObservableObject
 
     public IEnumerable<TagPickVM> SelectedTagPicks => TagPicks.Where(p => p.IsSelected);
 
+    public IEnumerable<PersonPickVM> SelectedPersonPicks => PersonPicks.Where(p => p.IsSelected);
+
+    public IEnumerable<LocationPickVM> SelectedLocationPicks => LocationPicks.Where(p => p.IsSelected);
+
     public void AddTagPick(TagPickVM pick)
     {
         TagPicks.Add(pick);
         OnPropertyChanged(nameof(TagPicks));
+    }
+
+    public void AddPersonPick(PersonPickVM pick)
+    {
+        PersonPicks.Add(pick);
+        OnPropertyChanged(nameof(PersonPicks));
+    }
+
+    public void AddLocationPick(LocationPickVM pick)
+    {
+        LocationPicks.Add(pick);
+        OnPropertyChanged(nameof(LocationPicks));
     }
 
     public void SetDuration(int minutes) => DurationText = Math.Clamp(minutes, 5, 24 * 60).ToString();
@@ -418,11 +510,23 @@ public sealed class PresetManagerVM : ObservableObject
         return true;
     }
 
-    private void BuildPicks(IList<TagVM> selectedTags, IEnumerable<GoalBindingVM> selectedGoals)
+    private void BuildPicks(
+        IList<TagVM> selectedTags,
+        IList<PersonVM> selectedPersons,
+        IList<LocationVM> selectedLocations,
+        IEnumerable<GoalBindingVM> selectedGoals)
     {
         TagPicks.Clear();
         foreach (var tag in _owner.Tags)
             TagPicks.Add(new TagPickVM(tag, selectedTags.Contains(tag)));
+
+        PersonPicks.Clear();
+        foreach (var person in _owner.Persons)
+            PersonPicks.Add(new PersonPickVM(person, selectedPersons.Contains(person)));
+
+        LocationPicks.Clear();
+        foreach (var location in _owner.Locations)
+            LocationPicks.Add(new LocationPickVM(location, selectedLocations.Contains(location)));
 
         _goalDraft.Reset(selectedGoals, _owner.ActiveGoals, GoalPicks);
     }
@@ -447,8 +551,12 @@ public sealed class PresetManagerVM : ObservableObject
         OnPropertyChanged(nameof(IsUrgent));
         OnPropertyChanged(nameof(IsImportant));
         OnPropertyChanged(nameof(NewTagText));
+        OnPropertyChanged(nameof(NewPersonText));
+        OnPropertyChanged(nameof(NewLocationText));
         OnPropertyChanged(nameof(ErrorText));
         OnPropertyChanged(nameof(TagPicks));
+        OnPropertyChanged(nameof(PersonPicks));
+        OnPropertyChanged(nameof(LocationPicks));
         OnPropertyChanged(nameof(GoalPicks));
         RaiseGoalSelectionChanged();
     }

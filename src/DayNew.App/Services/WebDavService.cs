@@ -70,6 +70,8 @@ public static class WebDavService
         dto.Store ??= new StoreDto();
         dto.Store.Goals ??= new();
         dto.Store.Tags ??= new();
+        dto.Store.Persons ??= new();
+        dto.Store.Locations ??= new();
         dto.Store.Schedules ??= new();
         dto.Completions ??= new();
         return dto;
@@ -468,11 +470,13 @@ public static class WebDavService
         var maxHlc = "";
         foreach (var g in dto.Goals) maxHlc = HlcClock.Max(maxHlc, g.Hlc);
         foreach (var t in dto.Tags) maxHlc = HlcClock.Max(maxHlc, t.Hlc);
+        foreach (var p in dto.Persons ?? Enumerable.Empty<PersonDto>()) maxHlc = HlcClock.Max(maxHlc, p.Hlc);
+        foreach (var l in dto.Locations ?? Enumerable.Empty<LocationDto>()) maxHlc = HlcClock.Max(maxHlc, l.Hlc);
         foreach (var s in dto.Schedules) maxHlc = HlcClock.Max(maxHlc, s.Hlc);
         if (dto.Presets is not null)
             foreach (var p in dto.Presets) maxHlc = HlcClock.Max(maxHlc, p.Hlc);
 
-        return $"{maxHlc}|{dto.Goals.Count}|{dto.Tags.Count}|{dto.Schedules.Count}|{dto.Presets?.Count ?? 0}|{completionsCount}";
+        return $"{maxHlc}|{dto.Goals.Count}|{dto.Tags.Count}|{dto.Persons?.Count ?? 0}|{dto.Locations?.Count ?? 0}|{dto.Schedules.Count}|{dto.Presets?.Count ?? 0}|{completionsCount}";
     }
 
     private static async Task EnsureDirectoryAsync(HttpClient client, string folderUrl, CancellationToken ct)

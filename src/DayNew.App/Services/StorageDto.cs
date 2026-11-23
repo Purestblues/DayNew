@@ -14,6 +14,10 @@ public sealed class StoreDto
 
     public List<TagDto> Tags { get; set; } = new();
 
+    public List<PersonDto> Persons { get; set; } = new();
+
+    public List<LocationDto> Locations { get; set; } = new();
+
     public List<ScheduleDto> Schedules { get; set; } = new();
 
     /// <summary>为 null 表示老版本文件，加载时需补默认预设；空列表表示用户主动清空。</summary>
@@ -74,6 +78,24 @@ public sealed class TagDto
     public Dictionary<string, string>? FieldHlcs { get; set; }
 }
 
+public sealed class PersonDto
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string Hlc { get; set; } = "";
+    public bool Del { get; set; }
+    public Dictionary<string, string>? FieldHlcs { get; set; }
+}
+
+public sealed class LocationDto
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string Hlc { get; set; } = "";
+    public bool Del { get; set; }
+    public Dictionary<string, string>? FieldHlcs { get; set; }
+}
+
 public sealed class ScheduleDto
 {
     public string Id { get; set; } = "";
@@ -100,6 +122,10 @@ public sealed class ScheduleDto
 
     public List<string> TagIds { get; set; } = new();
 
+    public List<string> PersonIds { get; set; } = new();
+
+    public List<string> LocationIds { get; set; } = new();
+
     public int Order { get; set; }
 
     public string Hlc { get; set; } = "";
@@ -121,6 +147,8 @@ public sealed class PresetDto
     public string? GoalId { get; set; }
     public List<GoalRefDto> GoalRefs { get; set; } = new();
     public List<string> TagIds { get; set; } = new();
+    public List<string> PersonIds { get; set; } = new();
+    public List<string> LocationIds { get; set; } = new();
     public string Hlc { get; set; } = "";
     public bool Del { get; set; }
     public Dictionary<string, string>? FieldHlcs { get; set; }

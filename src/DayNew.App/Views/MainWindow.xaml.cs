@@ -32,6 +32,10 @@ public partial class MainWindow : Window
     private Border? _pressedCard;
     private Border? _pressedTagCard;
     private TagRowVM? _pressedTagRow;
+    private Border? _pressedPersonCard;
+    private PersonRowVM? _pressedPersonRow;
+    private Border? _pressedLocationCard;
+    private LocationRowVM? _pressedLocationRow;
     private Border? _pressedGoalPageCard;
     private GoalVM? _pressedGoalPageItem;
     private GoalVM? _pressedGoal;
@@ -695,19 +699,37 @@ public partial class MainWindow : Window
 
     private void TagRemove_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is not FrameworkElement fe) return;
-        if (fe.Tag is not TagVM tag) return;
-        var task = FindDataContext<TaskVM>(fe);
-        if (task is not null) _vm.RemoveTag(task, tag);
+        if (sender is not FrameworkElement { Tag: TagVM tag } fe) return;
+        if (FindDataContext<TaskVM>(fe) is { } task) _vm.RemoveTag(task, tag);
     }
 
     private void TagInput_KeyDown(object sender, KeyEventArgs e)
+        => HandleTaskChipInput(sender, e, _vm.AddTag);
+
+    private void PersonRemove_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is not TextBox box) return;
-        if (e.Key != Key.Enter) return;
+        if (sender is not FrameworkElement { Tag: PersonVM person } fe) return;
+        if (FindDataContext<TaskVM>(fe) is { } task) _vm.RemovePerson(task, person);
+    }
+
+    private void PersonInput_KeyDown(object sender, KeyEventArgs e)
+        => HandleTaskChipInput(sender, e, _vm.AddPerson);
+
+    private void LocationRemove_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: LocationVM location } fe) return;
+        if (FindDataContext<TaskVM>(fe) is { } task) _vm.RemoveLocation(task, location);
+    }
+
+    private void LocationInput_KeyDown(object sender, KeyEventArgs e)
+        => HandleTaskChipInput(sender, e, _vm.AddLocation);
+
+    private static void HandleTaskChipInput(object sender, KeyEventArgs e, Action<TaskVM, string> addAction)
+    {
+        if (sender is not TextBox box || e.Key != Key.Enter) return;
 
         var task = FindDataContext<TaskVM>(box);
-        if (task is not null) _vm.AddTag(task, box.Text);
+        if (task is not null) addAction(task, box.Text);
         box.Text = "";
         e.Handled = true;
     }
@@ -1153,14 +1175,50 @@ public partial class MainWindow : Window
         if ((sender as FrameworkElement)?.DataContext is TaskVM task) _vm.ToggleImportant(task);
     }
 
+    private void TagPageTab_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is ToggleButton { Tag: string raw } btn)
+        {
+            if (Enum.TryParse<TagPageTab>(raw, out var tab))
+                _vm.SelectedTagPageTab = tab;
+            SyncToggleBinding(btn);
+        }
+    }
+
+    private void EntityNameBox_LostFocus(object sender, RoutedEventArgs e)
+        => _vm.OnEntityRenamed();
+
+    private void EntityNameBox_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key is Key.Enter or Key.Escape)
+        {
+            Keyboard.ClearFocus();
+            e.Handled = true;
+        }
+    }
+
     private void DeleteTagRow_Click(object sender, RoutedEventArgs e)
     {
         if (sender is FrameworkElement { Tag: TagVM tag }) _vm.DeleteTag(tag);
     }
 
-    // ==================== 标签 / 目标详情按日时间流弹窗 ====================
+    private void DeletePersonRow_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: PersonVM person }) _vm.DeletePerson(person);
+    }
+
+    private void DeleteLocationRow_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: LocationVM location }) _vm.DeleteLocation(location);
+    }
+
+    // ==================== 标签 / 人物 / 地点 / 目标详情按日时间流弹窗 ====================
 
     private void OpenTagDetailModal(TagVM tag) => OpenDetailModal(() => _vm.OpenTagDetail(tag));
+
+    private void OpenPersonDetailModal(PersonVM person) => OpenDetailModal(() => _vm.OpenPersonDetail(person));
+
+    private void OpenLocationDetailModal(LocationVM location) => OpenDetailModal(() => _vm.OpenLocationDetail(location));
 
     private void OpenGoalDetailModal(GoalVM goal) => OpenDetailModal(() => _vm.OpenGoalDetail(goal));
 
@@ -1797,6 +1855,10 @@ public partial class MainWindow : Window
         _pressedPresetElement = null;
         _pressedTagCard = null;
         _pressedTagRow = null;
+        _pressedPersonCard = null;
+        _pressedPersonRow = null;
+        _pressedLocationCard = null;
+        _pressedLocationRow = null;
         _resizeCandidateBlock = null;
         _pendingOpen = null;
         _clickedPageBlank = false;
@@ -1968,16 +2030,28 @@ public partial class MainWindow : Window
 
             if (_pressedPreset is null && _pressedGoal is null && _pressedGoalPageItem is null)
             {
-                var tagCard = FindAncestorTag(src, "tagcard") as Border;
-                if (tagCard?.DataContext is TagRowVM tagRow)
+                if (FindAncestorTag(src, "tagcard") is Border { DataContext: TagRowVM tagRow } tagCard)
                 {
                     _pressedTagCard = tagCard;
                     _pressedTagRow = tagRow;
                     Motion.AnimateScale(tagCard, 0.985, Motion.Xs);
                 }
+                else if (FindAncestorTag(src, "personcard") is Border { DataContext: PersonRowVM personRow } personCard)
+                {
+                    _pressedPersonCard = personCard;
+                    _pressedPersonRow = personRow;
+                    Motion.AnimateScale(personCard, 0.985, Motion.Xs);
+                }
+                else if (FindAncestorTag(src, "locationcard") is Border { DataContext: LocationRowVM locationRow } locationCard)
+                {
+                    _pressedLocationCard = locationCard;
+                    _pressedLocationRow = locationRow;
+                    Motion.AnimateScale(locationCard, 0.985, Motion.Xs);
+                }
             }
 
-            if (_pressedPreset is null && _pressedGoal is null && _pressedGoalPageItem is null && _pressedTagRow is null)
+            if (_pressedPreset is null && _pressedGoal is null && _pressedGoalPageItem is null &&
+                _pressedTagRow is null && _pressedPersonRow is null && _pressedLocationRow is null)
             {
                 var topEdge = FindAncestorTag(src, "blockTopEdge") as FrameworkElement;
                 var bottomEdge = topEdge is null ? FindAncestorTag(src, "blockBottomEdge") as FrameworkElement : null;
@@ -1997,7 +2071,9 @@ public partial class MainWindow : Window
             }
 
             // 空白处按下：在时间轴网格内进入「点击或拖一段建日程」状态，否则记下页面空白点击用于收起展开卡片
-            if (_pressedPreset is null && _pressedGoal is null && _pressedGoalPageItem is null && _pressedTagRow is null && _pressedBlock is null)
+            if (_pressedPreset is null && _pressedGoal is null && _pressedGoalPageItem is null &&
+                _pressedTagRow is null && _pressedPersonRow is null && _pressedLocationRow is null &&
+                _pressedBlock is null)
             {
                 var day = DayIndexAt(_pressPoint);
                 if (day >= 0)
@@ -2449,6 +2525,16 @@ public partial class MainWindow : Window
             if (IsCardTap(e, _pressedTagCard, "tagcard"))
                 OpenTagDetailModal(_pressedTagRow.Tag);
         }
+        else if (_pressedPersonRow is not null)
+        {
+            if (IsCardTap(e, _pressedPersonCard, "personcard"))
+                OpenPersonDetailModal(_pressedPersonRow.Person);
+        }
+        else if (_pressedLocationRow is not null)
+        {
+            if (IsCardTap(e, _pressedLocationCard, "locationcard"))
+                OpenLocationDetailModal(_pressedLocationRow.Location);
+        }
         else if (clickedBlank)
         {
             _vm.CollapseAll();
@@ -2460,6 +2546,14 @@ public partial class MainWindow : Window
         _pressedCard = null;
         _pressedTagCard = null;
         _pressedTagRow = null;
+        _pressedPersonCard = null;
+        _pressedPersonRow = null;
+        _pressedLocationCard = null;
+        _pressedLocationRow = null;
+        _pressedPersonCard = null;
+        _pressedPersonRow = null;
+        _pressedLocationCard = null;
+        _pressedLocationRow = null;
         _pressedGoalPageCard = null;
         _pressedGoalPageItem = null;
         _pressedPreset = null;
@@ -2832,20 +2926,35 @@ public partial class MainWindow : Window
         => HandleGoalPickClick(sender, _vm.Editor.ClickGoalPick);
 
     private void EditorNewTag_KeyDown(object sender, KeyEventArgs e)
+        => HandleModalChipInput(sender, e, _vm.AddEditorTag, () => _vm.Editor.NewTagText = "");
+
+    private void EditorNewPerson_KeyDown(object sender, KeyEventArgs e)
+        => HandleModalChipInput(sender, e, _vm.AddEditorPerson, () => _vm.Editor.NewPersonText = "");
+
+    private void EditorNewLocation_KeyDown(object sender, KeyEventArgs e)
+        => HandleModalChipInput(sender, e, _vm.AddEditorLocation, () => _vm.Editor.NewLocationText = "");
+
+    private static void HandleModalChipInput(
+        object sender,
+        KeyEventArgs e,
+        Action<string> addAction,
+        Action clearVmText)
     {
         if (e.Key != Key.Enter || sender is not TextBox box) return;
 
-        _vm.AddEditorTag(box.Text);
-        _vm.Editor.NewTagText = "";
+        addAction(box.Text);
+        clearVmText();
         box.Clear();
         e.Handled = true;
     }
 
-    /// <summary>弹窗里回车 = 保存；备注里回车还是换行。</summary>
+    /// <summary>弹窗里回车 = 保存；备注或新建胶囊框里回车不直接提交表单。</summary>
     private void Editor_KeyDown(object sender, KeyEventArgs e)
     {
         if (e.Key != Key.Enter) return;
-        if (Keyboard.FocusedElement is TextBox { AcceptsReturn: true }) return;
+        if (Keyboard.FocusedElement is TextBox tb &&
+            (tb.AcceptsReturn || tb.Name is "EditorNewTag" or "EditorNewPerson" or "EditorNewLocation"))
+            return;
 
         _vm.SaveEditor();
         e.Handled = true;
@@ -2872,7 +2981,9 @@ public partial class MainWindow : Window
     private void PresetManager_KeyDown(object sender, KeyEventArgs e)
     {
         if (e.Key != Key.Enter) return;
-        if (Keyboard.FocusedElement is TextBox tb && Equals(tb.Name, "PresetNewTag")) return;
+        if (Keyboard.FocusedElement is TextBox tb &&
+            tb.Name is "PresetNewTag" or "PresetNewPerson" or "PresetNewLocation")
+            return;
         _vm.SavePreset();
         e.Handled = true;
     }
@@ -2899,14 +3010,13 @@ public partial class MainWindow : Window
         => HandleRemindChipClick(sender, _vm.PresetManager.ToggleRemindNode);
 
     private void PresetNewTag_KeyDown(object sender, KeyEventArgs e)
-    {
-        if (e.Key != Key.Enter || sender is not TextBox box) return;
+        => HandleModalChipInput(sender, e, _vm.AddPresetManagerTag, () => _vm.PresetManager.NewTagText = "");
 
-        _vm.AddPresetManagerTag(box.Text);
-        _vm.PresetManager.NewTagText = "";
-        box.Clear();
-        e.Handled = true;
-    }
+    private void PresetNewPerson_KeyDown(object sender, KeyEventArgs e)
+        => HandleModalChipInput(sender, e, _vm.AddPresetManagerPerson, () => _vm.PresetManager.NewPersonText = "");
+
+    private void PresetNewLocation_KeyDown(object sender, KeyEventArgs e)
+        => HandleModalChipInput(sender, e, _vm.AddPresetManagerLocation, () => _vm.PresetManager.NewLocationText = "");
 
     private void PresetSave_Click(object sender, RoutedEventArgs e) => _vm.SavePreset();
 
@@ -3658,6 +3768,8 @@ public partial class MainWindow : Window
     {
         if (_pressedCard is not null) Motion.AnimateScale(_pressedCard, 1.0, Motion.S);
         if (_pressedTagCard is not null) Motion.AnimateScale(_pressedTagCard, 1.0, Motion.S);
+        if (_pressedPersonCard is not null) Motion.AnimateScale(_pressedPersonCard, 1.0, Motion.S);
+        if (_pressedLocationCard is not null) Motion.AnimateScale(_pressedLocationCard, 1.0, Motion.S);
         if (_pressedGoalPageCard is not null) Motion.AnimateScale(_pressedGoalPageCard, 1.0, Motion.S);
         if (_pressedPresetElement is not null) Motion.AnimateScale(_pressedPresetElement, 1.0, Motion.S);
         if (_pressedBlockElement is not null) Motion.AnimateScale(_pressedBlockElement, 1.0, Motion.S);

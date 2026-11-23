@@ -40,6 +40,8 @@ public static class SyncMergeEngine
 
         foreach (var g in remote.Goals ?? Enumerable.Empty<GoalDto>()) TrackRemote(g.Hlc, g.FieldHlcs);
         foreach (var t in remote.Tags ?? Enumerable.Empty<TagDto>()) TrackRemote(t.Hlc, t.FieldHlcs);
+        foreach (var p in remote.Persons ?? Enumerable.Empty<PersonDto>()) TrackRemote(p.Hlc, p.FieldHlcs);
+        foreach (var l in remote.Locations ?? Enumerable.Empty<LocationDto>()) TrackRemote(l.Hlc, l.FieldHlcs);
         foreach (var s in remote.Schedules ?? Enumerable.Empty<ScheduleDto>()) TrackRemote(s.Hlc, s.FieldHlcs);
         if (remote.Presets is not null)
             foreach (var p in remote.Presets) TrackRemote(p.Hlc, p.FieldHlcs);
@@ -72,6 +74,34 @@ public static class SyncMergeEngine
             StoreFile.CloneTagDto,
             ref updatedCount);
 
+        var mergedPersons = MergeCollection(
+            local.Persons,
+            remote.Persons,
+            p => p.Id,
+            p => p.Del,
+            p => p.Hlc,
+            p => p.FieldHlcs,
+            StoreFile.PersonFields,
+            StoreFile.PersonFieldEquals,
+            CopyPersonField,
+            SetPersonHlc,
+            StoreFile.ClonePersonDto,
+            ref updatedCount);
+
+        var mergedLocations = MergeCollection(
+            local.Locations,
+            remote.Locations,
+            l => l.Id,
+            l => l.Del,
+            l => l.Hlc,
+            l => l.FieldHlcs,
+            StoreFile.LocationFields,
+            StoreFile.LocationFieldEquals,
+            CopyLocationField,
+            SetLocationHlc,
+            StoreFile.CloneLocationDto,
+            ref updatedCount);
+
         var mergedSchedules = MergeSchedules(
             local.Schedules,
             remote.Schedules,
@@ -100,6 +130,8 @@ public static class SyncMergeEngine
             Version = Math.Max(local.Version, remote.Version),
             Goals = mergedGoals,
             Tags = mergedTags,
+            Persons = mergedPersons,
+            Locations = mergedLocations,
             Schedules = mergedSchedules,
             Presets = mergedPresets
         };
@@ -417,6 +449,12 @@ public static class SyncMergeEngine
             case "tags":
                 dst.TagIds = (src.TagIds ?? new()).ToList();
                 break;
+            case "persons":
+                dst.PersonIds = (src.PersonIds ?? new()).ToList();
+                break;
+            case "locations":
+                dst.LocationIds = (src.LocationIds ?? new()).ToList();
+                break;
             case "order": dst.Order = src.Order; break;
         }
     }
@@ -465,6 +503,34 @@ public static class SyncMergeEngine
         t.FieldHlcs = fieldHlcs;
     }
 
+    private static void CopyPersonField(PersonDto src, PersonDto dst, string field)
+    {
+        switch (field)
+        {
+            case "name": dst.Name = src.Name; break;
+        }
+    }
+
+    private static void SetPersonHlc(PersonDto p, string hlc, Dictionary<string, string> fieldHlcs)
+    {
+        p.Hlc = hlc;
+        p.FieldHlcs = fieldHlcs;
+    }
+
+    private static void CopyLocationField(LocationDto src, LocationDto dst, string field)
+    {
+        switch (field)
+        {
+            case "name": dst.Name = src.Name; break;
+        }
+    }
+
+    private static void SetLocationHlc(LocationDto l, string hlc, Dictionary<string, string> fieldHlcs)
+    {
+        l.Hlc = hlc;
+        l.FieldHlcs = fieldHlcs;
+    }
+
     private static void CopyPresetField(PresetDto src, PresetDto dst, string field)
     {
         switch (field)
@@ -480,6 +546,12 @@ public static class SyncMergeEngine
                 break;
             case "tags":
                 dst.TagIds = (src.TagIds ?? new()).ToList();
+                break;
+            case "persons":
+                dst.PersonIds = (src.PersonIds ?? new()).ToList();
+                break;
+            case "locations":
+                dst.LocationIds = (src.LocationIds ?? new()).ToList();
                 break;
         }
     }

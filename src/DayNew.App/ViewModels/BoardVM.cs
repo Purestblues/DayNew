@@ -3,6 +3,13 @@ using DayNew.Core;
 
 namespace DayNew.ViewModels;
 
+public enum TagPageTab
+{
+    Tags,
+    Persons,
+    Locations
+}
+
 /// <summary>标签页的一行：标签名 + 用了多少次。</summary>
 public sealed class TagRowVM
 {
@@ -20,6 +27,42 @@ public sealed class TagRowVM
     public string CountText => Count == 0 ? "" : $"{Count} 条日程";
 
     public override string ToString() => Tag.Name;
+}
+
+/// <summary>人物卡片：人物实体 + 关联日程数。</summary>
+public sealed class PersonRowVM
+{
+    public PersonRowVM(PersonVM person, int count)
+    {
+        Person = person;
+        Count = count;
+    }
+
+    public PersonVM Person { get; }
+
+    public int Count { get; }
+
+    public string CountText => Count == 0 ? "暂无关联日程" : $"{Count} 条日程";
+
+    public override string ToString() => Person.Name;
+}
+
+/// <summary>地点卡片：地点实体 + 关联日程数。</summary>
+public sealed class LocationRowVM
+{
+    public LocationRowVM(LocationVM location, int count)
+    {
+        Location = location;
+        Count = count;
+    }
+
+    public LocationVM Location { get; }
+
+    public int Count { get; }
+
+    public string CountText => Count == 0 ? "暂无关联日程" : $"{Count} 条日程";
+
+    public override string ToString() => Location.Name;
 }
 
 /// <summary>标签详情弹窗里按日划分的一条纵向日期列。</summary>

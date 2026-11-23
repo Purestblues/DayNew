@@ -193,10 +193,12 @@ public sealed class StoreFile
 
     internal static readonly string[] GoalFields = { "title", "color", "isCompleted", "due", "tree" };
     internal static readonly string[] TagFields = { "name", "color" };
+    internal static readonly string[] PersonFields = { "name" };
+    internal static readonly string[] LocationFields = { "name" };
     internal static readonly string[] ScheduleFields =
-        { "title", "note", "due", "time", "repeat", "remind", "done", "flags", "goals", "tags", "order" };
+        { "title", "note", "due", "time", "repeat", "remind", "done", "flags", "goals", "tags", "persons", "locations", "order" };
     internal static readonly string[] PresetFields =
-        { "title", "duration", "remind", "note", "flags", "goals", "tags" };
+        { "title", "duration", "remind", "note", "flags", "goals", "tags", "persons", "locations" };
 
     public static StoreDto ToDto(DayStore store)
     {
@@ -229,6 +231,36 @@ public sealed class StoreFile
             tags.Add(raw);
         }
         PruneAndAppendTombstones(store.DeletedTags, activeTagIds, tags, t => t.Id, CloneTagDto);
+
+        var persons = new List<PersonDto>(store.Persons.Count + store.DeletedPersons.Count);
+        var activePersonIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var p in store.Persons)
+        {
+            activePersonIds.Add(p.Id);
+            var raw = BuildRawPersonDto(p);
+            store.BaselinePersons.TryGetValue(p.Id, out var baseline);
+            StampChanges(raw, baseline, PersonFields, PersonFieldEquals,
+                hlc => p.Hlc = hlc,
+                hlcs => p.FieldHlcs = hlcs);
+            store.BaselinePersons[p.Id] = ClonePersonDto(raw);
+            persons.Add(raw);
+        }
+        PruneAndAppendTombstones(store.DeletedPersons, activePersonIds, persons, p => p.Id, ClonePersonDto);
+
+        var locations = new List<LocationDto>(store.Locations.Count + store.DeletedLocations.Count);
+        var activeLocationIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var l in store.Locations)
+        {
+            activeLocationIds.Add(l.Id);
+            var raw = BuildRawLocationDto(l);
+            store.BaselineLocations.TryGetValue(l.Id, out var baseline);
+            StampChanges(raw, baseline, LocationFields, LocationFieldEquals,
+                hlc => l.Hlc = hlc,
+                hlcs => l.FieldHlcs = hlcs);
+            store.BaselineLocations[l.Id] = CloneLocationDto(raw);
+            locations.Add(raw);
+        }
+        PruneAndAppendTombstones(store.DeletedLocations, activeLocationIds, locations, l => l.Id, CloneLocationDto);
 
         var schedules = new List<ScheduleDto>(store.Schedules.Count + store.DeletedSchedules.Count);
         var activeScheduleIds = new HashSet<string>(StringComparer.Ordinal);
@@ -265,6 +297,8 @@ public sealed class StoreFile
             Version = 1,
             Goals = goals,
             Tags = tags,
+            Persons = persons,
+            Locations = locations,
             Schedules = schedules,
             Presets = presets
         };
@@ -312,6 +346,24 @@ public sealed class StoreFile
         FieldHlcs = new Dictionary<string, string>(t.FieldHlcs, StringComparer.Ordinal)
     };
 
+    internal static PersonDto BuildRawPersonDto(PersonVM p) => new()
+    {
+        Id = p.Id,
+        Name = p.Name,
+        Hlc = p.Hlc,
+        Del = false,
+        FieldHlcs = new Dictionary<string, string>(p.FieldHlcs, StringComparer.Ordinal)
+    };
+
+    internal static LocationDto BuildRawLocationDto(LocationVM l) => new()
+    {
+        Id = l.Id,
+        Name = l.Name,
+        Hlc = l.Hlc,
+        Del = false,
+        FieldHlcs = new Dictionary<string, string>(l.FieldHlcs, StringComparer.Ordinal)
+    };
+
     internal static ScheduleDto BuildRawScheduleDto(TaskVM s) => new()
     {
         Id = s.Id,
@@ -332,6 +384,8 @@ public sealed class StoreFile
             NodeId = b.Node?.Id
         }).ToList(),
         TagIds = s.Tags.Select(t => t.Id).ToList(),
+        PersonIds = s.Persons.Select(p => p.Id).ToList(),
+        LocationIds = s.Locations.Select(l => l.Id).ToList(),
         Order = s.Order,
         Hlc = s.Hlc,
         Del = false,
@@ -354,6 +408,8 @@ public sealed class StoreFile
             NodeId = b.Node?.Id
         }).ToList(),
         TagIds = p.Tags.Select(t => t.Id).ToList(),
+        PersonIds = p.Persons.Select(person => person.Id).ToList(),
+        LocationIds = p.Locations.Select(loc => loc.Id).ToList(),
         Hlc = p.Hlc,
         Del = false,
         FieldHlcs = new Dictionary<string, string>(p.FieldHlcs, StringComparer.Ordinal)
@@ -363,14 +419,20 @@ public sealed class StoreFile
     {
         store.Goals.Clear();
         store.Tags.Clear();
+        store.Persons.Clear();
+        store.Locations.Clear();
         store.Schedules.Clear();
         store.Presets.Clear();
         store.DeletedGoals.Clear();
         store.DeletedTags.Clear();
+        store.DeletedPersons.Clear();
+        store.DeletedLocations.Clear();
         store.DeletedSchedules.Clear();
         store.DeletedPresets.Clear();
         store.BaselineGoals.Clear();
         store.BaselineTags.Clear();
+        store.BaselinePersons.Clear();
+        store.BaselineLocations.Clear();
         store.BaselineSchedules.Clear();
         store.BaselinePresets.Clear();
         store.HasLoadedPresets = dto.Presets is not null;
@@ -476,6 +538,38 @@ public sealed class StoreFile
             tagIndex++;
         }
 
+        foreach (var p in dto.Persons ?? Enumerable.Empty<PersonDto>())
+        {
+            ObserveHlc(p.Hlc, p.FieldHlcs);
+            if (p.Del)
+            {
+                DayStore.UpsertTombstone(store.DeletedPersons, ClonePersonDto(p), x => x.Id);
+                continue;
+            }
+
+            store.Persons.Add(new PersonVM(p.Name, string.IsNullOrEmpty(p.Id) ? null : p.Id)
+            {
+                Hlc = p.Hlc ?? "",
+                FieldHlcs = CopyFieldHlcs(p.FieldHlcs)
+            });
+        }
+
+        foreach (var l in dto.Locations ?? Enumerable.Empty<LocationDto>())
+        {
+            ObserveHlc(l.Hlc, l.FieldHlcs);
+            if (l.Del)
+            {
+                DayStore.UpsertTombstone(store.DeletedLocations, CloneLocationDto(l), x => x.Id);
+                continue;
+            }
+
+            store.Locations.Add(new LocationVM(l.Name, string.IsNullOrEmpty(l.Id) ? null : l.Id)
+            {
+                Hlc = l.Hlc ?? "",
+                FieldHlcs = CopyFieldHlcs(l.FieldHlcs)
+            });
+        }
+
         var goalById = new Dictionary<string, GoalVM>(StringComparer.Ordinal);
         foreach (var g in store.Goals)
             goalById[g.Id] = g;
@@ -483,6 +577,14 @@ public sealed class StoreFile
         var tagById = new Dictionary<string, TagVM>(StringComparer.Ordinal);
         foreach (var t in store.Tags)
             tagById[t.Id] = t;
+
+        var personById = new Dictionary<string, PersonVM>(StringComparer.Ordinal);
+        foreach (var p in store.Persons)
+            personById[p.Id] = p;
+
+        var locationById = new Dictionary<string, LocationVM>(StringComparer.Ordinal);
+        foreach (var l in store.Locations)
+            locationById[l.Id] = l;
 
         // 旧文件里所有标签都是同一个颜色（当时还没有可选色），这种“全是同色”就当成未分配，按顺序补色
         if (store.Tags.Count > 1)
@@ -530,6 +632,16 @@ public sealed class StoreFile
                     if (tagById.TryGetValue(tagId, out var tag) && !schedule.Tags.Contains(tag))
                         schedule.Tags.Add(tag);
 
+            if (d.PersonIds is not null)
+                foreach (var personId in d.PersonIds)
+                    if (personById.TryGetValue(personId, out var person) && !schedule.Persons.Contains(person))
+                        schedule.Persons.Add(person);
+
+            if (d.LocationIds is not null)
+                foreach (var locationId in d.LocationIds)
+                    if (locationById.TryGetValue(locationId, out var location) && !schedule.Locations.Contains(location))
+                        schedule.Locations.Add(location);
+
             store.Schedules.Add(schedule);
         }
 
@@ -564,6 +676,16 @@ public sealed class StoreFile
                         if (tagById.TryGetValue(tagId, out var tag) && !preset.Tags.Contains(tag))
                             preset.Tags.Add(tag);
 
+                if (p.PersonIds is not null)
+                    foreach (var personId in p.PersonIds)
+                        if (personById.TryGetValue(personId, out var person) && !preset.Persons.Contains(person))
+                            preset.Persons.Add(person);
+
+                if (p.LocationIds is not null)
+                    foreach (var locationId in p.LocationIds)
+                        if (locationById.TryGetValue(locationId, out var location) && !preset.Locations.Contains(location))
+                            preset.Locations.Add(location);
+
                 store.Presets.Add(preset);
             }
         }
@@ -575,6 +697,8 @@ public sealed class StoreFile
     {
         foreach (var g in store.Goals) store.BaselineGoals[g.Id] = BuildRawGoalDto(g);
         foreach (var t in store.Tags) store.BaselineTags[t.Id] = BuildRawTagDto(t);
+        foreach (var p in store.Persons) store.BaselinePersons[p.Id] = BuildRawPersonDto(p);
+        foreach (var l in store.Locations) store.BaselineLocations[l.Id] = BuildRawLocationDto(l);
         foreach (var s in store.Schedules) store.BaselineSchedules[s.Id] = BuildRawScheduleDto(s);
         foreach (var p in store.Presets) store.BaselinePresets[p.Id] = BuildRawPresetDto(p);
     }
@@ -643,6 +767,8 @@ public sealed class StoreFile
     {
         GoalDto g => g.FieldHlcs ??= new Dictionary<string, string>(StringComparer.Ordinal),
         TagDto t => t.FieldHlcs ??= new Dictionary<string, string>(StringComparer.Ordinal),
+        PersonDto p => p.FieldHlcs ??= new Dictionary<string, string>(StringComparer.Ordinal),
+        LocationDto l => l.FieldHlcs ??= new Dictionary<string, string>(StringComparer.Ordinal),
         ScheduleDto s => s.FieldHlcs ??= new Dictionary<string, string>(StringComparer.Ordinal),
         PresetDto p => p.FieldHlcs ??= new Dictionary<string, string>(StringComparer.Ordinal),
         _ => new Dictionary<string, string>(StringComparer.Ordinal)
@@ -652,6 +778,8 @@ public sealed class StoreFile
     {
         GoalDto g => g.Hlc,
         TagDto t => t.Hlc,
+        PersonDto p => p.Hlc,
+        LocationDto l => l.Hlc,
         ScheduleDto s => s.Hlc,
         PresetDto p => p.Hlc,
         _ => ""
@@ -663,6 +791,8 @@ public sealed class StoreFile
         {
             case GoalDto g: g.Hlc = hlc; break;
             case TagDto t: t.Hlc = hlc; break;
+            case PersonDto p: p.Hlc = hlc; break;
+            case LocationDto l: l.Hlc = hlc; break;
             case ScheduleDto s: s.Hlc = hlc; break;
             case PresetDto p: p.Hlc = hlc; break;
         }
@@ -707,6 +837,18 @@ public sealed class StoreFile
         _ => true
     };
 
+    internal static bool PersonFieldEquals(PersonDto a, PersonDto b, string field) => field switch
+    {
+        "name" => a.Name == b.Name,
+        _ => true
+    };
+
+    internal static bool LocationFieldEquals(LocationDto a, LocationDto b, string field) => field switch
+    {
+        "name" => a.Name == b.Name,
+        _ => true
+    };
+
     internal static bool ScheduleFieldEquals(ScheduleDto a, ScheduleDto b, string field) => field switch
     {
         "title" => a.Title == b.Title,
@@ -719,6 +861,8 @@ public sealed class StoreFile
         "flags" => a.Urgent == b.Urgent && a.Important == b.Important,
         "goals" => a.GoalId == b.GoalId && GoalRefsEqual(a.GoalRefs, b.GoalRefs),
         "tags" => StringListEqual(a.TagIds, b.TagIds),
+        "persons" => StringListEqual(a.PersonIds, b.PersonIds),
+        "locations" => StringListEqual(a.LocationIds, b.LocationIds),
         "order" => a.Order == b.Order,
         _ => true
     };
@@ -732,6 +876,8 @@ public sealed class StoreFile
         "flags" => a.Urgent == b.Urgent && a.Important == b.Important,
         "goals" => a.GoalId == b.GoalId && GoalRefsEqual(a.GoalRefs, b.GoalRefs),
         "tags" => StringListEqual(a.TagIds, b.TagIds),
+        "persons" => StringListEqual(a.PersonIds, b.PersonIds),
+        "locations" => StringListEqual(a.LocationIds, b.LocationIds),
         _ => true
     };
 
@@ -843,6 +989,24 @@ public sealed class StoreFile
         FieldHlcs = CopyFieldHlcs(t.FieldHlcs)
     };
 
+    internal static PersonDto ClonePersonDto(PersonDto p) => new()
+    {
+        Id = p.Id,
+        Name = p.Name,
+        Hlc = p.Hlc,
+        Del = p.Del,
+        FieldHlcs = CopyFieldHlcs(p.FieldHlcs)
+    };
+
+    internal static LocationDto CloneLocationDto(LocationDto l) => new()
+    {
+        Id = l.Id,
+        Name = l.Name,
+        Hlc = l.Hlc,
+        Del = l.Del,
+        FieldHlcs = CopyFieldHlcs(l.FieldHlcs)
+    };
+
     internal static ScheduleDto CloneScheduleDto(ScheduleDto s) => new()
     {
         Id = s.Id,
@@ -859,6 +1023,8 @@ public sealed class StoreFile
         GoalId = s.GoalId,
         GoalRefs = (s.GoalRefs ?? new()).Select(r => new GoalRefDto { GoalId = r.GoalId, NodeId = r.NodeId }).ToList(),
         TagIds = (s.TagIds ?? new()).ToList(),
+        PersonIds = (s.PersonIds ?? new()).ToList(),
+        LocationIds = (s.LocationIds ?? new()).ToList(),
         Order = s.Order,
         Hlc = s.Hlc,
         Del = s.Del,
@@ -877,6 +1043,8 @@ public sealed class StoreFile
         GoalId = p.GoalId,
         GoalRefs = (p.GoalRefs ?? new()).Select(r => new GoalRefDto { GoalId = r.GoalId, NodeId = r.NodeId }).ToList(),
         TagIds = (p.TagIds ?? new()).ToList(),
+        PersonIds = (p.PersonIds ?? new()).ToList(),
+        LocationIds = (p.LocationIds ?? new()).ToList(),
         Hlc = p.Hlc,
         Del = p.Del,
         FieldHlcs = CopyFieldHlcs(p.FieldHlcs)
@@ -929,6 +1097,8 @@ public sealed class StoreFile
             Version = Math.Max(current.Version, incoming.Version),
             Goals = MergeListById(current.Goals, incoming.Goals, g => g.Id),
             Tags = MergeListById(current.Tags, incoming.Tags, t => t.Id),
+            Persons = MergeListById(current.Persons, incoming.Persons, p => p.Id),
+            Locations = MergeListById(current.Locations, incoming.Locations, l => l.Id),
             Schedules = MergeListById(current.Schedules, incoming.Schedules, s => s.Id),
             Presets = mergedPresets
         };

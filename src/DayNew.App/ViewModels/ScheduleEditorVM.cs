@@ -4,10 +4,32 @@ using DayNew.Core;
 
 namespace DayNew.ViewModels;
 
+public interface IFilterablePick
+{
+    string Name { get; }
+    bool IsSelected { get; set; }
+    bool IsVisible { get; set; }
+}
+
+internal static class PickFilterHelper
+{
+    public static void Apply<T>(IEnumerable<T> picks, string? query, char? stripLeading = null)
+        where T : IFilterablePick
+    {
+        var trimmed = (query ?? "").Trim();
+        if (stripLeading is { } ch) trimmed = trimmed.TrimStart(ch);
+
+        foreach (var pick in picks)
+            pick.IsVisible = trimmed.Length == 0 || pick.IsSelected ||
+                             pick.Name.Contains(trimmed, StringComparison.OrdinalIgnoreCase);
+    }
+}
+
 /// <summary>弹窗里的一枚标签：勾上就挂到日程上。</summary>
-public sealed class TagPickVM : ObservableObject
+public sealed class TagPickVM : ObservableObject, IFilterablePick
 {
     private bool _isSelected;
+    private bool _isVisible = true;
 
     public TagPickVM(TagVM tag, bool selected)
     {
@@ -28,6 +50,78 @@ public sealed class TagPickVM : ObservableObject
     {
         get => _isSelected;
         set => Set(ref _isSelected, value);
+    }
+
+    public bool IsVisible
+    {
+        get => _isVisible;
+        set => Set(ref _isVisible, value);
+    }
+
+    public override string ToString() => Name;
+}
+
+/// <summary>弹窗里的一枚人物胶囊：勾上就挂到日程上。</summary>
+public sealed class PersonPickVM : ObservableObject, IFilterablePick
+{
+    private bool _isSelected;
+    private bool _isVisible = true;
+
+    public PersonPickVM(PersonVM person, bool selected)
+    {
+        Person = person;
+        _isSelected = selected;
+    }
+
+    public bool IsProvisional { get; init; }
+
+    public PersonVM Person { get; }
+
+    public string Name => Person.Name;
+
+    public bool IsSelected
+    {
+        get => _isSelected;
+        set => Set(ref _isSelected, value);
+    }
+
+    public bool IsVisible
+    {
+        get => _isVisible;
+        set => Set(ref _isVisible, value);
+    }
+
+    public override string ToString() => Name;
+}
+
+/// <summary>弹窗里的一枚地点胶囊：勾上就挂到日程上。</summary>
+public sealed class LocationPickVM : ObservableObject, IFilterablePick
+{
+    private bool _isSelected;
+    private bool _isVisible = true;
+
+    public LocationPickVM(LocationVM location, bool selected)
+    {
+        Location = location;
+        _isSelected = selected;
+    }
+
+    public bool IsProvisional { get; init; }
+
+    public LocationVM Location { get; }
+
+    public string Name => Location.Name;
+
+    public bool IsSelected
+    {
+        get => _isSelected;
+        set => Set(ref _isSelected, value);
+    }
+
+    public bool IsVisible
+    {
+        get => _isVisible;
+        set => Set(ref _isVisible, value);
     }
 
     public override string ToString() => Name;
@@ -205,6 +299,10 @@ public sealed class ScheduleEditorVM : ObservableObject
 
     public ObservableCollection<TagPickVM> TagPicks { get; } = new();
 
+    public ObservableCollection<PersonPickVM> PersonPicks { get; } = new();
+
+    public ObservableCollection<LocationPickVM> LocationPicks { get; } = new();
+
     public ObservableCollection<GoalPickVM> GoalPicks { get; } = new();
 
     public IReadOnlyList<GoalChipVM> SelectedGoalChips => _goalDraft.BuildPreviewChips();
@@ -225,6 +323,8 @@ public sealed class ScheduleEditorVM : ObservableObject
     private string _hintText = "";
     private string _errorText = "";
     private string _newTagText = "";
+    private string _newPersonText = "";
+    private string _newLocationText = "";
 
     public string Title
     {
@@ -351,7 +451,31 @@ public sealed class ScheduleEditorVM : ObservableObject
     public string NewTagText
     {
         get => _newTagText;
-        set => Set(ref _newTagText, value);
+        set
+        {
+            if (Set(ref _newTagText, value))
+                PickFilterHelper.Apply(TagPicks, value, '#');
+        }
+    }
+
+    public string NewPersonText
+    {
+        get => _newPersonText;
+        set
+        {
+            if (Set(ref _newPersonText, value))
+                PickFilterHelper.Apply(PersonPicks, value, '@');
+        }
+    }
+
+    public string NewLocationText
+    {
+        get => _newLocationText;
+        set
+        {
+            if (Set(ref _newLocationText, value))
+                PickFilterHelper.Apply(LocationPicks, value);
+        }
     }
 
     /// <summary>「不重复」用一个内部值 none，实体里还是空字符串。</summary>
@@ -374,7 +498,7 @@ public sealed class ScheduleEditorVM : ObservableObject
         _startText = Clock(startMinutes);
         _endText = Clock(endMinutes);
 
-        BuildPicks(Array.Empty<TagVM>(), Array.Empty<GoalBindingVM>());
+        BuildPicks(Array.Empty<TagVM>(), Array.Empty<PersonVM>(), Array.Empty<LocationVM>(), Array.Empty<GoalBindingVM>());
         RaiseAll();
         _owner.RefreshEditorHint();
     }
@@ -388,7 +512,7 @@ public sealed class ScheduleEditorVM : ObservableObject
         _startText = "09:00";
         _endText = "09:30";
 
-        BuildPicks(Array.Empty<TagVM>(), Array.Empty<GoalBindingVM>());
+        BuildPicks(Array.Empty<TagVM>(), Array.Empty<PersonVM>(), Array.Empty<LocationVM>(), Array.Empty<GoalBindingVM>());
         RaiseAll();
         _owner.RefreshEditorHint();
     }
@@ -402,7 +526,7 @@ public sealed class ScheduleEditorVM : ObservableObject
         _startText = "09:00";
         _endText = "09:30";
 
-        BuildPicks(Array.Empty<TagVM>(), Array.Empty<GoalBindingVM>());
+        BuildPicks(Array.Empty<TagVM>(), Array.Empty<PersonVM>(), Array.Empty<LocationVM>(), Array.Empty<GoalBindingVM>());
         RaiseAll();
         _owner.RefreshEditorHint();
     }
@@ -417,6 +541,8 @@ public sealed class ScheduleEditorVM : ObservableObject
         _isUrgent = false;
         _isImportant = false;
         _newTagText = "";
+        _newPersonText = "";
+        _newLocationText = "";
         _hintText = "";
         _errorText = "";
     }
@@ -431,6 +557,8 @@ public sealed class ScheduleEditorVM : ObservableObject
         _isUrgent = task.IsUrgent;
         _isImportant = task.IsImportant;
         _newTagText = "";
+        _newPersonText = "";
+        _newLocationText = "";
         _hintText = "";
         _errorText = "";
         _hasDue = task.Due.HasValue;
@@ -451,7 +579,7 @@ public sealed class ScheduleEditorVM : ObservableObject
             _endText = "09:30";
         }
 
-        BuildPicks(task.Tags, task.GoalBindings);
+        BuildPicks(task.Tags, task.Persons, task.Locations, task.GoalBindings);
         RaiseAll();
         _owner.RefreshEditorHint();
     }
@@ -487,10 +615,26 @@ public sealed class ScheduleEditorVM : ObservableObject
 
     public IEnumerable<TagPickVM> SelectedTagPicks => TagPicks.Where(p => p.IsSelected);
 
+    public IEnumerable<PersonPickVM> SelectedPersonPicks => PersonPicks.Where(p => p.IsSelected);
+
+    public IEnumerable<LocationPickVM> SelectedLocationPicks => LocationPicks.Where(p => p.IsSelected);
+
     public void AddTagPick(TagPickVM pick)
     {
         TagPicks.Add(pick);
         OnPropertyChanged(nameof(TagPicks));
+    }
+
+    public void AddPersonPick(PersonPickVM pick)
+    {
+        PersonPicks.Add(pick);
+        OnPropertyChanged(nameof(PersonPicks));
+    }
+
+    public void AddLocationPick(LocationPickVM pick)
+    {
+        LocationPicks.Add(pick);
+        OnPropertyChanged(nameof(LocationPicks));
     }
 
     public void SetHint(string text) => HintText = text;
@@ -513,11 +657,23 @@ public sealed class ScheduleEditorVM : ObservableObject
 
     // ---------------- 内部 ----------------
 
-    private void BuildPicks(IList<TagVM> selectedTags, IEnumerable<GoalBindingVM> selectedGoals)
+    private void BuildPicks(
+        IList<TagVM> selectedTags,
+        IList<PersonVM> selectedPersons,
+        IList<LocationVM> selectedLocations,
+        IEnumerable<GoalBindingVM> selectedGoals)
     {
         TagPicks.Clear();
         foreach (var tag in _owner.Tags)
             TagPicks.Add(new TagPickVM(tag, selectedTags.Contains(tag)));
+
+        PersonPicks.Clear();
+        foreach (var person in _owner.Persons)
+            PersonPicks.Add(new PersonPickVM(person, selectedPersons.Contains(person)));
+
+        LocationPicks.Clear();
+        foreach (var location in _owner.Locations)
+            LocationPicks.Add(new LocationPickVM(location, selectedLocations.Contains(location)));
 
         _goalDraft.Reset(selectedGoals, _owner.ActiveGoals, GoalPicks);
     }
@@ -550,7 +706,11 @@ public sealed class ScheduleEditorVM : ObservableObject
         OnPropertyChanged(nameof(HintText));
         OnPropertyChanged(nameof(ErrorText));
         OnPropertyChanged(nameof(NewTagText));
+        OnPropertyChanged(nameof(NewPersonText));
+        OnPropertyChanged(nameof(NewLocationText));
         OnPropertyChanged(nameof(TagPicks));
+        OnPropertyChanged(nameof(PersonPicks));
+        OnPropertyChanged(nameof(LocationPicks));
         OnPropertyChanged(nameof(GoalPicks));
         RaiseGoalSelectionChanged();
     }

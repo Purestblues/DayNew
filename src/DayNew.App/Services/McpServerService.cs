@@ -450,6 +450,8 @@ public sealed class McpServerService : IDisposable
         DateTime? dateFrom = ParseOptionalDate(TryGetString(args, "dateFrom"));
         DateTime? dateTo = ParseOptionalDate(TryGetString(args, "dateTo"));
         var tagFilter = TryGetString(args, "tag");
+        var personFilter = TryGetString(args, "person");
+        var locationFilter = TryGetString(args, "location");
         var goalIdFilter = TryGetString(args, "goalId");
         var doneFilter = TryGetBool(args, "done");
         var urgentFilter = TryGetBool(args, "urgent");
@@ -474,6 +476,20 @@ public sealed class McpServerService : IDisposable
                 string.Equals(tg.Id, tagFilter, StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(tg.Name, trimmed, StringComparison.OrdinalIgnoreCase)));
         }
+        if (!string.IsNullOrWhiteSpace(personFilter))
+        {
+            var trimmed = personFilter.Trim().TrimStart('@');
+            query = query.Where(t => t.Persons.Any(p =>
+                string.Equals(p.Id, personFilter, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(p.Name, trimmed, StringComparison.OrdinalIgnoreCase)));
+        }
+        if (!string.IsNullOrWhiteSpace(locationFilter))
+        {
+            var trimmed = locationFilter.Trim();
+            query = query.Where(t => t.Locations.Any(l =>
+                string.Equals(l.Id, locationFilter, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(l.Name, trimmed, StringComparison.OrdinalIgnoreCase)));
+        }
         if (!string.IsNullOrWhiteSpace(goalIdFilter))
             query = query.Where(t => t.GoalBindings.Any(b => string.Equals(b.Goal.Id, goalIdFilter, StringComparison.Ordinal)));
         if (doneFilter.HasValue)
@@ -487,7 +503,9 @@ public sealed class McpServerService : IDisposable
             var kw = keyword.Trim();
             query = query.Where(t =>
                 t.Title.Contains(kw, StringComparison.OrdinalIgnoreCase) ||
-                t.Note.Contains(kw, StringComparison.OrdinalIgnoreCase));
+                t.Note.Contains(kw, StringComparison.OrdinalIgnoreCase) ||
+                t.Persons.Any(p => p.Name.Contains(kw, StringComparison.OrdinalIgnoreCase)) ||
+                t.Locations.Any(l => l.Name.Contains(kw, StringComparison.OrdinalIgnoreCase)));
         }
 
         var matched = query.OrderBy(t => t.Due ?? DateTime.MaxValue)
@@ -529,6 +547,8 @@ public sealed class McpServerService : IDisposable
         var urgent = TryGetBool(args, "urgent") ?? false;
         var important = TryGetBool(args, "important") ?? false;
         var tagNames = TryGetStringArray(args, "tags");
+        var personNames = TryGetStringArray(args, "persons");
+        var locationNames = TryGetStringArray(args, "locations");
         var goalId = TryGetString(args, "goalId");
         var nodeId = TryGetString(args, "nodeId");
 
@@ -556,15 +576,9 @@ public sealed class McpServerService : IDisposable
                 s.SetGoalBindings(bindings);
         });
 
-        if (tagNames is not null)
-        {
-            foreach (var rawTag in tagNames)
-            {
-                var tag = _vm.Store.GetOrCreateTag(rawTag);
-                if (tag is not null && !created.Tags.Contains(tag))
-                    created.Tags.Add(tag);
-            }
-        }
+        ApplyNamedEntities(tagNames, created.Tags, _vm.Store.GetOrCreateTag);
+        ApplyNamedEntities(personNames, created.Persons, _vm.Store.GetOrCreatePerson);
+        ApplyNamedEntities(locationNames, created.Locations, _vm.Store.GetOrCreateLocation);
 
         _vm.Rebuild();
         _vm.NotifyTaskTouched(created);
@@ -646,12 +660,19 @@ public sealed class McpServerService : IDisposable
         if (TryGetStringArray(args, "tags") is { } tagNames)
         {
             task.Tags.Clear();
-            foreach (var rawTag in tagNames)
-            {
-                var tag = _vm.Store.GetOrCreateTag(rawTag);
-                if (tag is not null && !task.Tags.Contains(tag))
-                    task.Tags.Add(tag);
-            }
+            ApplyNamedEntities(tagNames, task.Tags, _vm.Store.GetOrCreateTag);
+        }
+
+        if (TryGetStringArray(args, "persons") is { } personNames)
+        {
+            task.Persons.Clear();
+            ApplyNamedEntities(personNames, task.Persons, _vm.Store.GetOrCreatePerson);
+        }
+
+        if (TryGetStringArray(args, "locations") is { } locationNames)
+        {
+            task.Locations.Clear();
+            ApplyNamedEntities(locationNames, task.Locations, _vm.Store.GetOrCreateLocation);
         }
 
         if (HasProp(args, "goalId"))
@@ -1017,6 +1038,20 @@ public sealed class McpServerService : IDisposable
         _ => "future"
     };
 
+    private static void ApplyNamedEntities<T>(
+        List<string>? names,
+        IList<T> target,
+        Func<string, T?> getOrCreate)
+    {
+        if (names is null) return;
+        foreach (var rawName in names)
+        {
+            var entity = getOrCreate(rawName);
+            if (entity is not null && !target.Contains(entity))
+                target.Add(entity);
+        }
+    }
+
     private static object SerializeSchedule(TaskVM t) => new
     {
         id = t.Id,
@@ -1032,6 +1067,8 @@ public sealed class McpServerService : IDisposable
         urgent = t.IsUrgent,
         important = t.IsImportant,
         tags = t.Tags.Select(tg => new { id = tg.Id, name = tg.Name }).ToList(),
+        persons = t.Persons.Select(p => new { id = p.Id, name = p.Name }).ToList(),
+        locations = t.Locations.Select(l => new { id = l.Id, name = l.Name }).ToList(),
         goals = t.GoalBindings.Select(b => new
         {
             goalId = b.Goal.Id,
@@ -1173,17 +1210,19 @@ public sealed class McpServerService : IDisposable
         new
         {
             name = "list_schedules",
-            description = "按日期区间、标签、目标、完成状态、紧急/重要标记或关键词检索日程。",
+            description = "按日期区间、标签、人物、地点、目标、完成状态、紧急/重要标记或关键词检索日程。",
             inputSchema = Schema(new
             {
                 dateFrom = new { type = "string", description = "起始日期 yyyy-MM-dd" },
                 dateTo = new { type = "string", description = "截止日期 yyyy-MM-dd" },
                 tag = new { type = "string", description = "标签名或 ID" },
+                person = new { type = "string", description = "人物名或 ID" },
+                location = new { type = "string", description = "地点名或 ID" },
                 goalId = new { type = "string", description = "目标 ID" },
                 done = new { type = "boolean", description = "按完成状态过滤" },
                 urgent = new { type = "boolean", description = "按是否紧急过滤" },
                 important = new { type = "boolean", description = "按是否重要过滤" },
-                keyword = new { type = "string", description = "标题或备注关键词" },
+                keyword = new { type = "string", description = "标题、备注、人物或地点关键词" },
                 includeUndated = new { type = "boolean", description = "是否包含无日期的未来事项（默认 true）" },
                 offset = new { type = "integer", description = "分页偏移" },
                 limit = new { type = "integer", description = "最大返回条数（1..500，默认 100）" }
@@ -1216,6 +1255,8 @@ public sealed class McpServerService : IDisposable
                 urgent = new { type = "boolean", description = "是否紧急" },
                 important = new { type = "boolean", description = "是否重要" },
                 tags = new { type = "array", items = new { type = "string" }, description = "标签名列表（不存在会自动创建）" },
+                persons = new { type = "array", items = new { type = "string" }, description = "人物名列表（不存在会自动创建）" },
+                locations = new { type = "array", items = new { type = "string" }, description = "地点名列表（不存在会自动创建）" },
                 goalId = new { type = "string", description = "关联目标 ID" },
                 nodeId = new { type = "string", description = "可选子目标节点 ID" }
             }, "title"),
@@ -1224,7 +1265,7 @@ public sealed class McpServerService : IDisposable
         new
         {
             name = "update_schedule",
-            description = "修改既有日程的标题、日期、时间（自动防冲突）、标签、目标、提醒、紧急重要或备注。",
+            description = "修改既有日程的标题、日期、时间（自动防冲突）、标签、人物、地点、目标、提醒、紧急重要或备注。",
             inputSchema = Schema(new
             {
                 id = new { type = "string", description = "日程 ID（必填）" },
@@ -1240,6 +1281,8 @@ public sealed class McpServerService : IDisposable
                 urgent = new { type = "boolean", description = "是否紧急" },
                 important = new { type = "boolean", description = "是否重要" },
                 tags = new { type = "array", items = new { type = "string" }, description = "覆盖为指定标签名列表" },
+                persons = new { type = "array", items = new { type = "string" }, description = "覆盖为指定人物名列表（不存在会自动创建）" },
+                locations = new { type = "array", items = new { type = "string" }, description = "覆盖为指定地点名列表（不存在会自动创建）" },
                 goalId = new { type = "string", description = "目标 ID（传空字符串解除目标）" },
                 nodeId = new { type = "string", description = "可选子目标节点 ID" }
             }, "id"),

@@ -78,6 +78,8 @@ public sealed class MainViewModel : ObservableObject
     private string _pendingImportSummary = "";
     private string _pendingImportCurrentNote = "";
     private TagVM? _selectedTagDetail;
+    private PersonVM? _selectedPersonDetail;
+    private LocationVM? _selectedLocationDetail;
     private GoalVM? _selectedGoalDetail;
     private GoalNodeVM? _selectedGoalNodeDetail;
     private int _tagDetailTodayIndex;
@@ -152,6 +154,26 @@ public sealed class MainViewModel : ObservableObject
         }
     }
 
+    public PersonVM? SelectedPersonDetail
+    {
+        get => _selectedPersonDetail;
+        private set
+        {
+            if (Set(ref _selectedPersonDetail, value))
+                RaiseDetailHeaderProperties();
+        }
+    }
+
+    public LocationVM? SelectedLocationDetail
+    {
+        get => _selectedLocationDetail;
+        private set
+        {
+            if (Set(ref _selectedLocationDetail, value))
+                RaiseDetailHeaderProperties();
+        }
+    }
+
     public GoalVM? SelectedGoalDetail
     {
         get => _selectedGoalDetail;
@@ -162,13 +184,24 @@ public sealed class MainViewModel : ObservableObject
         }
     }
 
+    public bool DetailHasColorDot => SelectedGoalDetail is not null || SelectedTagDetail is not null;
+
+    public bool DetailHasIcon => SelectedPersonDetail is not null || SelectedLocationDetail is not null;
+
+    public string DetailIconGlyph => SelectedPersonDetail is not null
+        ? "\uE77B"
+        : (SelectedLocationDetail is not null ? "\uE707" : "");
+
     public Brush DetailColor => SelectedGoalDetail?.Color ?? SelectedTagDetail?.Color ?? Brushes.Transparent;
 
     public string DetailTitle => SelectedGoalDetail is not null
         ? (_selectedGoalNodeDetail is { IsRoot: false } sub
             ? $"{SelectedGoalDetail.Title} › {sub.DisplayTitle}"
             : SelectedGoalDetail.Title)
-        : SelectedTagDetail?.Name ?? "";
+        : SelectedTagDetail?.Name
+          ?? SelectedPersonDetail?.Name
+          ?? SelectedLocationDetail?.Name
+          ?? "";
 
     public ObservableCollection<TagDayColumnVM> TagDetailDays { get; } = new();
 
@@ -191,15 +224,34 @@ public sealed class MainViewModel : ObservableObject
                 return goalCount == 0 ? "暂无日程" : $"共 {goalCount} 条日程 · {SelectedGoalDetail.ProgressText}";
             }
 
-            if (SelectedTagDetail is null) return "";
-            var count = _all.Count(t => t.Tags.Contains(SelectedTagDetail));
-            return count == 0 ? "暂无日程" : $"共 {count} 条日程";
+            if (SelectedTagDetail is not null)
+            {
+                var count = _all.Count(t => t.Tags.Contains(SelectedTagDetail));
+                return count == 0 ? "暂无日程" : $"共 {count} 条日程";
+            }
+
+            if (SelectedPersonDetail is not null)
+            {
+                var count = _all.Count(t => t.Persons.Contains(SelectedPersonDetail));
+                return count == 0 ? "暂无日程" : $"共 {count} 条日程";
+            }
+
+            if (SelectedLocationDetail is not null)
+            {
+                var count = _all.Count(t => t.Locations.Contains(SelectedLocationDetail));
+                return count == 0 ? "暂无日程" : $"共 {count} 条日程";
+            }
+
+            return "";
         }
     }
 
     private void RaiseDetailHeaderProperties()
     {
         OnPropertyChanged(nameof(DetailColor));
+        OnPropertyChanged(nameof(DetailHasColorDot));
+        OnPropertyChanged(nameof(DetailHasIcon));
+        OnPropertyChanged(nameof(DetailIconGlyph));
         OnPropertyChanged(nameof(DetailTitle));
         OnPropertyChanged(nameof(TagDetailTotalText));
     }
@@ -922,9 +974,42 @@ public sealed class MainViewModel : ObservableObject
 
     public ObservableCollection<TagVM> Tags => _store.Tags;
 
+    public ObservableCollection<PersonVM> Persons => _store.Persons;
+
+    public ObservableCollection<LocationVM> Locations => _store.Locations;
+
     public ObservableCollection<SchedulePresetVM> Presets => _store.Presets;
 
     public ObservableCollection<TagRowVM> TagRows { get; } = new();
+
+    public ObservableCollection<PersonRowVM> PersonRows { get; } = new();
+
+    public ObservableCollection<LocationRowVM> LocationRows { get; } = new();
+
+    private TagPageTab _selectedTagPageTab = TagPageTab.Tags;
+    public TagPageTab SelectedTagPageTab
+    {
+        get => _selectedTagPageTab;
+        set
+        {
+            if (!Set(ref _selectedTagPageTab, value)) return;
+            OnPropertyChanged(nameof(IsTagTabTags));
+            OnPropertyChanged(nameof(IsTagTabPersons));
+            OnPropertyChanged(nameof(IsTagTabLocations));
+            OnPropertyChanged(nameof(TagPageBlurb));
+        }
+    }
+
+    public bool IsTagTabTags => SelectedTagPageTab == TagPageTab.Tags;
+    public bool IsTagTabPersons => SelectedTagPageTab == TagPageTab.Persons;
+    public bool IsTagTabLocations => SelectedTagPageTab == TagPageTab.Locations;
+
+    public string TagPageBlurb => SelectedTagPageTab switch
+    {
+        TagPageTab.Persons => "人物全库只有一份，改名直接同步到所有关联日程；点击卡片可按人物筛选日程。",
+        TagPageTab.Locations => "地点全库只有一份，改名直接同步到所有关联日程；点击卡片可按地点筛选日程。",
+        _ => "标签只在这里管理；概览页里只负责往卡片上贴。全库只有一份，改名直接作用到所有用到它的日程。"
+    };
 
     public ObservableCollection<QuadrantVM> Quadrants { get; } = new();
 
@@ -1107,16 +1192,10 @@ public sealed class MainViewModel : ObservableObject
         foreach (var task in _all) task.NotifyGoalDisplayChanged();
         foreach (var preset in _store.Presets) preset.RefreshSummary();
 
-        // 标签：按用得多少排（已经在 store 里的标签为 0 次的也列出来，方便管理和清理）
-        TagRows.Clear();
-        var usage = _all.SelectMany(t => t.Tags)
-                        .GroupBy(t => t)
-                        .ToDictionary(g => g.Key, g => g.Count());
-
-        foreach (var tag in _store.Tags
-                                .OrderByDescending(t => usage.TryGetValue(t, out var n) ? n : 0)
-                                .ThenBy(t => t.Name))
-            TagRows.Add(new TagRowVM(tag, usage.TryGetValue(tag, out var count) ? count : 0));
+        // 标签 / 人物 / 地点：按使用次数降序排列（0 次也保留列出，方便管理与清理）
+        RebuildUsageRows(_store.Tags, _all.SelectMany(t => t.Tags), t => t.Name, TagRows, (t, n) => new TagRowVM(t, n));
+        RebuildUsageRows(_store.Persons, _all.SelectMany(t => t.Persons), p => p.Name, PersonRows, (p, n) => new PersonRowVM(p, n));
+        RebuildUsageRows(_store.Locations, _all.SelectMany(t => t.Locations), l => l.Name, LocationRows, (l, n) => new LocationRowVM(l, n));
 
         // 四象限：两个标记决定一格；两个都没打的落「没标记」
         foreach (var quadrant in Quadrants) quadrant.Items.Clear();
@@ -1322,6 +1401,24 @@ public sealed class MainViewModel : ObservableObject
         TaskTouched?.Invoke(task);
     }
 
+    private static void RebuildUsageRows<TEntity, TRow>(
+        IEnumerable<TEntity> entities,
+        IEnumerable<TEntity> usages,
+        Func<TEntity, string> getName,
+        ObservableCollection<TRow> target,
+        Func<TEntity, int, TRow> createRow)
+        where TEntity : notnull
+    {
+        target.Clear();
+        var counts = usages.GroupBy(x => x).ToDictionary(g => g.Key, g => g.Count());
+        foreach (var entity in entities
+                     .OrderByDescending(e => counts.TryGetValue(e, out var n) ? n : 0)
+                     .ThenBy(getName))
+        {
+            target.Add(createRow(entity, counts.TryGetValue(entity, out var c) ? c : 0));
+        }
+    }
+
     public void AddTag(TaskVM task, string tag)
     {
         var entity = _store.GetOrCreateTag(tag);
@@ -1336,7 +1433,35 @@ public sealed class MainViewModel : ObservableObject
         Rebuild();
     }
 
-    // ---------------- 标签（页） ----------------
+    public void AddPerson(TaskVM task, string person)
+    {
+        var entity = _store.GetOrCreatePerson(person);
+        if (entity is null) return;
+        if (!task.Persons.Contains(entity)) task.Persons.Add(entity);
+        Rebuild();
+    }
+
+    public void RemovePerson(TaskVM task, PersonVM person)
+    {
+        task.Persons.Remove(person);
+        Rebuild();
+    }
+
+    public void AddLocation(TaskVM task, string location)
+    {
+        var entity = _store.GetOrCreateLocation(location);
+        if (entity is null) return;
+        if (!task.Locations.Contains(entity)) task.Locations.Add(entity);
+        Rebuild();
+    }
+
+    public void RemoveLocation(TaskVM task, LocationVM location)
+    {
+        task.Locations.Remove(location);
+        Rebuild();
+    }
+
+    // ---------------- 标签 / 人物 / 地点（页） ----------------
 
     /// <summary>改名只改实体本身；日程里存的是引用，监听已经处理好了。</summary>
     public void RenameTag(TagVM tag, string name)
@@ -1346,6 +1471,7 @@ public sealed class MainViewModel : ObservableObject
 
         tag.Name = trimmed;
         OnPropertyChanged(nameof(TagRows));
+        OnEntityRenamed();
     }
 
     public void DeleteTag(TagVM tag)
@@ -1355,11 +1481,76 @@ public sealed class MainViewModel : ObservableObject
         Notify($"已移除标签「#{tag.Name}」");
     }
 
+    public void RenamePerson(PersonVM person, string name)
+    {
+        var trimmed = (name ?? "").Trim().TrimStart('@');
+        if (trimmed.Length == 0) return;
+
+        person.Name = trimmed;
+        OnPropertyChanged(nameof(PersonRows));
+        OnEntityRenamed();
+    }
+
+    public void DeletePerson(PersonVM person)
+    {
+        _store.RemovePerson(person);
+        Rebuild();
+        Notify($"已移除人物「{person.Name}」");
+    }
+
+    public void RenameLocation(LocationVM location, string name)
+    {
+        var trimmed = (name ?? "").Trim();
+        if (trimmed.Length == 0) return;
+
+        location.Name = trimmed;
+        OnPropertyChanged(nameof(LocationRows));
+        OnEntityRenamed();
+    }
+
+    public void DeleteLocation(LocationVM location)
+    {
+        _store.RemoveLocation(location);
+        Rebuild();
+        Notify($"已移除地点「{location.Name}」");
+    }
+
+    public void OnEntityRenamed()
+    {
+        _file.MarkDirty(_store);
+        if (_hasInitialized) ScheduleAutoSync();
+        RebuildTimeline();
+    }
+
     public void OpenTagDetail(TagVM tag)
     {
         _selectedGoalNodeDetail = null;
         SelectedGoalDetail = null;
+        SelectedPersonDetail = null;
+        SelectedLocationDetail = null;
         SelectedTagDetail = tag;
+        RebuildTagDetail();
+        IsTagDetailOpen = true;
+    }
+
+    public void OpenPersonDetail(PersonVM person)
+    {
+        _selectedGoalNodeDetail = null;
+        SelectedGoalDetail = null;
+        SelectedTagDetail = null;
+        SelectedLocationDetail = null;
+        SelectedPersonDetail = person;
+        RebuildTagDetail();
+        IsTagDetailOpen = true;
+    }
+
+    public void OpenLocationDetail(LocationVM location)
+    {
+        _selectedGoalNodeDetail = null;
+        SelectedGoalDetail = null;
+        SelectedTagDetail = null;
+        SelectedPersonDetail = null;
+        SelectedLocationDetail = location;
         RebuildTagDetail();
         IsTagDetailOpen = true;
     }
@@ -1367,6 +1558,8 @@ public sealed class MainViewModel : ObservableObject
     public void OpenGoalDetail(GoalVM goal)
     {
         SelectedTagDetail = null;
+        SelectedPersonDetail = null;
+        SelectedLocationDetail = null;
         _selectedGoalNodeDetail = null;
         SelectedGoalDetail = goal;
         RebuildTagDetail();
@@ -1376,6 +1569,8 @@ public sealed class MainViewModel : ObservableObject
     public void OpenGoalNodeDetail(GoalVM goal, GoalNodeVM node)
     {
         SelectedTagDetail = null;
+        SelectedPersonDetail = null;
+        SelectedLocationDetail = null;
         _selectedGoalNodeDetail = node.IsRoot ? null : node;
         SelectedGoalDetail = goal;
         RebuildTagDetail();
@@ -1416,11 +1611,21 @@ public sealed class MainViewModel : ObservableObject
         {
             detailTasks = _all.Where(t => t.Tags.Contains(SelectedTagDetail)).ToList();
         }
+        else if (SelectedPersonDetail is not null && _store.Persons.Contains(SelectedPersonDetail))
+        {
+            detailTasks = _all.Where(t => t.Persons.Contains(SelectedPersonDetail)).ToList();
+        }
+        else if (SelectedLocationDetail is not null && _store.Locations.Contains(SelectedLocationDetail))
+        {
+            detailTasks = _all.Where(t => t.Locations.Contains(SelectedLocationDetail)).ToList();
+        }
         else
         {
             _tagDetailTodayIndex = 0;
             _selectedGoalNodeDetail = null;
             SelectedTagDetail = null;
+            SelectedPersonDetail = null;
+            SelectedLocationDetail = null;
             SelectedGoalDetail = null;
             IsTagDetailOpen = false;
             RaiseDetailHeaderProperties();
@@ -2214,6 +2419,12 @@ public sealed class MainViewModel : ObservableObject
         task.Tags.Clear();
         foreach (var tag in ResolveSelectedTags(Editor.SelectedTagPicks)) task.Tags.Add(tag);
 
+        task.Persons.Clear();
+        foreach (var person in ResolveSelectedPersons(Editor.SelectedPersonPicks)) task.Persons.Add(person);
+
+        task.Locations.Clear();
+        foreach (var location in ResolveSelectedLocations(Editor.SelectedLocationPicks)) task.Locations.Add(location);
+
         IsEditorOpen = false;
         Rebuild();
         TaskTouched?.Invoke(task);
@@ -2232,19 +2443,76 @@ public sealed class MainViewModel : ObservableObject
         Delete(task);
     }
 
-    /// <summary>弹窗里当场建的标签先只是草稿，保存时才真正进 store。</summary>
+    /// <summary>弹窗里当场建的标签/人物/地点先只是草稿，保存时才真正进 store。</summary>
     public void AddEditorTag(string name)
         => AddProvisionalOrExistingTag(Editor.TagPicks, Editor.AddTagPick, name);
 
     public void AddPresetManagerTag(string name)
         => AddProvisionalOrExistingTag(PresetManager.TagPicks, PresetManager.AddTagPick, name);
 
+    public void AddEditorPerson(string name)
+        => AddProvisionalOrExistingPerson(Editor.PersonPicks, Editor.AddPersonPick, name);
+
+    public void AddPresetManagerPerson(string name)
+        => AddProvisionalOrExistingPerson(PresetManager.PersonPicks, PresetManager.AddPersonPick, name);
+
+    public void AddEditorLocation(string name)
+        => AddProvisionalOrExistingLocation(Editor.LocationPicks, Editor.AddLocationPick, name);
+
+    public void AddPresetManagerLocation(string name)
+        => AddProvisionalOrExistingLocation(PresetManager.LocationPicks, PresetManager.AddLocationPick, name);
+
     private void AddProvisionalOrExistingTag(
         ObservableCollection<TagPickVM> picks,
         Action<TagPickVM> addPick,
         string name)
+        => AddProvisionalOrExistingPick(
+            picks,
+            addPick,
+            name,
+            '#',
+            _store.FindTag,
+            n => new TagVM(n) { Color = DayStore.TagPaletteColor(_store.Tags.Count) },
+            (e, sel, prov) => new TagPickVM(e, sel) { IsProvisional = prov });
+
+    private void AddProvisionalOrExistingPerson(
+        ObservableCollection<PersonPickVM> picks,
+        Action<PersonPickVM> addPick,
+        string name)
+        => AddProvisionalOrExistingPick(
+            picks,
+            addPick,
+            name,
+            '@',
+            _store.FindPerson,
+            n => new PersonVM(n),
+            (e, sel, prov) => new PersonPickVM(e, sel) { IsProvisional = prov });
+
+    private void AddProvisionalOrExistingLocation(
+        ObservableCollection<LocationPickVM> picks,
+        Action<LocationPickVM> addPick,
+        string name)
+        => AddProvisionalOrExistingPick(
+            picks,
+            addPick,
+            name,
+            null,
+            _store.FindLocation,
+            n => new LocationVM(n),
+            (e, sel, prov) => new LocationPickVM(e, sel) { IsProvisional = prov });
+
+    private static void AddProvisionalOrExistingPick<TEntity, TPick>(
+        ObservableCollection<TPick> picks,
+        Action<TPick> addPick,
+        string rawName,
+        char? stripLeading,
+        Func<string, TEntity?> findInStore,
+        Func<string, TEntity> createDraft,
+        Func<TEntity, bool, bool, TPick> createPick)
+        where TPick : class, IFilterablePick
     {
-        var trimmed = (name ?? "").Trim().TrimStart('#');
+        var trimmed = (rawName ?? "").Trim();
+        if (stripLeading is { } ch) trimmed = trimmed.TrimStart(ch);
         if (trimmed.Length == 0) return;
 
         var existing = picks.FirstOrDefault(
@@ -2256,27 +2524,39 @@ public sealed class MainViewModel : ObservableObject
             return;
         }
 
-        var entity = _store.FindTag(trimmed);
+        var entity = findInStore(trimmed);
         if (entity is not null)
         {
-            addPick(new TagPickVM(entity, true));
+            addPick(createPick(entity, true, false));
             return;
         }
 
-        var draft = new TagVM(trimmed) { Color = DayStore.TagPaletteColor(_store.Tags.Count) };
-        addPick(new TagPickVM(draft, true) { IsProvisional = true });
+        addPick(createPick(createDraft(trimmed), true, true));
     }
 
     private List<TagVM> ResolveSelectedTags(IEnumerable<TagPickVM> selectedPicks)
-    {
-        var result = new List<TagVM>();
+        => ResolveSelectedEntities(selectedPicks, p => p.IsProvisional, p => p.Tag, n => _store.GetOrCreateTag(n), p => p.Name);
 
+    private List<PersonVM> ResolveSelectedPersons(IEnumerable<PersonPickVM> selectedPicks)
+        => ResolveSelectedEntities(selectedPicks, p => p.IsProvisional, p => p.Person, _store.GetOrCreatePerson, p => p.Name);
+
+    private List<LocationVM> ResolveSelectedLocations(IEnumerable<LocationPickVM> selectedPicks)
+        => ResolveSelectedEntities(selectedPicks, p => p.IsProvisional, p => p.Location, _store.GetOrCreateLocation, p => p.Name);
+
+    private static List<TEntity> ResolveSelectedEntities<TPick, TEntity>(
+        IEnumerable<TPick> selectedPicks,
+        Func<TPick, bool> isProvisional,
+        Func<TPick, TEntity> getEntity,
+        Func<string, TEntity?> getOrCreate,
+        Func<TPick, string> getName)
+        where TEntity : class
+    {
+        var result = new List<TEntity>();
         foreach (var pick in selectedPicks)
         {
-            var tag = pick.IsProvisional ? _store.GetOrCreateTag(pick.Name) : pick.Tag;
-            if (!result.Contains(tag)) result.Add(tag);
+            var entity = isProvisional(pick) ? getOrCreate(getName(pick)) : getEntity(pick);
+            if (entity is not null && !result.Contains(entity)) result.Add(entity);
         }
-
         return result;
     }
 
@@ -2324,6 +2604,14 @@ public sealed class MainViewModel : ObservableObject
         foreach (var tag in ResolveSelectedTags(PresetManager.SelectedTagPicks))
             preset.Tags.Add(tag);
 
+        preset.Persons.Clear();
+        foreach (var person in ResolveSelectedPersons(PresetManager.SelectedPersonPicks))
+            preset.Persons.Add(person);
+
+        preset.Locations.Clear();
+        foreach (var location in ResolveSelectedLocations(PresetManager.SelectedLocationPicks))
+            preset.Locations.Add(location);
+
         Rebuild();
         PresetManager.StartNew();
         Notify(isNew ? $"已添加快捷卡片「{title}」" : $"已保存快捷卡片「{title}」");
@@ -2362,6 +2650,12 @@ public sealed class MainViewModel : ObservableObject
 
         foreach (var tag in preset.Tags)
             if (!task.Tags.Contains(tag)) task.Tags.Add(tag);
+
+        foreach (var person in preset.Persons)
+            if (!task.Persons.Contains(person)) task.Persons.Add(person);
+
+        foreach (var location in preset.Locations)
+            if (!task.Locations.Contains(location)) task.Locations.Add(location);
 
         Rebuild();
         TaskTouched?.Invoke(task);

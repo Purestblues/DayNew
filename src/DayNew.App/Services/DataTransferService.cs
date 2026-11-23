@@ -195,6 +195,8 @@ public static class DataTransferService
 
         dto.Goals ??= new List<GoalDto>();
         dto.Tags ??= new List<TagDto>();
+        dto.Persons ??= new List<PersonDto>();
+        dto.Locations ??= new List<LocationDto>();
         dto.Schedules ??= new List<ScheduleDto>();
         return dto;
     }

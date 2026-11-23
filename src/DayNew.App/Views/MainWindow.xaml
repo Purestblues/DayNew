@@ -133,6 +133,25 @@
                                            Style="{StaticResource Caption}"
                                            VerticalAlignment="Center"/>
                             </Grid>
+                            <WrapPanel x:Name="peopleLocRow" Margin="0,2,0,0"
+                                       Visibility="{Binding HasPeopleOrLocations, Converter={StaticResource BoolToVisible}}">
+                                <StackPanel Orientation="Horizontal" Margin="0,0,8,0"
+                                            Visibility="{Binding HasPersons, Converter={StaticResource BoolToVisible}}">
+                                    <TextBlock Text="&#xE77B;" FontFamily="{StaticResource IconFont}" FontSize="10"
+                                               Foreground="{DynamicResource TextTertiary}"
+                                               VerticalAlignment="Center" Margin="0,0,3,0"/>
+                                    <TextBlock Text="{Binding PersonsText}" Style="{StaticResource Caption}"
+                                               TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal"
+                                            Visibility="{Binding HasLocations, Converter={StaticResource BoolToVisible}}">
+                                    <TextBlock Text="&#xE707;" FontFamily="{StaticResource IconFont}" FontSize="10"
+                                               Foreground="{DynamicResource TextTertiary}"
+                                               VerticalAlignment="Center" Margin="0,0,3,0"/>
+                                    <TextBlock Text="{Binding LocationsText}" Style="{StaticResource Caption}"
+                                               TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </WrapPanel>
                             <ItemsControl x:Name="compactGoalChips" ItemsSource="{Binding CompactGoalChips}"
                                           ItemTemplate="{StaticResource CompactGoalChipTemplate}"
                                           Margin="0,4,0,0"
@@ -221,6 +240,87 @@
                                                Visibility="{Binding Text, ElementName=tagBox, UpdateSourceTrigger=PropertyChanged, Converter={StaticResource EmptyToVisible}}"/>
                                 </Grid>
 
+                                <ItemsControl ItemsSource="{Binding Persons}" Margin="0,6,0,0"
+                                              Visibility="{Binding HasPersons, Converter={StaticResource BoolToVisible}}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <WrapPanel/>
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border Style="{StaticResource TagChip}">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <TextBlock Text="&#xE77B;" FontFamily="{StaticResource IconFont}" FontSize="10"
+                                                               Foreground="{DynamicResource TextTertiary}"
+                                                               VerticalAlignment="Center" Margin="0,0,4,0"/>
+                                                    <TextBlock Text="{Binding Name}"
+                                                               Style="{StaticResource TagText}"
+                                                               VerticalAlignment="Center"/>
+                                                    <Button Content="&#xE711;"
+                                                            Style="{StaticResource TagRemoveButton}"
+                                                            AutomationProperties.Name="移除人物"
+                                                            Tag="{Binding}"
+                                                            Click="PersonRemove_Click"/>
+                                                </StackPanel>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+
+                                <ItemsControl ItemsSource="{Binding Locations}" Margin="0,4,0,0"
+                                              Visibility="{Binding HasLocations, Converter={StaticResource BoolToVisible}}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <WrapPanel/>
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border Style="{StaticResource TagChip}">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <TextBlock Text="&#xE707;" FontFamily="{StaticResource IconFont}" FontSize="10"
+                                                               Foreground="{DynamicResource TextTertiary}"
+                                                               VerticalAlignment="Center" Margin="0,0,4,0"/>
+                                                    <TextBlock Text="{Binding Name}"
+                                                               Style="{StaticResource TagText}"
+                                                               VerticalAlignment="Center"/>
+                                                    <Button Content="&#xE711;"
+                                                            Style="{StaticResource TagRemoveButton}"
+                                                            AutomationProperties.Name="移除地点"
+                                                            Tag="{Binding}"
+                                                            Click="LocationRemove_Click"/>
+                                                </StackPanel>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+
+                                <WrapPanel Margin="0,3,0,0">
+                                    <Grid HorizontalAlignment="Left" Margin="0,0,6,2">
+                                        <TextBox x:Name="personBox" Style="{StaticResource SubtleInput}"
+                                                 Width="96" Height="28"
+                                                 ToolTip="回车添加人物"
+                                                 KeyDown="PersonInput_KeyDown"/>
+                                        <TextBlock Text="+ 人物" IsHitTestVisible="False"
+                                                   FontSize="12" FontWeight="Medium" Margin="8,0,0,0"
+                                                   VerticalAlignment="Center"
+                                                   Foreground="{DynamicResource TextTertiary}"
+                                                   Visibility="{Binding Text, ElementName=personBox, UpdateSourceTrigger=PropertyChanged, Converter={StaticResource EmptyToVisible}}"/>
+                                    </Grid>
+                                    <Grid HorizontalAlignment="Left" Margin="0,0,0,2">
+                                        <TextBox x:Name="locationBox" Style="{StaticResource SubtleInput}"
+                                                 Width="96" Height="28"
+                                                 ToolTip="回车添加地点"
+                                                 KeyDown="LocationInput_KeyDown"/>
+                                        <TextBlock Text="+ 地点" IsHitTestVisible="False"
+                                                   FontSize="12" FontWeight="Medium" Margin="8,0,0,0"
+                                                   VerticalAlignment="Center"
+                                                   Foreground="{DynamicResource TextTertiary}"
+                                                   Visibility="{Binding Text, ElementName=locationBox, UpdateSourceTrigger=PropertyChanged, Converter={StaticResource EmptyToVisible}}"/>
+                                    </Grid>
+                                </WrapPanel>
+
                                 <Grid HorizontalAlignment="Left" Margin="0,7,0,0">
                                     <TextBox x:Name="timeBox" Style="{StaticResource SubtleInput}"
                                              Height="28" Width="108"
@@ -301,6 +401,7 @@
                     <Setter TargetName="titleBox" Property="Visibility" Value="Visible"/>
                     <Setter TargetName="titleText" Property="Visibility" Value="Collapsed"/>
                     <Setter TargetName="metaRow" Property="Visibility" Value="Collapsed"/>
+                    <Setter TargetName="peopleLocRow" Property="Visibility" Value="Collapsed"/>
                     <Setter TargetName="compactGoalChips" Property="Visibility" Value="Collapsed"/>
                     <Setter TargetName="card" Property="BorderBrush" Value="{DynamicResource BorderStrong}"/>
                     <Setter TargetName="card" Property="Cursor" Value="Arrow"/>
@@ -1034,6 +1135,14 @@
                                                                                         </DataTemplate>
                                                                                     </ItemsControl.ItemTemplate>
                                                                                 </ItemsControl>
+                                                                                <TextBlock Text="&#xE77B;" FontFamily="{StaticResource IconFont}" FontSize="8.5"
+                                                                                           Foreground="{DynamicResource TextTertiary}" VerticalAlignment="Center" Margin="2,0,0,0"
+                                                                                           ToolTip="{Binding Task.PersonsText}"
+                                                                                           Visibility="{Binding Task.HasPersons, Converter={StaticResource BoolToVisible}}"/>
+                                                                                <TextBlock Text="&#xE707;" FontFamily="{StaticResource IconFont}" FontSize="8.5"
+                                                                                           Foreground="{DynamicResource TextTertiary}" VerticalAlignment="Center" Margin="2,0,0,0"
+                                                                                           ToolTip="{Binding Task.LocationsText}"
+                                                                                           Visibility="{Binding Task.HasLocations, Converter={StaticResource BoolToVisible}}"/>
                                                                             </StackPanel>
                                                                             <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Margin="5,0,0,0">
                                                                                 <TextBlock Text="&#xEA8F;"
@@ -1119,6 +1228,24 @@
                                                                                         </DataTemplate>
                                                                                     </ItemsControl.ItemTemplate>
                                                                                 </ItemsControl>
+                                                                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,1,0,0"
+                                                                                            ToolTip="{Binding Task.PersonsText}"
+                                                                                            Visibility="{Binding Task.HasPersons, Converter={StaticResource BoolToVisible}}">
+                                                                                    <TextBlock Text="&#xE77B;" FontFamily="{StaticResource IconFont}" FontSize="9"
+                                                                                               Foreground="{DynamicResource TextTertiary}" VerticalAlignment="Center" Margin="0,0,3,0"/>
+                                                                                    <TextBlock Text="{Binding Task.PersonsText}" FontSize="10" FontWeight="Medium"
+                                                                                               MaxWidth="64" TextTrimming="CharacterEllipsis"
+                                                                                               Foreground="{DynamicResource TextTertiary}" VerticalAlignment="Center"/>
+                                                                                </StackPanel>
+                                                                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,1,0,0"
+                                                                                            ToolTip="{Binding Task.LocationsText}"
+                                                                                            Visibility="{Binding Task.HasLocations, Converter={StaticResource BoolToVisible}}">
+                                                                                    <TextBlock Text="&#xE707;" FontFamily="{StaticResource IconFont}" FontSize="9"
+                                                                                               Foreground="{DynamicResource TextTertiary}" VerticalAlignment="Center" Margin="0,0,3,0"/>
+                                                                                    <TextBlock Text="{Binding Task.LocationsText}" FontSize="10" FontWeight="Medium"
+                                                                                               MaxWidth="64" TextTrimming="CharacterEllipsis"
+                                                                                               Foreground="{DynamicResource TextTertiary}" VerticalAlignment="Center"/>
+                                                                                </StackPanel>
                                                                             </StackPanel>
                                                                         </Grid>
 
@@ -1692,74 +1819,243 @@
                         </DockPanel>
                     </Grid>
 
-                    <!-- 标签页：矩形卡片，窗口越宽列越多 -->
+                    <!-- 标签 / 人物 / 地点管理页：三段切换，自适应矩形卡片网格 -->
                     <Grid x:Name="PageTags" Margin="24,14,24,0"
                           Visibility="{Binding IsTags, Converter={StaticResource BoolToVisible}}">
                         <Grid.RenderTransform>
                             <TranslateTransform/>
                         </Grid.RenderTransform>
                         <DockPanel>
-                            <TextBlock DockPanel.Dock="Top" MaxWidth="760" HorizontalAlignment="Left"
-                                       Text="标签只在这里管理；概览页里只负责往卡片上贴。全库只有一份，改名直接作用到所有用到它的日程。"
-                                       Style="{StaticResource Caption}" TextWrapping="Wrap"
-                                       Margin="0,0,0,14"/>
+                            <StackPanel DockPanel.Dock="Top" Margin="0,0,0,14">
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                    <ToggleButton Style="{StaticResource SegmentButton}" Content="标签" Tag="Tags"
+                                                  AutomationProperties.Name="标签"
+                                                  AutomationProperties.AutomationId="TagsTabButton"
+                                                  IsChecked="{Binding IsTagTabTags, Mode=OneWay}"
+                                                  Click="TagPageTab_Click"/>
+                                    <ToggleButton Style="{StaticResource SegmentButton}" Content="人物" Tag="Persons"
+                                                  AutomationProperties.Name="人物"
+                                                  AutomationProperties.AutomationId="PersonsTabButton"
+                                                  IsChecked="{Binding IsTagTabPersons, Mode=OneWay}"
+                                                  Click="TagPageTab_Click"/>
+                                    <ToggleButton Style="{StaticResource SegmentButton}" Content="地点" Tag="Locations"
+                                                  AutomationProperties.Name="地点"
+                                                  AutomationProperties.AutomationId="LocationsTabButton"
+                                                  IsChecked="{Binding IsTagTabLocations, Mode=OneWay}"
+                                                  Click="TagPageTab_Click"/>
+                                </StackPanel>
+                                <TextBlock MaxWidth="760" HorizontalAlignment="Left"
+                                           Text="{Binding TagPageBlurb}"
+                                           Style="{StaticResource Caption}" TextWrapping="Wrap"/>
+                            </StackPanel>
 
-                            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                                <ItemsControl ItemsSource="{Binding TagRows}">
-                                    <ItemsControl.ItemsPanel>
-                                        <ItemsPanelTemplate>
-                                            <core:ResponsiveGridPanel MinColumnWidth="236" ColumnGap="12" RowGap="12"/>
-                                        </ItemsPanelTemplate>
-                                    </ItemsControl.ItemsPanel>
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate DataType="{x:Type vm:TagRowVM}">
-                                            <Border x:Name="tagCard" Tag="tagcard"
-                                                    Style="{StaticResource GridCard}"
-                                                    Height="116" Cursor="Hand"
-                                                    RenderTransformOrigin="0.5,0.5"
-                                                    ToolTip="点击查看该标签下的日程"
-                                                    AutomationProperties.Name="{Binding Tag.Name}">
-                                                <Grid>
-                                                    <Grid.RowDefinitions>
-                                                        <RowDefinition Height="Auto"/>
-                                                        <RowDefinition Height="*"/>
-                                                        <RowDefinition Height="Auto"/>
-                                                    </Grid.RowDefinitions>
-
+                            <Grid>
+                                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                                              Visibility="{Binding IsTagTabTags, Converter={StaticResource BoolToVisible}}">
+                                    <ItemsControl ItemsSource="{Binding TagRows}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <core:ResponsiveGridPanel MinColumnWidth="236" ColumnGap="12" RowGap="12"/>
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate DataType="{x:Type vm:TagRowVM}">
+                                                <Border x:Name="tagCard" Tag="tagcard"
+                                                        Style="{StaticResource GridCard}"
+                                                        Height="116" Cursor="Hand"
+                                                        RenderTransformOrigin="0.5,0.5"
+                                                        ToolTip="点击查看该标签下的日程"
+                                                        AutomationProperties.Name="{Binding Tag.Name}">
                                                     <Grid>
-                                                        <Grid.ColumnDefinitions>
-                                                            <ColumnDefinition Width="Auto"/>
-                                                            <ColumnDefinition Width="*"/>
-                                                            <ColumnDefinition Width="Auto"/>
-                                                        </Grid.ColumnDefinitions>
-                                                        <Ellipse Width="8" Height="8" Fill="{Binding Tag.Color}"
-                                                                 VerticalAlignment="Center" Margin="0,1,8,0"/>
-                                                        <TextBox Grid.Column="1" Style="{StaticResource TitleEditor}"
-                                                                 HorizontalAlignment="Left" MinWidth="32"
-                                                                 VerticalAlignment="Center" Cursor="IBeam"
-                                                                 ToolTip="点击名称可重命名"
-                                                                 Text="{Binding Tag.Name, UpdateSourceTrigger=PropertyChanged}"/>
-                                                        <TextBlock Grid.Column="2" Text="&#xE76C;"
-                                                                   FontFamily="{StaticResource IconFont}" FontSize="10"
-                                                                   Foreground="{DynamicResource TextDisabled}"
-                                                                   VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                                        <Grid.RowDefinitions>
+                                                            <RowDefinition Height="Auto"/>
+                                                            <RowDefinition Height="*"/>
+                                                            <RowDefinition Height="Auto"/>
+                                                        </Grid.RowDefinitions>
+
+                                                        <Grid>
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="Auto"/>
+                                                                <ColumnDefinition Width="*"/>
+                                                                <ColumnDefinition Width="Auto"/>
+                                                            </Grid.ColumnDefinitions>
+                                                            <Ellipse Width="8" Height="8" Fill="{Binding Tag.Color}"
+                                                                     VerticalAlignment="Center" Margin="0,1,8,0"/>
+                                                            <TextBox Grid.Column="1" Style="{StaticResource TitleEditor}"
+                                                                     HorizontalAlignment="Left" MinWidth="32"
+                                                                     VerticalAlignment="Center" Cursor="IBeam"
+                                                                     ToolTip="点击名称可重命名"
+                                                                     LostFocus="EntityNameBox_LostFocus"
+                                                                     KeyDown="EntityNameBox_KeyDown"
+                                                                     Text="{Binding Tag.Name, UpdateSourceTrigger=PropertyChanged}"/>
+                                                            <TextBlock Grid.Column="2" Text="&#xE76C;"
+                                                                       FontFamily="{StaticResource IconFont}" FontSize="10"
+                                                                       Foreground="{DynamicResource TextDisabled}"
+                                                                       VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                                        </Grid>
+
+                                                        <TextBlock Grid.Row="1" Text="{Binding CountText}"
+                                                                   Style="{StaticResource Caption}"
+                                                                   VerticalAlignment="Center" Margin="0,6,0,6"/>
+
+                                                        <Button Grid.Row="2" Style="{StaticResource GhostButton}"
+                                                                HorizontalAlignment="Left" Content="删除"
+                                                                Foreground="{DynamicResource TextTertiary}"
+                                                                Tag="{Binding Tag}" ToolTip="从所有日程上拿掉这个标签"
+                                                                Click="DeleteTagRow_Click"/>
                                                     </Grid>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </ScrollViewer>
 
-                                                    <TextBlock Grid.Row="1" Text="{Binding CountText}"
-                                                               Style="{StaticResource Caption}"
-                                                               VerticalAlignment="Center" Margin="0,6,0,6"/>
+                                <Grid Visibility="{Binding IsTagTabPersons, Converter={StaticResource BoolToVisible}}">
+                                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                        <ItemsControl ItemsSource="{Binding PersonRows}">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate>
+                                                    <core:ResponsiveGridPanel MinColumnWidth="236" ColumnGap="12" RowGap="12"/>
+                                                </ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate DataType="{x:Type vm:PersonRowVM}">
+                                                    <Border x:Name="personCard" Tag="personcard"
+                                                            Style="{StaticResource GridCard}"
+                                                            Height="116" Cursor="Hand"
+                                                            RenderTransformOrigin="0.5,0.5"
+                                                            ToolTip="点击查看该人物关联的日程"
+                                                            AutomationProperties.Name="{Binding Person.Name}">
+                                                        <Grid>
+                                                            <Grid.RowDefinitions>
+                                                                <RowDefinition Height="Auto"/>
+                                                                <RowDefinition Height="*"/>
+                                                                <RowDefinition Height="Auto"/>
+                                                            </Grid.RowDefinitions>
 
-                                                    <Button Grid.Row="2" Style="{StaticResource GhostButton}"
-                                                            HorizontalAlignment="Left" Content="删除"
-                                                            Foreground="{DynamicResource TextTertiary}"
-                                                            Tag="{Binding Tag}" ToolTip="从所有日程上拿掉这个标签"
-                                                            Click="DeleteTagRow_Click"/>
-                                                </Grid>
-                                            </Border>
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
-                            </ScrollViewer>
+                                                            <Grid>
+                                                                <Grid.ColumnDefinitions>
+                                                                    <ColumnDefinition Width="Auto"/>
+                                                                    <ColumnDefinition Width="*"/>
+                                                                    <ColumnDefinition Width="Auto"/>
+                                                                </Grid.ColumnDefinitions>
+                                                                <TextBlock Text="&#xE77B;" FontFamily="{StaticResource IconFont}" FontSize="13"
+                                                                           Foreground="{DynamicResource TextSecondary}"
+                                                                           VerticalAlignment="Center" Margin="0,1,8,0"/>
+                                                                <TextBox Grid.Column="1" Style="{StaticResource TitleEditor}"
+                                                                         HorizontalAlignment="Left" MinWidth="32"
+                                                                         VerticalAlignment="Center" Cursor="IBeam"
+                                                                         ToolTip="点击名称可重命名"
+                                                                         LostFocus="EntityNameBox_LostFocus"
+                                                                         KeyDown="EntityNameBox_KeyDown"
+                                                                         Text="{Binding Person.Name, UpdateSourceTrigger=PropertyChanged}"/>
+                                                                <TextBlock Grid.Column="2" Text="&#xE76C;"
+                                                                           FontFamily="{StaticResource IconFont}" FontSize="10"
+                                                                           Foreground="{DynamicResource TextDisabled}"
+                                                                           VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                                            </Grid>
+
+                                                            <TextBlock Grid.Row="1" Text="{Binding CountText}"
+                                                                       Style="{StaticResource Caption}"
+                                                                       VerticalAlignment="Center" Margin="0,6,0,6"/>
+
+                                                            <Button Grid.Row="2" Style="{StaticResource GhostButton}"
+                                                                    HorizontalAlignment="Left" Content="删除"
+                                                                    Foreground="{DynamicResource TextTertiary}"
+                                                                    Tag="{Binding Person}" ToolTip="从所有日程上移除该人物"
+                                                                    Click="DeletePersonRow_Click"/>
+                                                        </Grid>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </ScrollViewer>
+
+                                    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center"
+                                                IsHitTestVisible="False"
+                                                Visibility="{Binding PersonRows.Count, Converter={StaticResource ZeroToVisible}}">
+                                        <TextBlock Text="还没有人物" FontSize="15" FontWeight="SemiBold"
+                                                   HorizontalAlignment="Center"
+                                                   Foreground="{DynamicResource TextSecondary}"/>
+                                        <TextBlock Text="在日程弹窗或展开卡片中添加人物后，会自动收录到这里"
+                                                   Style="{StaticResource Caption}"
+                                                   HorizontalAlignment="Center" Margin="0,6,0,0"/>
+                                    </StackPanel>
+                                </Grid>
+
+                                <Grid Visibility="{Binding IsTagTabLocations, Converter={StaticResource BoolToVisible}}">
+                                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                        <ItemsControl ItemsSource="{Binding LocationRows}">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate>
+                                                    <core:ResponsiveGridPanel MinColumnWidth="236" ColumnGap="12" RowGap="12"/>
+                                                </ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate DataType="{x:Type vm:LocationRowVM}">
+                                                    <Border x:Name="locationCard" Tag="locationcard"
+                                                            Style="{StaticResource GridCard}"
+                                                            Height="116" Cursor="Hand"
+                                                            RenderTransformOrigin="0.5,0.5"
+                                                            ToolTip="点击查看该地点关联的日程"
+                                                            AutomationProperties.Name="{Binding Location.Name}">
+                                                        <Grid>
+                                                            <Grid.RowDefinitions>
+                                                                <RowDefinition Height="Auto"/>
+                                                                <RowDefinition Height="*"/>
+                                                                <RowDefinition Height="Auto"/>
+                                                            </Grid.RowDefinitions>
+
+                                                            <Grid>
+                                                                <Grid.ColumnDefinitions>
+                                                                    <ColumnDefinition Width="Auto"/>
+                                                                    <ColumnDefinition Width="*"/>
+                                                                    <ColumnDefinition Width="Auto"/>
+                                                                </Grid.ColumnDefinitions>
+                                                                <TextBlock Text="&#xE707;" FontFamily="{StaticResource IconFont}" FontSize="13"
+                                                                           Foreground="{DynamicResource TextSecondary}"
+                                                                           VerticalAlignment="Center" Margin="0,1,8,0"/>
+                                                                <TextBox Grid.Column="1" Style="{StaticResource TitleEditor}"
+                                                                         HorizontalAlignment="Left" MinWidth="32"
+                                                                         VerticalAlignment="Center" Cursor="IBeam"
+                                                                         ToolTip="点击名称可重命名"
+                                                                         LostFocus="EntityNameBox_LostFocus"
+                                                                         KeyDown="EntityNameBox_KeyDown"
+                                                                         Text="{Binding Location.Name, UpdateSourceTrigger=PropertyChanged}"/>
+                                                                <TextBlock Grid.Column="2" Text="&#xE76C;"
+                                                                           FontFamily="{StaticResource IconFont}" FontSize="10"
+                                                                           Foreground="{DynamicResource TextDisabled}"
+                                                                           VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                                            </Grid>
+
+                                                            <TextBlock Grid.Row="1" Text="{Binding CountText}"
+                                                                       Style="{StaticResource Caption}"
+                                                                       VerticalAlignment="Center" Margin="0,6,0,6"/>
+
+                                                            <Button Grid.Row="2" Style="{StaticResource GhostButton}"
+                                                                    HorizontalAlignment="Left" Content="删除"
+                                                                    Foreground="{DynamicResource TextTertiary}"
+                                                                    Tag="{Binding Location}" ToolTip="从所有日程上移除该地点"
+                                                                    Click="DeleteLocationRow_Click"/>
+                                                        </Grid>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </ScrollViewer>
+
+                                    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center"
+                                                IsHitTestVisible="False"
+                                                Visibility="{Binding LocationRows.Count, Converter={StaticResource ZeroToVisible}}">
+                                        <TextBlock Text="还没有地点" FontSize="15" FontWeight="SemiBold"
+                                                   HorizontalAlignment="Center"
+                                                   Foreground="{DynamicResource TextSecondary}"/>
+                                        <TextBlock Text="在日程弹窗或展开卡片中添加地点后，会自动收录到这里"
+                                                   Style="{StaticResource Caption}"
+                                                   HorizontalAlignment="Center" Margin="0,6,0,0"/>
+                                    </StackPanel>
+                                </Grid>
+                            </Grid>
                         </DockPanel>
                     </Grid>
 
@@ -1842,6 +2138,25 @@
                                                                                        Style="{StaticResource Caption}"
                                                                                        VerticalAlignment="Center"/>
                                                                         </Grid>
+                                                                        <WrapPanel Margin="0,2,0,0"
+                                                                                   Visibility="{Binding HasPeopleOrLocations, Converter={StaticResource BoolToVisible}}">
+                                                                            <StackPanel Orientation="Horizontal" Margin="0,0,8,0"
+                                                                                        Visibility="{Binding HasPersons, Converter={StaticResource BoolToVisible}}">
+                                                                                <TextBlock Text="&#xE77B;" FontFamily="{StaticResource IconFont}" FontSize="10"
+                                                                                           Foreground="{DynamicResource TextTertiary}"
+                                                                                           VerticalAlignment="Center" Margin="0,0,3,0"/>
+                                                                                <TextBlock Text="{Binding PersonsText}" Style="{StaticResource Caption}"
+                                                                                           MaxWidth="172" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                                                                            </StackPanel>
+                                                                            <StackPanel Orientation="Horizontal"
+                                                                                        Visibility="{Binding HasLocations, Converter={StaticResource BoolToVisible}}">
+                                                                                <TextBlock Text="&#xE707;" FontFamily="{StaticResource IconFont}" FontSize="10"
+                                                                                           Foreground="{DynamicResource TextTertiary}"
+                                                                                           VerticalAlignment="Center" Margin="0,0,3,0"/>
+                                                                                <TextBlock Text="{Binding LocationsText}" Style="{StaticResource Caption}"
+                                                                                           MaxWidth="172" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                                                                            </StackPanel>
+                                                                        </WrapPanel>
                                                                         <ItemsControl ItemsSource="{Binding CompactGoalChips}"
                                                                                       ItemTemplate="{StaticResource CompactGoalChipTemplate}"
                                                                                       Margin="0,4,0,0"
@@ -2213,7 +2528,13 @@
                         <Grid>
                             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                                 <Ellipse Width="9" Height="9" Fill="{Binding DetailColor}"
-                                         VerticalAlignment="Center" Margin="0,1,9,0"/>
+                                         VerticalAlignment="Center" Margin="0,1,9,0"
+                                         Visibility="{Binding DetailHasColorDot, Converter={StaticResource BoolToVisible}}"/>
+                                <TextBlock Text="{Binding DetailIconGlyph}"
+                                           FontFamily="{StaticResource IconFont}" FontSize="14"
+                                           Foreground="{DynamicResource TextSecondary}"
+                                           VerticalAlignment="Center" Margin="0,1,8,0"
+                                           Visibility="{Binding DetailHasIcon, Converter={StaticResource BoolToVisible}}"/>
                                 <TextBlock Text="{Binding DetailTitle}" FontSize="16" FontWeight="SemiBold"
                                            VerticalAlignment="Center"/>
                                 <TextBlock Text="{Binding TagDetailTotalText}" Style="{StaticResource Caption}"
@@ -2339,6 +2660,32 @@
                                                                                            Style="{StaticResource CardTitle}"
                                                                                            FontSize="13"/>
                                                                             </Grid>
+
+                                                                            <StackPanel Margin="0,2,0,0"
+                                                                                        Visibility="{Binding HasPeopleOrLocations, Converter={StaticResource BoolToVisible}}">
+                                                                                <Grid Visibility="{Binding HasPersons, Converter={StaticResource BoolToVisible}}">
+                                                                                    <Grid.ColumnDefinitions>
+                                                                                        <ColumnDefinition Width="Auto"/>
+                                                                                        <ColumnDefinition Width="*"/>
+                                                                                    </Grid.ColumnDefinitions>
+                                                                                    <TextBlock Grid.Column="0" Text="&#xE77B;" FontFamily="{StaticResource IconFont}" FontSize="9.5"
+                                                                                               Foreground="{DynamicResource TextTertiary}"
+                                                                                               VerticalAlignment="Center" Margin="0,0,3,0"/>
+                                                                                    <TextBlock Grid.Column="1" Text="{Binding PersonsText}" Style="{StaticResource Caption}"
+                                                                                               TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                                                                                </Grid>
+                                                                                <Grid Visibility="{Binding HasLocations, Converter={StaticResource BoolToVisible}}">
+                                                                                    <Grid.ColumnDefinitions>
+                                                                                        <ColumnDefinition Width="Auto"/>
+                                                                                        <ColumnDefinition Width="*"/>
+                                                                                    </Grid.ColumnDefinitions>
+                                                                                    <TextBlock Grid.Column="0" Text="&#xE707;" FontFamily="{StaticResource IconFont}" FontSize="9.5"
+                                                                                               Foreground="{DynamicResource TextTertiary}"
+                                                                                               VerticalAlignment="Center" Margin="0,0,3,0"/>
+                                                                                    <TextBlock Grid.Column="1" Text="{Binding LocationsText}" Style="{StaticResource Caption}"
+                                                                                               TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                                                                                </Grid>
+                                                                            </StackPanel>
 
                                                                             <ItemsControl ItemsSource="{Binding CompactGoalChips}"
                                                                                           ItemTemplate="{StaticResource CompactGoalChipTemplate}"
@@ -2560,6 +2907,7 @@
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate DataType="{x:Type vm:TagPickVM}">
                                                 <ToggleButton Style="{StaticResource FlagChip}" Margin="0,0,6,5"
+                                                              Visibility="{Binding IsVisible, Converter={StaticResource BoolToVisible}}"
                                                               IsChecked="{Binding IsSelected, Mode=TwoWay}">
                                                     <StackPanel Orientation="Horizontal">
                                                         <Ellipse Width="6" Height="6" Fill="{Binding Color}"
@@ -2575,11 +2923,101 @@
                                     <Grid Width="156" HorizontalAlignment="Left" Margin="0,1,0,0">
                                         <TextBox x:Name="EditorNewTag" Style="{StaticResource SubtleInput}" Height="30"
                                                  Text="{Binding Editor.NewTagText, UpdateSourceTrigger=PropertyChanged}"
-                                                 KeyDown="EditorNewTag_KeyDown" ToolTip="回车新建并勾上"/>
+                                                 KeyDown="EditorNewTag_KeyDown" ToolTip="输入可筛选，回车新建并勾上"/>
                                         <TextBlock Text="+ 新标签" IsHitTestVisible="False" FontSize="12" FontWeight="Medium"
                                                    Margin="8,0,0,0" VerticalAlignment="Center"
                                                    Foreground="{DynamicResource TextTertiary}"
                                                    Visibility="{Binding Text, ElementName=EditorNewTag, UpdateSourceTrigger=PropertyChanged, Converter={StaticResource EmptyToVisible}}"/>
+                                    </Grid>
+                                </StackPanel>
+                            </Grid>
+
+                            <!-- 人物（点选 + 输入筛选 + 当场新建） -->
+                            <Grid Margin="0,12,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="58"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="人物" Style="{StaticResource EditorLabel}"/>
+                                <StackPanel Grid.Column="1">
+                                    <ItemsControl ItemsSource="{Binding Editor.PersonPicks}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <WrapPanel/>
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate DataType="{x:Type vm:PersonPickVM}">
+                                                <ToggleButton Style="{StaticResource FlagChip}" Margin="0,0,6,5"
+                                                              Visibility="{Binding IsVisible, Converter={StaticResource BoolToVisible}}"
+                                                              IsChecked="{Binding IsSelected, Mode=TwoWay}">
+                                                    <StackPanel Orientation="Horizontal">
+                                                        <TextBlock Text="&#xE77B;" FontFamily="{StaticResource IconFont}" FontSize="10.5"
+                                                                   Foreground="{DynamicResource TextTertiary}"
+                                                                   VerticalAlignment="Center" Margin="0,0,5,0"/>
+                                                        <TextBlock Text="{Binding Name}" FontSize="12" FontWeight="Medium"
+                                                                   VerticalAlignment="Center"/>
+                                                    </StackPanel>
+                                                </ToggleButton>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+
+                                    <Grid Width="156" HorizontalAlignment="Left" Margin="0,1,0,0">
+                                        <TextBox x:Name="EditorNewPerson" Style="{StaticResource SubtleInput}" Height="30"
+                                                 AutomationProperties.Name="新人物"
+                                                 AutomationProperties.AutomationId="EditorNewPerson"
+                                                 Text="{Binding Editor.NewPersonText, UpdateSourceTrigger=PropertyChanged}"
+                                                 KeyDown="EditorNewPerson_KeyDown" ToolTip="输入可筛选，回车新建并勾上"/>
+                                        <TextBlock Text="+ 新人物" IsHitTestVisible="False" FontSize="12" FontWeight="Medium"
+                                                   Margin="8,0,0,0" VerticalAlignment="Center"
+                                                   Foreground="{DynamicResource TextTertiary}"
+                                                   Visibility="{Binding Text, ElementName=EditorNewPerson, UpdateSourceTrigger=PropertyChanged, Converter={StaticResource EmptyToVisible}}"/>
+                                    </Grid>
+                                </StackPanel>
+                            </Grid>
+
+                            <!-- 地点（点选 + 输入筛选 + 当场新建） -->
+                            <Grid Margin="0,12,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="58"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="地点" Style="{StaticResource EditorLabel}"/>
+                                <StackPanel Grid.Column="1">
+                                    <ItemsControl ItemsSource="{Binding Editor.LocationPicks}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <WrapPanel/>
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate DataType="{x:Type vm:LocationPickVM}">
+                                                <ToggleButton Style="{StaticResource FlagChip}" Margin="0,0,6,5"
+                                                              Visibility="{Binding IsVisible, Converter={StaticResource BoolToVisible}}"
+                                                              IsChecked="{Binding IsSelected, Mode=TwoWay}">
+                                                    <StackPanel Orientation="Horizontal">
+                                                        <TextBlock Text="&#xE707;" FontFamily="{StaticResource IconFont}" FontSize="10.5"
+                                                                   Foreground="{DynamicResource TextTertiary}"
+                                                                   VerticalAlignment="Center" Margin="0,0,5,0"/>
+                                                        <TextBlock Text="{Binding Name}" FontSize="12" FontWeight="Medium"
+                                                                   VerticalAlignment="Center"/>
+                                                    </StackPanel>
+                                                </ToggleButton>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+
+                                    <Grid Width="156" HorizontalAlignment="Left" Margin="0,1,0,0">
+                                        <TextBox x:Name="EditorNewLocation" Style="{StaticResource SubtleInput}" Height="30"
+                                                 AutomationProperties.Name="新地点"
+                                                 AutomationProperties.AutomationId="EditorNewLocation"
+                                                 Text="{Binding Editor.NewLocationText, UpdateSourceTrigger=PropertyChanged}"
+                                                 KeyDown="EditorNewLocation_KeyDown" ToolTip="输入可筛选，回车新建并勾上"/>
+                                        <TextBlock Text="+ 新地点" IsHitTestVisible="False" FontSize="12" FontWeight="Medium"
+                                                   Margin="8,0,0,0" VerticalAlignment="Center"
+                                                   Foreground="{DynamicResource TextTertiary}"
+                                                   Visibility="{Binding Text, ElementName=EditorNewLocation, UpdateSourceTrigger=PropertyChanged, Converter={StaticResource EmptyToVisible}}"/>
                                     </Grid>
                                 </StackPanel>
                             </Grid>
@@ -3269,6 +3707,7 @@
                                                 <ItemsControl.ItemTemplate>
                                                     <DataTemplate DataType="{x:Type vm:TagPickVM}">
                                                         <ToggleButton Style="{StaticResource FlagChip}" Margin="0,0,6,5"
+                                                                      Visibility="{Binding IsVisible, Converter={StaticResource BoolToVisible}}"
                                                                       IsChecked="{Binding IsSelected, Mode=TwoWay}">
                                                             <StackPanel Orientation="Horizontal">
                                                                 <Ellipse Width="6" Height="6" Fill="{Binding Color}"
@@ -3283,11 +3722,93 @@
                                             <Grid Width="140" HorizontalAlignment="Left" Margin="0,1,0,0">
                                                 <TextBox x:Name="PresetNewTag" Style="{StaticResource SubtleInput}" Height="28"
                                                          Text="{Binding PresetManager.NewTagText, UpdateSourceTrigger=PropertyChanged}"
-                                                         KeyDown="PresetNewTag_KeyDown" ToolTip="回车新建并勾上"/>
+                                                         KeyDown="PresetNewTag_KeyDown" ToolTip="输入可筛选，回车新建并勾上"/>
                                                 <TextBlock Text="+ 新标签" IsHitTestVisible="False" FontSize="11.5" FontWeight="Medium"
                                                            Margin="8,0,0,0" VerticalAlignment="Center"
                                                            Foreground="{DynamicResource TextTertiary}"
                                                            Visibility="{Binding Text, ElementName=PresetNewTag, UpdateSourceTrigger=PropertyChanged, Converter={StaticResource EmptyToVisible}}"/>
+                                            </Grid>
+                                        </StackPanel>
+                                    </Grid>
+
+                                    <Grid Margin="0,8,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="52"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="人物" Style="{StaticResource EditorLabel}"/>
+                                        <StackPanel Grid.Column="1">
+                                            <ItemsControl ItemsSource="{Binding PresetManager.PersonPicks}">
+                                                <ItemsControl.ItemsPanel>
+                                                    <ItemsPanelTemplate>
+                                                        <WrapPanel/>
+                                                    </ItemsPanelTemplate>
+                                                </ItemsControl.ItemsPanel>
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate DataType="{x:Type vm:PersonPickVM}">
+                                                        <ToggleButton Style="{StaticResource FlagChip}" Margin="0,0,6,5"
+                                                                      Visibility="{Binding IsVisible, Converter={StaticResource BoolToVisible}}"
+                                                                      IsChecked="{Binding IsSelected, Mode=TwoWay}">
+                                                            <StackPanel Orientation="Horizontal">
+                                                                <TextBlock Text="&#xE77B;" FontFamily="{StaticResource IconFont}" FontSize="10"
+                                                                           Foreground="{DynamicResource TextTertiary}"
+                                                                           VerticalAlignment="Center" Margin="0,0,4,0"/>
+                                                                <TextBlock Text="{Binding Name}" FontSize="11.5" FontWeight="Medium"
+                                                                           VerticalAlignment="Center"/>
+                                                            </StackPanel>
+                                                        </ToggleButton>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                            <Grid Width="140" HorizontalAlignment="Left" Margin="0,1,0,0">
+                                                <TextBox x:Name="PresetNewPerson" Style="{StaticResource SubtleInput}" Height="28"
+                                                         Text="{Binding PresetManager.NewPersonText, UpdateSourceTrigger=PropertyChanged}"
+                                                         KeyDown="PresetNewPerson_KeyDown" ToolTip="输入可筛选，回车新建并勾上"/>
+                                                <TextBlock Text="+ 新人物" IsHitTestVisible="False" FontSize="11.5" FontWeight="Medium"
+                                                           Margin="8,0,0,0" VerticalAlignment="Center"
+                                                           Foreground="{DynamicResource TextTertiary}"
+                                                           Visibility="{Binding Text, ElementName=PresetNewPerson, UpdateSourceTrigger=PropertyChanged, Converter={StaticResource EmptyToVisible}}"/>
+                                            </Grid>
+                                        </StackPanel>
+                                    </Grid>
+
+                                    <Grid Margin="0,8,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="52"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="地点" Style="{StaticResource EditorLabel}"/>
+                                        <StackPanel Grid.Column="1">
+                                            <ItemsControl ItemsSource="{Binding PresetManager.LocationPicks}">
+                                                <ItemsControl.ItemsPanel>
+                                                    <ItemsPanelTemplate>
+                                                        <WrapPanel/>
+                                                    </ItemsPanelTemplate>
+                                                </ItemsControl.ItemsPanel>
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate DataType="{x:Type vm:LocationPickVM}">
+                                                        <ToggleButton Style="{StaticResource FlagChip}" Margin="0,0,6,5"
+                                                                      Visibility="{Binding IsVisible, Converter={StaticResource BoolToVisible}}"
+                                                                      IsChecked="{Binding IsSelected, Mode=TwoWay}">
+                                                            <StackPanel Orientation="Horizontal">
+                                                                <TextBlock Text="&#xE707;" FontFamily="{StaticResource IconFont}" FontSize="10"
+                                                                           Foreground="{DynamicResource TextTertiary}"
+                                                                           VerticalAlignment="Center" Margin="0,0,4,0"/>
+                                                                <TextBlock Text="{Binding Name}" FontSize="11.5" FontWeight="Medium"
+                                                                           VerticalAlignment="Center"/>
+                                                            </StackPanel>
+                                                        </ToggleButton>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                            <Grid Width="140" HorizontalAlignment="Left" Margin="0,1,0,0">
+                                                <TextBox x:Name="PresetNewLocation" Style="{StaticResource SubtleInput}" Height="28"
+                                                         Text="{Binding PresetManager.NewLocationText, UpdateSourceTrigger=PropertyChanged}"
+                                                         KeyDown="PresetNewLocation_KeyDown" ToolTip="输入可筛选，回车新建并勾上"/>
+                                                <TextBlock Text="+ 新地点" IsHitTestVisible="False" FontSize="11.5" FontWeight="Medium"
+                                                           Margin="8,0,0,0" VerticalAlignment="Center"
+                                                           Foreground="{DynamicResource TextTertiary}"
+                                                           Visibility="{Binding Text, ElementName=PresetNewLocation, UpdateSourceTrigger=PropertyChanged, Converter={StaticResource EmptyToVisible}}"/>
                                             </Grid>
                                         </StackPanel>
                                     </Grid>

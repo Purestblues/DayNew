@@ -37,6 +37,8 @@ public sealed class TaskVM : ObservableObject
     public TaskVM()
     {
         Tags.CollectionChanged += OnTagsChanged;
+        Persons.CollectionChanged += OnPersonsChanged;
+        Locations.CollectionChanged += OnLocationsChanged;
         GoalBindings.CollectionChanged += OnGoalBindingsChanged;
     }
 
@@ -340,6 +342,20 @@ public sealed class TaskVM : ObservableObject
 
     public ObservableCollection<TagVM> Tags { get; } = new();
 
+    public ObservableCollection<PersonVM> Persons { get; } = new();
+
+    public ObservableCollection<LocationVM> Locations { get; } = new();
+
+    public bool HasPersons => Persons.Count > 0;
+
+    public bool HasLocations => Locations.Count > 0;
+
+    public bool HasPeopleOrLocations => Persons.Count > 0 || Locations.Count > 0;
+
+    public string PersonsText => Persons.Count == 0 ? "" : string.Join(" · ", Persons.Select(p => p.Name));
+
+    public string LocationsText => Locations.Count == 0 ? "" : string.Join(" · ", Locations.Select(l => l.Name));
+
     public string RepeatLabel => Repeat switch
     {
         "" => "不重复",
@@ -408,6 +424,28 @@ public sealed class TaskVM : ObservableObject
         RaiseMeta();
     }
 
+    private void OnPersonsChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        if (e.OldItems is not null)
+            foreach (PersonVM person in e.OldItems) person.PropertyChanged -= OnPersonPropertyChanged;
+
+        if (e.NewItems is not null)
+            foreach (PersonVM person in e.NewItems) person.PropertyChanged += OnPersonPropertyChanged;
+
+        RaiseMeta();
+    }
+
+    private void OnLocationsChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        if (e.OldItems is not null)
+            foreach (LocationVM location in e.OldItems) location.PropertyChanged -= OnLocationPropertyChanged;
+
+        if (e.NewItems is not null)
+            foreach (LocationVM location in e.NewItems) location.PropertyChanged += OnLocationPropertyChanged;
+
+        RaiseMeta();
+    }
+
     private void OnGoalBindingsChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
         if (_suppressBindingEvents) return;
@@ -420,9 +458,24 @@ public sealed class TaskVM : ObservableObject
         if (e.PropertyName == nameof(TagVM.Name)) RaiseMeta();
     }
 
+    private void OnPersonPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(PersonVM.Name)) RaiseMeta();
+    }
+
+    private void OnLocationPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(LocationVM.Name)) RaiseMeta();
+    }
+
     private void RaiseMeta()
     {
         OnPropertyChanged(nameof(MetaText));
+        OnPropertyChanged(nameof(HasPersons));
+        OnPropertyChanged(nameof(HasLocations));
+        OnPropertyChanged(nameof(HasPeopleOrLocations));
+        OnPropertyChanged(nameof(PersonsText));
+        OnPropertyChanged(nameof(LocationsText));
         OnPropertyChanged(nameof(RepeatLabel));
         RaiseRemindProperties();
     }

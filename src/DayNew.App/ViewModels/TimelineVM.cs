@@ -113,9 +113,20 @@ public sealed class TimelineBlockVM : ObservableObject
 
     public string Title => string.IsNullOrWhiteSpace(Task.Title) ? "未命名" : Task.Title;
 
-    public string BlockToolTip => Task.HasGoal ? $"目标：{Task.GoalLabel}\n双击编辑" : "双击编辑";
+    public string BlockToolTip
+    {
+        get
+        {
+            var lines = new List<string>(4);
+            if (Task.HasGoal) lines.Add($"目标：{Task.GoalLabel}");
+            if (Task.HasPersons) lines.Add($"人物：{Task.PersonsText}");
+            if (Task.HasLocations) lines.Add($"地点：{Task.LocationsText}");
+            lines.Add("双击编辑");
+            return string.Join("\n", lines);
+        }
+    }
 
-    public bool HasMeta => Task.Tags.Count > 0 || Task.HasGoal;
+    public bool HasMeta => Task.Tags.Count > 0 || Task.HasGoal || Task.HasPeopleOrLocations;
 
     /// <summary>块够不够高再写标签和目标；太矮就只写标题和时间，不留半行。</summary>
     public bool HasRoomForMeta => Height >= 60;
