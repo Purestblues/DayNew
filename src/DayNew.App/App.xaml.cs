@@ -2,6 +2,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Threading;
+using DayNew.Core;
 using DayNew.Services;
 using DayNew.ViewModels;
 using DayNew.Views;
@@ -20,15 +21,35 @@ public partial class App : Application
     private const string WindowTitle = "日新 DayNew";
     private const string WakeupWindowTitle = "DayNew.WakeupHost";
 
+    private static string ResolveMutexName()
+    {
+        var customDir = Environment.GetEnvironmentVariable("DAYNEW_DATA_DIR");
+        if (string.IsNullOrWhiteSpace(customDir)) return MutexName;
+        var hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes(customDir.Trim().ToLowerInvariant())))[..8];
+        return $"{MutexName}.{hash}";
+    }
+
+    private static string ResolveWakeupTitle()
+    {
+        var customDir = Environment.GetEnvironmentVariable("DAYNEW_DATA_DIR");
+        if (string.IsNullOrWhiteSpace(customDir)) return WakeupWindowTitle;
+        var hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes(customDir.Trim().ToLowerInvariant())))[..8];
+        return $"{WakeupWindowTitle}.{hash}";
+    }
+
     public static bool StartupSilent { get; set; }
 
     public static readonly uint WmShowMainWindow = RegisterWindowMessage("DayNew.ShowMainWindow");
 
     private MainViewModel? _vm;
     private Win32MessageWindow? _wakeupWindow;
+    private GlobalHotKeyService? _hotKeys;
     private TrayService? _tray;
     private NotificationService? _notifications;
     private McpServerService? _mcpServer;
+    private FocusMiniWindow? _focusMini;
     private DispatcherTimer? _trimTimer;
     private Rect? _savedWindowBounds;
     private WindowState? _savedWindowState;
@@ -45,7 +66,7 @@ public partial class App : Application
             if (args.ExceptionObject is Exception ex) LogError("UnhandledException", ex);
         };
 
-        _instanceMutex = new Mutex(initiallyOwned: true, MutexName, out var isFirstInstance);
+        _instanceMutex = new Mutex(initiallyOwned: true, ResolveMutexName(), out var isFirstInstance);
 
         if (!isFirstInstance)
         {
@@ -60,7 +81,10 @@ public partial class App : Application
 
             _vm = new MainViewModel(deferUiBuild: StartupSilent);
 
-            _wakeupWindow = new Win32MessageWindow(WakeupWindowTitle, HandleWakeupMessage);
+            _wakeupWindow = new Win32MessageWindow(ResolveWakeupTitle(), HandleWakeupMessage);
+
+            _hotKeys = new GlobalHotKeyService(_wakeupWindow.Handle, OnGlobalHotKeyTriggered);
+            _vm.AttachHotKeyService(_hotKeys);
 
             _tray = new TrayService(
                 _wakeupWindow.Handle,
@@ -79,10 +103,26 @@ public partial class App : Application
                 onCompleteTask: id =>
                 {
                     if (_vm.CompleteTaskById(id)) _vm.FlushSave();
-                });
+                },
+                onExtendFocus: mins => _vm.Focus.ExtendMinutes(mins));
 
             _vm.TaskTouched += _notifications.ResetTaskFires;
             _vm.SummaryChanged += _tray.UpdateTooltip;
+
+            _vm.Focus.SessionStarted += () =>
+            {
+                _tray?.UpdateFocusOverride(_vm.Focus.TrayStatusText);
+                if (_vm.FocusAutoOpenMini) ShowFocusMini();
+            };
+            _vm.Focus.SessionEnded += () => _tray?.UpdateFocusOverride(null);
+            _vm.Focus.Ticked += () => _tray?.UpdateFocusOverride(_vm.Focus.TrayStatusText);
+            _vm.Focus.CountdownFinished += (title, taskId) => _notifications?.ShowFocusFinishedNotification(title, taskId);
+            _vm.Focus.FreeFocusCompleted += (title, date, startMin, endMin) =>
+            {
+                ShowMainWindow();
+                _vm.OpenScheduleFromFreeFocus(title, date, startMin, endMin);
+                (MainWindow as MainWindow)?.FocusEditorTitleFromExternal();
+            };
 
             _mcpServer = new McpServerService(_vm, Dispatcher);
             _vm.AttachMcpServer(_mcpServer);
@@ -90,6 +130,8 @@ public partial class App : Application
 
             var (todayPending, overdueCount) = _vm.GetSummaryCounts();
             _tray.UpdateTooltip(todayPending, overdueCount);
+            if (_vm.Focus.IsActive)
+                _tray.UpdateFocusOverride(_vm.Focus.TrayStatusText);
 
             _trimTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1500) };
             _trimTimer.Tick += (_, _) =>
@@ -124,10 +166,68 @@ public partial class App : Application
             return IntPtr.Zero;
         }
 
+        if (msg == GlobalHotKeyService.WmHotKey && _hotKeys?.HandleWindowMessage(msg, wParam) == true)
+            return IntPtr.Zero;
+
         if (_tray?.HandleWindowMessage(msg, lParam) == true)
             return IntPtr.Zero;
 
         return null;
+    }
+
+    private void OnGlobalHotKeyTriggered(string actionId)
+    {
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (_exiting || _vm is null) return;
+
+            switch (actionId)
+            {
+                case ShortcutIds.GlobalToggleWindow:
+                    ToggleMainWindow();
+                    break;
+                case ShortcutIds.GlobalOpenSearch:
+                    ShowMainWindow();
+                    (MainWindow as MainWindow)?.OpenSearchFromExternal();
+                    break;
+                case ShortcutIds.GlobalNewSchedule:
+                    ShowMainWindow();
+                    (MainWindow as MainWindow)?.OpenQuickNewFromExternal();
+                    break;
+                case ShortcutIds.GlobalToggleFocusMini:
+                    ToggleFocusMini();
+                    break;
+            }
+        });
+    }
+
+    public void ShowFocusMini()
+    {
+        if (_exiting || _vm is null) return;
+
+        if (_focusMini is null)
+        {
+            _focusMini = new FocusMiniWindow(
+                _vm.Focus,
+                onOpenMain: ShowMainWindow,
+                onHide: HideFocusMini);
+            _focusMini.Closed += (_, _) => _focusMini = null;
+        }
+
+        _focusMini.EnsureDefaultPosition();
+        if (!_focusMini.IsVisible) _focusMini.Show();
+    }
+
+    public void HideFocusMini()
+    {
+        if (_focusMini is { IsVisible: true })
+            _focusMini.Hide();
+    }
+
+    public void ToggleFocusMini()
+    {
+        if (_focusMini is { IsVisible: true }) HideFocusMini();
+        else ShowFocusMini();
     }
 
     public void ShowMainWindow()
@@ -148,6 +248,7 @@ public partial class App : Application
             onHideToTray: HideMainWindowToTray,
             onExitApp: ExitApplication,
             onTestNotify: () => _notifications.SendTestNotification(),
+            onToggleFocusMini: ToggleFocusMini,
             savedBounds: _savedWindowBounds,
             savedState: _savedWindowState);
 
@@ -180,6 +281,9 @@ public partial class App : Application
 
         if (_exiting) return;
 
+        if (_vm is { FocusKeepMiniOnCloseToTray: false })
+            HideFocusMini();
+
         _vm?.ReleaseUiCaches();
         _trimTimer?.Stop();
         _trimTimer?.Start();
@@ -204,6 +308,9 @@ public partial class App : Application
         if (_exiting) return;
         _exiting = true;
         _trimTimer?.Stop();
+
+        _focusMini?.Close();
+        _focusMini = null;
 
         if (MainWindow is MainWindow mw)
             mw.ForceCloseForExit();
@@ -258,6 +365,7 @@ public partial class App : Application
             }
 
             _mcpServer?.Dispose();
+            _hotKeys?.Dispose();
             _notifications?.Dispose();
             _tray?.Dispose();
             _wakeupWindow?.Dispose();
@@ -279,7 +387,7 @@ public partial class App : Application
     /// <summary>已经开着（含无头驻留在托盘里）就把窗口拉到前面，而不是再开一个。</summary>
     private static void ActivateExistingWindow()
     {
-        var handle = FindWindow(null, WakeupWindowTitle);
+        var handle = FindWindow(null, ResolveWakeupTitle());
         if (handle == IntPtr.Zero) handle = FindWindow(null, WindowTitle);
         if (handle == IntPtr.Zero) return;
 

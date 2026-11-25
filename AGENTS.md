@@ -47,6 +47,8 @@ src/DayNew.App/
     Converters.cs             ZeroToVisible / EmptyToVisible / EmptyToCollapsed / BoolToVisible / RatioToWidth / TextEquals
     Motion.cs                 nord-frost-ui 动效常量（90/150/225ms，CubicEase）与安全 Transform 辅助
     RemindRules.cs            全 App 唯一相对提醒规则层（pre15/pre5/start/end 逗号拼接，空 = 不提醒，兼容旧 HH:mm 迁移）
+    RepeatRules.cs            M2 基础重复规则计算（每天 / 每周 / 每月，按日历周期推进并自动跳过已逝周期）
+    ShortcutConfig.cs         M4 快捷键定义目录、解析/格式化与 Win32 热键键码映射
     ResponsiveGridPanel.cs    自适应 Bento 网格面板（支持 ColumnSpan 与列水位线错落排布）
     HlcClock.cs               P2-B 混合逻辑时钟（12位毫秒+4位计数+设备ID，Ordinal 单调可比）
   Services/
@@ -55,6 +57,8 @@ src/DayNew.App/
     StorageDto.cs             落盘用的 DTO（含 hlc / del / fieldHlcs 与 DeviceSnapshotDto 同步契约）
     StoreFile.cs              本地 JSON 持久化：原子写、防抖 1s、上一版备份、坏文件隔离、字段基线变更追踪与按 ID 合并
     CompletionLog.cs          completions.ndjson 完成记录（日常只追加；支持导入覆盖与去重合并）
+    UndoManager.cs            M4 业务撤销 / 重做栈（不可变快照 + 完成记录冲抵追加 + 复活 HLC 推进）
+    GlobalHotKeyService.cs    M4 系统级全局热键服务（RegisterHotKey 绑定常驻消息窗，最小化/托盘时仍生效）
     DataTransferService.cs    P1 导出/导入（.daynew.zip 打包 data.json + completions.ndjson，导入前自动备份至 backups/）
     SyncMergeEngine.cs        P2-B 多设备 HLC 字段级合并引擎（墓碑仲裁、核心字段并发冲突生成 [冲突] 副本）
     WebDavService.cs          P2 WebDAV 客户端（连接测试、503 退避重试、手动备份/恢复及每设备 .json.gz ETag 增量同步）
@@ -253,7 +257,12 @@ Get-Process DayNew -ErrorAction SilentlyContinue | Stop-Process -Force
 - **卡片展开**：改标题、备注、标签、时间（打 `9-10:30`）、重复、提醒、紧急/重要、删除
 - **弹窗（三入口共用）**：拖出一段 / 截止日期新建 / 未来事项新建 / 双击块或卡片 → 名称、日期开关（支持不定日期）、时间开关（支持不占具体时段）、标签（可当场新建）、目标、重复、提醒（仅开启指定时间时显示）、紧急/重要、备注；开启时间时边打字边算冲突，保存时自动让到最近空档
 - **视图**：**唯一的创建入口**；块可拖改天、改时刻（时长不变，**幽灵直接吸到最近的空档**）；块下方显示所属标签和目标，极矮块自动切换单行布局不裁切文字；缩放 1时/30分/15分/5分/1分；今天列高亮；回到今天平滑滚动
-- **标签**：卡片网格，改名只改实体一处，所有日程立刻跟着变；可删除
+- **标签**：支持「标签 / 人物 / 地点」三页签管理，顶部单行输入框可直接回车新建标签、人物或地点（防重并支持撤销），卡片网格支持就地改名与删除，改名只改实体一处，所有日程立刻跟着变
+- **基础重复规则推进（M2）**：勾选完成「每天 / 每周 / 每月」重复日程时，先追加本次完成记录到 `completions.ndjson`，再按日历周期自动推进到下一期（已逾期自动跳过已逝周期推至未来，目标日时段冲突则自动调用 `FindFreeStart` 顺延避让）
+- **全局快捷键、搜索与撤销重做（M4）**：
+  - 系统级全局热键（`RegisterHotKey` 绑定在常驻消息窗，最小化/缩托盘时仍可一键唤起主窗口、打开搜索或新建日程）+ 应用内快捷键（`Ctrl+K` 搜索、`Ctrl+Z` 撤销、`Ctrl+Y`/`Ctrl+Shift+Z` 重做、`Ctrl+N` 新建、`Ctrl+,` 设置、`Ctrl+1..8` 切页），均可在设置浮层「快捷键」分页查看、录制自定义、禁用或恢复默认；
+  - 居中搜索浮层（Command Palette）支持实时模糊多关键词匹配日程、目标、标签、人物与地点，支持方向键/回车快速直达；
+  - 业务操作撤销/重做栈（最多 40 步）覆盖日程、目标、标签/人物/地点、预设与完成状态变动，撤销完成同步向 `completions.ndjson` 追加冲抵记录并正确维护同步 HLC。
 - **目标**：卡片网格（色点 + 名称 + 进度条 + x/y）；新建 / 改名 / 删除；任务拖到目标卡片挂过去；卡片展开看任务
 - **艾森豪威尔看板**：2x2 四格，格内是卡片网格；任务在格子间拖就改两个标记；「没标记」格装两个都没打的
 - **动效与反馈**：按 `nord-frost-ui` 补齐页面切入、弹窗进出、侧栏收展、展开显隐、勾选、按钮/卡片微缩放、拖拽悬浮阴影与磁吸、底部胶囊 Toast（`90–225ms`，无过冲）
@@ -265,7 +274,7 @@ Get-Process DayNew -ErrorAction SilentlyContinue | Stop-Process -Force
 - **系统通知提醒**：支持 `pre15` / `pre5` / `start` / `end` 节点 Toast 提醒（带「标为完成」「延后 5/10 分钟」按钮，贪睡不改日程原时段）与每日一次的「今日待办摘要」
 - **快捷日程预设**：视图工具条预设卡片可直接拖入时间轴落成日程，带预设管理弹窗
 - **目标树编辑器**：支持节点就地改名、可选截止日期、四边端口连线、连线文字说明与删除、自动排版
-- **设置浮层**：dock「设置」按钮打开，可配置关闭缩托盘、开机自启、通知与摘要、默认提醒、主题、导出/导入全部数据等
+- **设置浮层**：dock「设置」按钮打开，分为「常规」「快捷键」「同步与 AI」三页，可配置关闭缩托盘、开机自启、通知与摘要、默认提醒、系统全局与应用内快捷键、WebDAV 同步、AI MCP 接口、导出/导入全部数据等
 - **导出 / 导入全部数据（P1）**：设置浮层支持一键导出日程、目标、标签、快捷预设与 `completions.ndjson` 为单个 `.daynew.zip` 包；导入前先校验并打开确认弹窗，自动在 `%LOCALAPPDATA%\DayNew\backups\` 生成时间戳备份后再按「按 ID 合并（同 ID 以导入为准，完成记录去重按序合并）」或「覆盖当前数据」落盘（同时兼容单 `data.json` 导入）
 - **WebDAV 云端备份与多设备自动同步（P2）**：
   - 设置浮层支持坚果云 WebDAV 地址/账号/应用专属密码（Windows DPAPI 当前用户加密存于本机 `settings.json`），支持「测试连接」「上传备份」「从云端恢复」与「立即同步」/「开启多设备自动同步」（启动 3s 后、本地修改防抖 6s 后及每 5 分钟静默同步）。
@@ -281,10 +290,8 @@ Get-Process DayNew -ErrorAction SilentlyContinue | Stop-Process -Force
 未做：
 
 - 安卓端业务开发（P4 选型已完成，实际开发待 Win 版功能基本齐全后再按 `docs/android-tech-selection.md` 启动）
-- 重复规则的真实推进逻辑（现在只是显示文本）
 - 提醒只在 App 运行（含托盘常驻）时生效；完全退出后不会提醒
-- 视图范围固定 42 天，不是真无限横向滚动；拖到边缘不自动滚；不能拖底边改时长
-- 标签页不能凭空新建标签（标签从任务卡上长出来；弹窗里可以当场建）
+- 视图范围固定 42 天，不是真无限横向滚动；拖到边缘不自动滚
 - 已有的重叠数据不会自动清洗（只对新操作生效）
 
 ## 死约束

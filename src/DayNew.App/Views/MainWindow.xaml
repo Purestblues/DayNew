@@ -81,6 +81,7 @@
                     RenderTransformOrigin="0.5,0.5">
                 <Border.ContextMenu>
                     <ContextMenu>
+                        <MenuItem Header="开始专注" Click="MenuStartFocus_Click"/>
                         <MenuItem Header="标记完成 / 取消" Click="MenuToggleDone_Click"/>
                         <MenuItem Header="移到今天" Click="MenuMoveToday_Click"/>
                         <MenuItem Header="移到明天" Click="MenuMoveTomorrow_Click"/>
@@ -115,6 +116,8 @@
                             <TextBox x:Name="titleBox" Style="{StaticResource TitleEditor}"
                                      Text="{Binding Title, UpdateSourceTrigger=PropertyChanged}"
                                      Visibility="Collapsed"
+                                     GotFocus="InlineTaskField_GotFocus"
+                                     LostFocus="InlineTaskField_LostFocus"
                                      KeyDown="TitleBox_KeyDown"/>
                             <TextBlock x:Name="titleText" Text="{Binding Title}"
                                        Style="{StaticResource CardTitle}"/>
@@ -193,6 +196,8 @@
                                 <Grid>
                                     <TextBox x:Name="noteBox" Style="{StaticResource SubtleInput}"
                                              Text="{Binding Note, UpdateSourceTrigger=PropertyChanged}"
+                                             GotFocus="InlineTaskField_GotFocus"
+                                             LostFocus="InlineTaskField_LostFocus"
                                              AcceptsReturn="True" TextWrapping="Wrap"
                                              MinHeight="46" MaxHeight="140"
                                              VerticalScrollBarVisibility="Auto"/>
@@ -373,16 +378,25 @@
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto"/>
                                         <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
                                     <Button Grid.Column="0" Style="{StaticResource GhostButton}"
                                             HorizontalAlignment="Left" Padding="7,4" FontSize="11.5"
                                             Content="{Binding RepeatLabel}"
                                             ToolTip="点击切换：不重复 / 每天 / 每周 / 每月"
                                             Click="Repeat_Click"/>
-                                    <Button Grid.Column="1" Style="{StaticResource GhostButton}"
-                                            HorizontalAlignment="Right" Padding="7,4" FontSize="11.5"
-                                            Foreground="{DynamicResource TextTertiary}"
-                                            Content="删除" Click="Delete_Click"/>
+                                    <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right">
+                                        <Button Style="{StaticResource GhostButton}"
+                                                Padding="7,4" FontSize="11.5" Margin="0,0,4,0"
+                                                Foreground="{DynamicResource Accent}"
+                                                Content="专注"
+                                                ToolTip="开始专注此日程"
+                                                Click="ExpandFocus_Click"/>
+                                        <Button Style="{StaticResource GhostButton}"
+                                                Padding="7,4" FontSize="11.5"
+                                                Foreground="{DynamicResource TextTertiary}"
+                                                Content="删除" Click="Delete_Click"/>
+                                    </StackPanel>
                                 </Grid>
                             </StackPanel>
                         </StackPanel>
@@ -670,6 +684,13 @@
                                                                         Cursor="Hand"
                                                                         RenderTransformOrigin="0.5,0.5"
                                                                         ToolTip="{Binding BlockToolTip}">
+                                                                    <Border.ContextMenu>
+                                                                        <ContextMenu>
+                                                                            <MenuItem Header="开始专注" Click="MenuStartFocusBlock_Click"/>
+                                                                            <MenuItem Header="编辑日程" Click="MenuEditBlock_Click"/>
+                                                                            <MenuItem Header="标记完成 / 取消" Click="MenuToggleDoneBlock_Click"/>
+                                                                        </ContextMenu>
+                                                                    </Border.ContextMenu>
                                                                     <Grid>
                                                                         <Border x:Name="blkHover" Background="{DynamicResource HoverOverlay}"
                                                                                 CornerRadius="3" Opacity="0" IsHitTestVisible="False"/>
@@ -1399,7 +1420,7 @@
         <ControlTemplate x:Key="TagsPageTemplate" TargetType="ContentControl">
             <DockPanel>
                             <StackPanel DockPanel.Dock="Top" Margin="0,0,0,14">
-                                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
                                     <ToggleButton Style="{StaticResource SegmentButton}" Content="标签" Tag="Tags"
                                                   AutomationProperties.Name="标签"
                                                   AutomationProperties.AutomationId="TagsTabButton"
@@ -1416,6 +1437,33 @@
                                                   IsChecked="{Binding IsTagTabLocations, Mode=OneWay}"
                                                   Click="TagPageTab_Click"/>
                                 </StackPanel>
+
+                                <Grid MaxWidth="620" HorizontalAlignment="Left" Margin="0,0,0,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="420"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Grid>
+                                        <TextBox x:Name="TagEntityInputBox" Style="{StaticResource SubtleInput}" Height="36"
+                                                 VerticalContentAlignment="Center"
+                                                 AutomationProperties.Name="新建标签人物或地点输入框"
+                                                 AutomationProperties.AutomationId="TagEntityInputBox"
+                                                 Text="{Binding TagEntityInput, UpdateSourceTrigger=PropertyChanged}"
+                                                 KeyDown="TagEntityInput_KeyDown"/>
+                                        <TextBlock Text="{Binding TagEntityPlaceholder}"
+                                                   IsHitTestVisible="False" VerticalAlignment="Center"
+                                                   Margin="9,0,0,0" FontSize="12.5" FontWeight="Medium"
+                                                   Foreground="{DynamicResource TextDisabled}"
+                                                   Visibility="{Binding Text, ElementName=TagEntityInputBox, UpdateSourceTrigger=PropertyChanged, Converter={StaticResource EmptyToVisible}}"/>
+                                    </Grid>
+                                    <Button Grid.Column="1" Style="{StaticResource PrimaryButton}"
+                                            Content="{Binding TagEntityButtonText}"
+                                            Height="36" Padding="14,0" Margin="8,0,0,0" FontSize="12.5"
+                                            AutomationProperties.Name="{Binding TagEntityButtonText}"
+                                            AutomationProperties.AutomationId="TagEntityCreateButton"
+                                            Click="SubmitTagEntity_Click"/>
+                                </Grid>
+
                                 <TextBlock MaxWidth="760" HorizontalAlignment="Left"
                                            Text="{Binding TagPageBlurb}"
                                            Style="{StaticResource Caption}" TextWrapping="Wrap"/>
@@ -1457,7 +1505,7 @@
                                                                      HorizontalAlignment="Left" MinWidth="32"
                                                                      VerticalAlignment="Center" Cursor="IBeam"
                                                                      ToolTip="点击名称可重命名"
-                                                                     LostFocus="EntityNameBox_LostFocus"
+                                                                     GotFocus="EntityNameBox_GotFocus" LostFocus="EntityNameBox_LostFocus"
                                                                      KeyDown="EntityNameBox_KeyDown"
                                                                      Text="{Binding Tag.Name, UpdateSourceTrigger=PropertyChanged}"/>
                                                             <TextBlock Grid.Column="2" Text="&#xE76C;"
@@ -1518,7 +1566,7 @@
                                                                          HorizontalAlignment="Left" MinWidth="32"
                                                                          VerticalAlignment="Center" Cursor="IBeam"
                                                                          ToolTip="点击名称可重命名"
-                                                                         LostFocus="EntityNameBox_LostFocus"
+                                                                         GotFocus="EntityNameBox_GotFocus" LostFocus="EntityNameBox_LostFocus"
                                                                          KeyDown="EntityNameBox_KeyDown"
                                                                          Text="{Binding Person.Name, UpdateSourceTrigger=PropertyChanged}"/>
                                                                 <TextBlock Grid.Column="2" Text="&#xE76C;"
@@ -1549,7 +1597,7 @@
                                         <TextBlock Text="还没有人物" FontSize="15" FontWeight="SemiBold"
                                                    HorizontalAlignment="Center"
                                                    Foreground="{DynamicResource TextSecondary}"/>
-                                        <TextBlock Text="在日程弹窗或展开卡片中添加人物后，会自动收录到这里"
+                                        <TextBlock Text="在上方输入框直接新建，或在日程弹窗中关联人物"
                                                    Style="{StaticResource Caption}"
                                                    HorizontalAlignment="Center" Margin="0,6,0,0"/>
                                     </StackPanel>
@@ -1591,7 +1639,7 @@
                                                                          HorizontalAlignment="Left" MinWidth="32"
                                                                          VerticalAlignment="Center" Cursor="IBeam"
                                                                          ToolTip="点击名称可重命名"
-                                                                         LostFocus="EntityNameBox_LostFocus"
+                                                                         GotFocus="EntityNameBox_GotFocus" LostFocus="EntityNameBox_LostFocus"
                                                                          KeyDown="EntityNameBox_KeyDown"
                                                                          Text="{Binding Location.Name, UpdateSourceTrigger=PropertyChanged}"/>
                                                                 <TextBlock Grid.Column="2" Text="&#xE76C;"
@@ -1622,7 +1670,7 @@
                                         <TextBlock Text="还没有地点" FontSize="15" FontWeight="SemiBold"
                                                    HorizontalAlignment="Center"
                                                    Foreground="{DynamicResource TextSecondary}"/>
-                                        <TextBlock Text="在日程弹窗或展开卡片中添加地点后，会自动收录到这里"
+                                        <TextBlock Text="在上方输入框直接新建，或在日程弹窗中关联地点"
                                                    Style="{StaticResource Caption}"
                                                    HorizontalAlignment="Center" Margin="0,6,0,0"/>
                                     </StackPanel>
@@ -1632,7 +1680,18 @@
         </ControlTemplate>
 
         <ControlTemplate x:Key="EisenhowerPageTemplate" TargetType="ContentControl">
-            <ItemsControl x:Name="QuadrantsHost" ItemsSource="{Binding Quadrants}">
+            <DockPanel>
+                <Grid DockPanel.Dock="Top" Margin="4,0,4,6">
+                    <ToggleButton Style="{StaticResource FlagChip}"
+                                  HorizontalAlignment="Right"
+                                  Margin="0"
+                                  Content="显示已完成"
+                                  IsChecked="{Binding ShowCompletedInEisenhower, Mode=TwoWay}"
+                                  AutomationProperties.Name="显示已完成"
+                                  AutomationProperties.AutomationId="EisenhowerShowCompletedToggle"
+                                  ToolTip="切换是否在四象限中显示已完成的任务"/>
+                </Grid>
+                <ItemsControl x:Name="QuadrantsHost" ItemsSource="{Binding Quadrants}">
                             <ItemsControl.ItemsPanel>
                                 <ItemsPanelTemplate>
                                     <UniformGrid Columns="2" Rows="2"/>
@@ -1779,6 +1838,7 @@
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
+            </DockPanel>
         </ControlTemplate>
 
         <ControlTemplate x:Key="DeadlinesPageTemplate" TargetType="ContentControl">
@@ -2231,6 +2291,321 @@
                 </DockPanel>
         </ControlTemplate>
 
+        <ControlTemplate x:Key="FocusPageTemplate" TargetType="ContentControl">
+            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                          Padding="0,0,4,16">
+                <StackPanel MaxWidth="1040" HorizontalAlignment="Stretch">
+                    <!-- 顶部标题 -->
+                    <Grid Margin="0,0,0,14">
+                        <StackPanel>
+                            <TextBlock Text="专注" FontSize="20" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource TextPrimary}"/>
+                            <TextBlock Text="今日时段日程到点自动开始倒计时；不定时长的工作可随时开启自由正计时"
+                                       Style="{StaticResource Caption}" Margin="0,3,0,0"/>
+                        </StackPanel>
+                        <Button Style="{StaticResource GhostButton}" HorizontalAlignment="Right" VerticalAlignment="Center"
+                                Padding="10,6" Click="ToggleFocusMini_Click"
+                                AutomationProperties.AutomationId="FocusPageMiniToggle">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="&#xE8A7;" FontFamily="{StaticResource IconFont}" FontSize="11.5"
+                                           VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                <TextBlock Text="呼出 / 隐藏迷你悬浮窗" FontSize="12" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                    </Grid>
+
+                    <!-- 主计时英雄卡 -->
+                    <Border Background="{DynamicResource Surface2}"
+                            BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="1"
+                            CornerRadius="8" Padding="24,20">
+                        <Grid>
+                            <!-- 进行中状态 -->
+                            <StackPanel Visibility="{Binding Focus.IsActive, Converter={StaticResource BoolToVisible}}">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <StackPanel VerticalAlignment="Center" Margin="0,0,20,0">
+                                        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                            <Border Background="{DynamicResource Surface3}" CornerRadius="4"
+                                                    Padding="8,3" VerticalAlignment="Center">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <Ellipse x:Name="heroDot" Width="7" Height="7" Fill="{DynamicResource Accent}"
+                                                             VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                                    <TextBlock Text="{Binding Focus.ModeLabel}" FontSize="11.5" FontWeight="SemiBold"
+                                                               Foreground="{DynamicResource TextSecondary}"/>
+                                                </StackPanel>
+                                            </Border>
+                                            <TextBlock Text="{Binding Focus.SubStatusText}" Style="{StaticResource Caption}"
+                                                       VerticalAlignment="Center" Margin="10,0,0,0"/>
+                                        </StackPanel>
+
+                                        <TextBlock Text="{Binding Focus.DisplayTitle}"
+                                                   FontSize="20" FontWeight="SemiBold" TextWrapping="Wrap"
+                                                   Foreground="{DynamicResource TextPrimary}"
+                                                   Visibility="{Binding Focus.IsFreeMode, Converter={StaticResource BoolToVisible}, ConverterParameter=invert}"/>
+
+                                        <Grid Visibility="{Binding Focus.IsFreeMode, Converter={StaticResource BoolToVisible}}"
+                                              MaxWidth="460" HorizontalAlignment="Left">
+                                            <TextBox Style="{StaticResource SubtleInput}" Height="36" Width="420"
+                                                     FontSize="15" FontWeight="SemiBold" VerticalContentAlignment="Center"
+                                                     Text="{Binding Focus.FreeDraftTitle, UpdateSourceTrigger=PropertyChanged}"
+                                                     AutomationProperties.Name="自由专注事项名称"/>
+                                            <TextBlock Text="输入正在做的事（可选，结束时将自动带入日程卡片）"
+                                                       IsHitTestVisible="False" VerticalAlignment="Center" Margin="10,0,10,0"
+                                                       FontSize="12.5" Foreground="{DynamicResource TextDisabled}"
+                                                       Visibility="{Binding Focus.FreeDraftTitle, Converter={StaticResource EmptyToVisible}}"/>
+                                        </Grid>
+                                    </StackPanel>
+
+                                    <TextBlock Grid.Column="1" Text="{Binding Focus.TimeText}"
+                                               FontSize="44" FontWeight="SemiBold"
+                                               VerticalAlignment="Center"
+                                               Foreground="{DynamicResource TextPrimary}"
+                                               Typography.NumeralAlignment="Tabular"/>
+                                </Grid>
+
+                                <!-- 倒计时进度条 -->
+                                <Grid x:Name="heroProgressTrack" Height="4" Margin="0,16,0,0"
+                                      Background="{DynamicResource Surface3}"
+                                      Visibility="{Binding Focus.ShowProgress, Converter={StaticResource BoolToVisible}}">
+                                    <Border x:Name="heroProgressFill" Background="{DynamicResource Accent}"
+                                            CornerRadius="2" HorizontalAlignment="Left">
+                                        <Border.Width>
+                                            <MultiBinding Converter="{StaticResource RatioToWidth}">
+                                                <Binding ElementName="heroProgressTrack" Path="ActualWidth"/>
+                                                <Binding Path="Focus.Progress"/>
+                                            </MultiBinding>
+                                        </Border.Width>
+                                    </Border>
+                                </Grid>
+
+                                <!-- 操作条 -->
+                                <WrapPanel Margin="0,18,0,0">
+                                    <Button Style="{StaticResource GhostButton}" Padding="12,7" Margin="0,0,8,0"
+                                            Background="{DynamicResource Surface3}"
+                                            Click="FocusPause_Click"
+                                            AutomationProperties.AutomationId="FocusPauseButton">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="{Binding Focus.PauseButtonIcon}" FontFamily="{StaticResource IconFont}"
+                                                       FontSize="11" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                            <TextBlock Text="{Binding Focus.PauseButtonText}" FontSize="12.5" FontWeight="SemiBold"
+                                                       VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                    </Button>
+
+                                    <Button Style="{StaticResource GhostButton}" Padding="12,7" Margin="0,0,8,0"
+                                            Background="{DynamicResource Surface3}"
+                                            Content="+5 分钟" FontSize="12.5"
+                                            Visibility="{Binding Focus.CanExtend, Converter={StaticResource BoolToVisible}}"
+                                            Click="FocusExtend_Click"/>
+
+                                    <Button Style="{StaticResource PrimaryButton}" Padding="16,7" Margin="0,0,8,0"
+                                            Content="{Binding Focus.CompleteButtonText}"
+                                            Click="FocusComplete_Click"
+                                            AutomationProperties.AutomationId="FocusCompleteButton"/>
+
+                                    <Button Style="{StaticResource GhostButton}" Padding="12,7" Margin="0,0,8,0"
+                                            Content="{Binding Focus.StopButtonText}" FontSize="12.5"
+                                            Foreground="{DynamicResource TextTertiary}"
+                                            Click="FocusStop_Click"/>
+                                </WrapPanel>
+                            </StackPanel>
+
+                            <!-- 空闲状态：自由专注入口 -->
+                            <Grid Visibility="{Binding Focus.IsIdle, Converter={StaticResource BoolToVisible}}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+
+                                <StackPanel Margin="0,0,20,0">
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                                        <Border Background="{DynamicResource Surface3}" CornerRadius="4" Padding="8,2">
+                                            <TextBlock Text="自由专注 · 正计时" FontSize="11.5" FontWeight="SemiBold"
+                                                       Foreground="{DynamicResource Accent}"/>
+                                        </Border>
+                                        <TextBlock Text="当前时段暂无进行中的日程" Style="{StaticResource Caption}"
+                                                   VerticalAlignment="Center" Margin="10,0,0,0"/>
+                                    </StackPanel>
+                                    <TextBlock Text="想一口气完成一项不定时长的工作？直接开始正计时，结束时弹出日程卡片并自动保存为已完成。"
+                                               FontSize="13" FontWeight="Medium" TextWrapping="Wrap"
+                                               Foreground="{DynamicResource TextSecondary}" Margin="0,0,0,12"/>
+                                    <Grid MaxWidth="460" HorizontalAlignment="Left">
+                                        <TextBox x:Name="FreeFocusTitleInput" Style="{StaticResource SubtleInput}"
+                                                 Height="36" Width="420" FontSize="13.5" VerticalContentAlignment="Center"
+                                                 Text="{Binding Focus.FreeDraftTitle, UpdateSourceTrigger=PropertyChanged}"
+                                                 KeyDown="FreeFocusInput_KeyDown"
+                                                 AutomationProperties.AutomationId="FreeFocusTitleInput"/>
+                                        <TextBlock Text="准备专注做什么？（可留空，结束时再填）"
+                                                   IsHitTestVisible="False" VerticalAlignment="Center" Margin="10,0,10,0"
+                                                   FontSize="12.5" Foreground="{DynamicResource TextDisabled}"
+                                                   Visibility="{Binding Focus.FreeDraftTitle, Converter={StaticResource EmptyToVisible}}"/>
+                                    </Grid>
+                                </StackPanel>
+
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Right">
+                                    <TextBlock Text="00:00" FontSize="36" FontWeight="SemiBold"
+                                               HorizontalAlignment="Right" Margin="0,0,0,10"
+                                               Foreground="{DynamicResource TextTertiary}"
+                                               Typography.NumeralAlignment="Tabular"/>
+                                    <Button Style="{StaticResource PrimaryButton}" Padding="18,9"
+                                            Content="开始自由专注"
+                                            Click="FocusStartFree_Click"
+                                            AutomationProperties.AutomationId="StartFreeFocusButton"/>
+                                </StackPanel>
+                            </Grid>
+                        </Grid>
+                    </Border>
+
+                    <!-- 下半区：今日待专注日程 + 专注设置 -->
+                    <Grid Margin="0,14,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="14"/>
+                            <ColumnDefinition Width="320"/>
+                        </Grid.ColumnDefinitions>
+
+                        <!-- 左列：今日待专注日程 -->
+                        <Border Grid.Column="0" Background="{DynamicResource Surface2}"
+                                BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="1"
+                                CornerRadius="8" Padding="18,16">
+                            <StackPanel>
+                                <Grid Margin="0,0,0,12">
+                                    <TextBlock Text="今日待专注日程" FontSize="14.5" FontWeight="SemiBold"
+                                               Foreground="{DynamicResource TextPrimary}"/>
+                                    <TextBlock Text="{Binding FocusCandidateTasks.Count, StringFormat={}{0} 项}"
+                                               Style="{StaticResource Caption}" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                                </Grid>
+
+                                <ItemsControl ItemsSource="{Binding FocusCandidateTasks}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate DataType="{x:Type vm:TaskVM}">
+                                            <Border Background="{DynamicResource Surface3}"
+                                                    BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="1"
+                                                    CornerRadius="6" Padding="12,9" Margin="0,0,0,8">
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                    </Grid.ColumnDefinitions>
+
+                                                    <StackPanel VerticalAlignment="Center" Margin="0,0,12,0">
+                                                        <StackPanel Orientation="Horizontal">
+                                                            <Ellipse Width="6" Height="6" Fill="{Binding PrimaryGoalColor}"
+                                                                     VerticalAlignment="Center" Margin="0,0,6,0"
+                                                                     Visibility="{Binding HasGoal, Converter={StaticResource BoolToVisible}}"/>
+                                                            <TextBlock Text="{Binding Title}" FontSize="13.5" FontWeight="SemiBold"
+                                                                       TextTrimming="CharacterEllipsis"
+                                                                       Foreground="{DynamicResource TextPrimary}"/>
+                                                        </StackPanel>
+                                                        <TextBlock Text="{Binding MetaText}" Style="{StaticResource Caption}"
+                                                                   Margin="0,2,0,0"
+                                                                   Visibility="{Binding MetaText, Converter={StaticResource EmptyToCollapsed}}"/>
+                                                    </StackPanel>
+
+                                                    <!-- 有具体时段：一键按时段倒计时 -->
+                                                    <Button Grid.Column="1" Style="{StaticResource GhostButton}"
+                                                            Background="{DynamicResource Surface2}"
+                                                            Padding="10,5" FontSize="12"
+                                                            Foreground="{DynamicResource Accent}"
+                                                            Content="开始专注"
+                                                            Visibility="{Binding HasTime, Converter={StaticResource BoolToVisible}}"
+                                                            Click="FocusCandidateAuto_Click"/>
+
+                                                    <!-- 无具体时段：快选时长 / 正计时 -->
+                                                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center"
+                                                                Visibility="{Binding HasTime, Converter={StaticResource BoolToVisible}, ConverterParameter=invert}">
+                                                        <Button Style="{StaticResource GhostButton}" Padding="8,4" Margin="0,0,4,0"
+                                                                Background="{DynamicResource Surface2}" Content="25分" FontSize="11.5"
+                                                                Click="FocusCandidate25_Click"/>
+                                                        <Button Style="{StaticResource GhostButton}" Padding="8,4" Margin="0,0,4,0"
+                                                                Background="{DynamicResource Surface2}" Content="45分" FontSize="11.5"
+                                                                Click="FocusCandidate45_Click"/>
+                                                        <Button Style="{StaticResource GhostButton}" Padding="8,4"
+                                                                Background="{DynamicResource Surface2}" Content="正计时" FontSize="11.5"
+                                                                Foreground="{DynamicResource Accent}"
+                                                                Click="FocusCandidateStopwatch_Click"/>
+                                                    </StackPanel>
+                                                </Grid>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+
+                                <TextBlock Text="今天暂无未完成日程，可以直接在上方开启「自由专注」"
+                                           Style="{StaticResource Caption}" Margin="0,8,0,4"
+                                           Visibility="{Binding FocusCandidateTasks.Count, Converter={StaticResource ZeroToVisible}}"/>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- 右列：专注设置与悬浮窗 -->
+                        <Border Grid.Column="2" Background="{DynamicResource Surface2}"
+                                BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="1"
+                                CornerRadius="8" Padding="18,16" VerticalAlignment="Top">
+                            <StackPanel>
+                                <TextBlock Text="专注偏好与迷你窗" FontSize="14.5" FontWeight="SemiBold"
+                                           Foreground="{DynamicResource TextPrimary}" Margin="0,0,0,12"/>
+
+                                <Border Background="{DynamicResource Surface3}" CornerRadius="6" Padding="12,10" Margin="0,0,0,8">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Margin="0,0,10,0">
+                                            <TextBlock Text="开始时自动弹出迷你窗" FontSize="12.5" FontWeight="SemiBold"/>
+                                            <TextBlock Text="任意专注启动或到点跟随时自动显示桌面胶囊"
+                                                       Style="{StaticResource Caption}" Margin="0,2,0,0" TextWrapping="Wrap"/>
+                                        </StackPanel>
+                                        <ToggleButton Grid.Column="1" Style="{StaticResource SwitchToggle}" VerticalAlignment="Center"
+                                                      IsChecked="{Binding FocusAutoOpenMini, Mode=TwoWay}"/>
+                                    </Grid>
+                                </Border>
+
+                                <Border Background="{DynamicResource Surface3}" CornerRadius="6" Padding="12,10" Margin="0,0,0,8">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Margin="0,0,10,0">
+                                            <TextBlock Text="关闭主窗后保留迷你窗" FontSize="12.5" FontWeight="SemiBold"/>
+                                            <TextBlock Text="主窗口缩到托盘时，胶囊仍留在桌面置顶"
+                                                       Style="{StaticResource Caption}" Margin="0,2,0,0" TextWrapping="Wrap"/>
+                                        </StackPanel>
+                                        <ToggleButton Grid.Column="1" Style="{StaticResource SwitchToggle}" VerticalAlignment="Center"
+                                                      IsChecked="{Binding FocusKeepMiniOnCloseToTray, Mode=TwoWay}"/>
+                                    </Grid>
+                                </Border>
+
+                                <Border Background="{DynamicResource Surface3}" CornerRadius="6" Padding="12,10">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Margin="0,0,10,0">
+                                            <TextBlock Text="开始 / 结束提示音" FontSize="12.5" FontWeight="SemiBold"/>
+                                            <TextBlock Text="专注开启与倒计时结束时播放柔和提示音"
+                                                       Style="{StaticResource Caption}" Margin="0,2,0,0" TextWrapping="Wrap"/>
+                                        </StackPanel>
+                                        <ToggleButton Grid.Column="1" Style="{StaticResource SwitchToggle}" VerticalAlignment="Center"
+                                                      IsChecked="{Binding FocusSoundEnabled, Mode=TwoWay}"/>
+                                    </Grid>
+                                </Border>
+
+                                <TextBlock Text="全局快捷键：默认 Ctrl+Alt+F 可随时呼出或隐藏迷你悬浮窗，可在「设置 → 快捷键」中修改。"
+                                           Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,12,0,0"/>
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+                </StackPanel>
+            </ScrollViewer>
+        </ControlTemplate>
+
         <ControlTemplate x:Key="EditorBodyTemplate" TargetType="ContentControl">
             <DockPanel>
                     <!-- 顶部：标题 + 关闭 -->
@@ -2266,6 +2641,20 @@
                     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
                                   Padding="20,0,14,0">
                         <StackPanel Margin="0,0,0,14">
+
+                            <!-- 自由专注结束引导提示 -->
+                            <Border Background="{DynamicResource AccentTint}"
+                                    BorderBrush="{DynamicResource Accent}" BorderThickness="1"
+                                    CornerRadius="6" Padding="10,7" Margin="0,0,0,12"
+                                    Visibility="{Binding Editor.MarkDoneOnSave, Converter={StaticResource BoolToVisible}}">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="&#xE916;" FontFamily="{StaticResource IconFont}" FontSize="12"
+                                               Foreground="{DynamicResource Accent}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                    <TextBlock Text="自由专注已结束 · 填写信息保存后将自动写入日程并标记为已完成"
+                                               FontSize="12" FontWeight="Medium" Foreground="{DynamicResource TextPrimary}"
+                                               VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Border>
 
                             <!-- 名称 -->
                             <Grid>
@@ -2637,17 +3026,103 @@
                 </DockPanel>
         </ControlTemplate>
 
+        <DataTemplate x:Key="ShortcutRowTemplate" DataType="{x:Type vm:ShortcutItemVM}">
+            <Border Background="{DynamicResource Surface3}" CornerRadius="8"
+                    BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="1"
+                    Padding="12,10" Margin="0,0,0,8">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Margin="0,0,12,0" VerticalAlignment="Center">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="{Binding Title}" FontSize="13" FontWeight="SemiBold"
+                                       VerticalAlignment="Center"/>
+                            <TextBlock x:Name="statusLabel" Text="{Binding StatusText}"
+                                       FontSize="11" FontWeight="Medium"
+                                       Margin="8,0,0,0" VerticalAlignment="Center"
+                                       Foreground="{DynamicResource TextTertiary}"
+                                       Visibility="{Binding IsGlobal, Converter={StaticResource BoolToVisible}}"/>
+                        </StackPanel>
+                        <TextBlock Text="{Binding Description}" Style="{StaticResource Caption}"
+                                   Margin="0,2,0,0" TextWrapping="Wrap"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                        <Button x:Name="recordBtn" Style="{StaticResource GhostButton}"
+                                Background="{DynamicResource Surface2}"
+                                BorderBrush="{DynamicResource BorderStrong}" BorderThickness="1"
+                                Padding="10,5" MinWidth="112" FontSize="12" FontWeight="SemiBold"
+                                Content="{Binding DisplayGesture}"
+                                ToolTip="点击后按下新组合键；Esc 取消，Backspace/Delete 禁用"
+                                Tag="{Binding Id}"
+                                AutomationProperties.Name="{Binding Title}"
+                                Click="ShortcutRecord_Click"/>
+                        <Button Style="{StaticResource GhostButton}"
+                                Content="&#xE711;" FontFamily="{StaticResource IconFont}" FontSize="10"
+                                Padding="7,5" Margin="4,0,0,0"
+                                ToolTip="禁用此快捷键"
+                                Tag="{Binding Id}"
+                                Visibility="{Binding IsDisabled, Converter={StaticResource BoolToVisible}, ConverterParameter=invert}"
+                                Click="ShortcutClear_Click"/>
+                        <Button Style="{StaticResource GhostButton}"
+                                Content="&#xE7A7;" FontFamily="{StaticResource IconFont}" FontSize="11"
+                                Padding="7,5" Margin="4,0,0,0"
+                                ToolTip="{Binding DefaultGesture, StringFormat=恢复默认（{0}）}"
+                                Tag="{Binding Id}"
+                                Visibility="{Binding IsCustomized, Converter={StaticResource BoolToVisible}}"
+                                Click="ShortcutReset_Click"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+            <DataTemplate.Triggers>
+                <DataTrigger Binding="{Binding IsStatusOk}" Value="True">
+                    <Setter TargetName="statusLabel" Property="Foreground" Value="{DynamicResource Accent}"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IsStatusWarning}" Value="True">
+                    <Setter TargetName="statusLabel" Property="Foreground" Value="{DynamicResource Danger}"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IsRecording}" Value="True">
+                    <Setter TargetName="recordBtn" Property="BorderBrush" Value="{DynamicResource Accent}"/>
+                    <Setter TargetName="recordBtn" Property="Background" Value="{DynamicResource AccentTint}"/>
+                    <Setter TargetName="recordBtn" Property="Foreground" Value="{DynamicResource Accent}"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IsDisabled}" Value="True">
+                    <Setter TargetName="recordBtn" Property="Foreground" Value="{DynamicResource TextDisabled}"/>
+                </DataTrigger>
+            </DataTemplate.Triggers>
+        </DataTemplate>
+
         <ControlTemplate x:Key="SettingsBodyTemplate" TargetType="ContentControl">
             <DockPanel>
-                    <Grid DockPanel.Dock="Top" Margin="20,16,14,12">
-                        <TextBlock Text="设置" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center"/>
-                        <Button Style="{StaticResource GhostButton}" Content="&#xE711;"
-                                FontFamily="{StaticResource IconFont}" FontSize="11"
-                                HorizontalAlignment="Right" ToolTip="关闭（Esc）"
-                                AutomationProperties.Name="关闭"
-                                AutomationProperties.AutomationId="SettingsCloseButton"
-                                Click="SettingsClose_Click"/>
-                    </Grid>
+                    <StackPanel DockPanel.Dock="Top" Margin="20,16,14,10">
+                        <Grid Margin="0,0,0,12">
+                            <TextBlock Text="设置" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                            <Button Style="{StaticResource GhostButton}" Content="&#xE711;"
+                                    FontFamily="{StaticResource IconFont}" FontSize="11"
+                                    HorizontalAlignment="Right" ToolTip="关闭（Esc）"
+                                    AutomationProperties.Name="关闭"
+                                    AutomationProperties.AutomationId="SettingsCloseButton"
+                                    Click="SettingsClose_Click"/>
+                        </Grid>
+                        <StackPanel Orientation="Horizontal">
+                            <ToggleButton Style="{StaticResource SegmentButton}" Content="常规" Tag="General"
+                                          AutomationProperties.Name="常规设置"
+                                          AutomationProperties.AutomationId="SettingsTabGeneral"
+                                          IsChecked="{Binding IsSettingsTabGeneral, Mode=OneWay}"
+                                          Click="SettingsTab_Click"/>
+                            <ToggleButton Style="{StaticResource SegmentButton}" Content="快捷键" Tag="Shortcuts"
+                                          AutomationProperties.Name="快捷键设置"
+                                          AutomationProperties.AutomationId="SettingsTabShortcuts"
+                                          IsChecked="{Binding IsSettingsTabShortcuts, Mode=OneWay}"
+                                          Click="SettingsTab_Click"/>
+                            <ToggleButton Style="{StaticResource SegmentButton}" Content="同步与 AI" Tag="SyncAndAi"
+                                          AutomationProperties.Name="同步与 AI 设置"
+                                          AutomationProperties.AutomationId="SettingsTabSyncAndAi"
+                                          IsChecked="{Binding IsSettingsTabSyncAndAi, Mode=OneWay}"
+                                          Click="SettingsTab_Click"/>
+                        </StackPanel>
+                    </StackPanel>
 
                     <Border DockPanel.Dock="Bottom" BorderBrush="{DynamicResource BorderSubtle}"
                             BorderThickness="0,1,0,0" Padding="20,10,16,12">
@@ -2671,6 +3146,7 @@
                     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
                                   Padding="20,4,20,18">
                         <StackPanel>
+                            <StackPanel Visibility="{Binding IsSettingsTabGeneral, Converter={StaticResource BoolToVisible}}">
                             <Border Background="{DynamicResource Surface3}" CornerRadius="8"
                                     BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="1"
                                     Padding="14,12" Margin="0,0,0,10">
@@ -2759,6 +3235,62 @@
                                     BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="1"
                                     Padding="14,12" Margin="0,0,0,10">
                                 <StackPanel>
+                                    <TextBlock Text="专注计时" FontSize="13.5" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                                    <Grid Margin="0,0,0,10">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Margin="0,0,14,0">
+                                            <TextBlock Text="开始专注时自动弹出桌面迷你窗" FontSize="12.5" FontWeight="Medium"/>
+                                            <TextBlock Text="到点自动跟随或手动开启专注时自动显示悬浮胶囊"
+                                                       Style="{StaticResource Caption}" Margin="0,2,0,0" TextWrapping="Wrap"/>
+                                        </StackPanel>
+                                        <ToggleButton Grid.Column="1" Style="{StaticResource SwitchToggle}"
+                                                      VerticalAlignment="Center"
+                                                      IsChecked="{Binding FocusAutoOpenMini, Mode=TwoWay}"
+                                                      AutomationProperties.Name="开始专注时自动弹出桌面迷你窗"
+                                                      AutomationProperties.AutomationId="FocusAutoOpenMiniToggle"/>
+                                    </Grid>
+                                    <Grid Margin="0,0,0,10">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Margin="0,0,14,0">
+                                            <TextBlock Text="关闭主窗口时保留迷你悬浮窗" FontSize="12.5" FontWeight="Medium"/>
+                                            <TextBlock Text="主窗最小化到托盘后，迷你计时胶囊继续置顶留在桌面"
+                                                       Style="{StaticResource Caption}" Margin="0,2,0,0" TextWrapping="Wrap"/>
+                                        </StackPanel>
+                                        <ToggleButton Grid.Column="1" Style="{StaticResource SwitchToggle}"
+                                                      VerticalAlignment="Center"
+                                                      IsChecked="{Binding FocusKeepMiniOnCloseToTray, Mode=TwoWay}"
+                                                      AutomationProperties.Name="关闭主窗口时保留迷你悬浮窗"
+                                                      AutomationProperties.AutomationId="FocusKeepMiniToggle"/>
+                                    </Grid>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Margin="0,0,14,0">
+                                            <TextBlock Text="专注开始与结束提示音" FontSize="12.5" FontWeight="Medium"/>
+                                            <TextBlock Text="计时启动与倒计时归零时播放轻柔提示音效"
+                                                       Style="{StaticResource Caption}" Margin="0,2,0,0" TextWrapping="Wrap"/>
+                                        </StackPanel>
+                                        <ToggleButton Grid.Column="1" Style="{StaticResource SwitchToggle}"
+                                                      VerticalAlignment="Center"
+                                                      IsChecked="{Binding FocusSoundEnabled, Mode=TwoWay}"
+                                                      AutomationProperties.Name="专注开始与结束提示音"
+                                                      AutomationProperties.AutomationId="FocusSoundToggle"/>
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Background="{DynamicResource Surface3}" CornerRadius="8"
+                                    BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="1"
+                                    Padding="14,12" Margin="0,0,0,10">
+                                <StackPanel>
                                     <TextBlock Text="新建日程默认提醒" FontSize="13.5" FontWeight="SemiBold"/>
                                     <TextBlock Text="在时间轴拖出日程或新增快捷卡片时默认勾选的提醒节点"
                                                Style="{StaticResource Caption}" Margin="0,3,0,10" TextWrapping="Wrap"/>
@@ -2816,7 +3348,32 @@
                                     </StackPanel>
                                 </Grid>
                             </Border>
+                            </StackPanel>
 
+                            <StackPanel Visibility="{Binding IsSettingsTabShortcuts, Converter={StaticResource BoolToVisible}}">
+                                <Grid Margin="0,0,0,12">
+                                    <TextBlock Text="点击按键胶囊可自定义快捷键；按 Esc 取消录制，按 Backspace 禁用该项。"
+                                               Style="{StaticResource Caption}" VerticalAlignment="Center"
+                                               TextWrapping="Wrap" Margin="0,0,12,0"/>
+                                    <Button Style="{StaticResource GhostButton}" Content="全部恢复默认"
+                                            Padding="10,5" HorizontalAlignment="Right"
+                                            AutomationProperties.Name="全部恢复默认快捷键"
+                                            AutomationProperties.AutomationId="ResetAllShortcutsButton"
+                                            Click="ResetAllShortcuts_Click"/>
+                                </Grid>
+
+                                <TextBlock Text="系统级全局热键（最小化或缩在托盘时同样生效）"
+                                           Style="{StaticResource Eyebrow}" Margin="0,0,0,8"/>
+                                <ItemsControl ItemsSource="{Binding GlobalShortcutItems}"
+                                              ItemTemplate="{StaticResource ShortcutRowTemplate}"/>
+
+                                <TextBlock Text="应用内快捷键（主窗口激活时生效）"
+                                           Style="{StaticResource Eyebrow}" Margin="0,10,0,8"/>
+                                <ItemsControl ItemsSource="{Binding InAppShortcutItems}"
+                                              ItemTemplate="{StaticResource ShortcutRowTemplate}"/>
+                            </StackPanel>
+
+                            <StackPanel Visibility="{Binding IsSettingsTabSyncAndAi, Converter={StaticResource BoolToVisible}}">
                             <Border Background="{DynamicResource Surface3}" CornerRadius="8"
                                     BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="1"
                                     Padding="14,12" Margin="0,0,0,10">
@@ -3029,9 +3586,121 @@
                                     </StackPanel>
                                 </StackPanel>
                             </Border>
+                            </StackPanel>
                         </StackPanel>
                     </ScrollViewer>
                 </DockPanel>
+        </ControlTemplate>
+
+        <ControlTemplate x:Key="SearchBodyTemplate" TargetType="ContentControl">
+            <DockPanel>
+                <Border DockPanel.Dock="Top" BorderBrush="{DynamicResource BorderSubtle}"
+                        BorderThickness="0,0,0,1" Padding="14,12">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="&#xE721;" FontFamily="{StaticResource IconFont}" FontSize="15"
+                                   Foreground="{DynamicResource Accent}"
+                                   VerticalAlignment="Center" Margin="2,0,10,0"/>
+                        <Grid Grid.Column="1">
+                            <TextBox x:Name="SearchInputBox"
+                                     Background="Transparent" BorderThickness="0"
+                                     FontSize="15" FontWeight="Medium"
+                                     Foreground="{DynamicResource TextPrimary}"
+                                     CaretBrush="{DynamicResource Accent}"
+                                     VerticalContentAlignment="Center"
+                                     AutomationProperties.Name="全局搜索输入框"
+                                     AutomationProperties.AutomationId="SearchInputBox"
+                                     Text="{Binding SearchQuery, UpdateSourceTrigger=PropertyChanged}"
+                                     PreviewKeyDown="SearchInputBox_PreviewKeyDown"/>
+                            <TextBlock Text="搜索日程、目标、标签、人物或地点（支持空格多关键词）…"
+                                       IsHitTestVisible="False" VerticalAlignment="Center"
+                                       FontSize="14" Foreground="{DynamicResource TextDisabled}"
+                                       Visibility="{Binding Text, ElementName=SearchInputBox, UpdateSourceTrigger=PropertyChanged, Converter={StaticResource EmptyToVisible}}"/>
+                        </Grid>
+                        <Button Grid.Column="2" Style="{StaticResource GhostButton}" Content="Esc"
+                                FontSize="11" Padding="8,4" Foreground="{DynamicResource TextTertiary}"
+                                AutomationProperties.Name="关闭搜索"
+                                Click="SearchClose_Click"/>
+                    </Grid>
+                </Border>
+
+                <Border DockPanel.Dock="Bottom" BorderBrush="{DynamicResource BorderSubtle}"
+                        BorderThickness="0,1,0,0" Padding="16,8">
+                    <Grid>
+                        <TextBlock Text="↑ ↓ 选择 · Enter 打开详情或编辑 · Esc 关闭"
+                                   Style="{StaticResource Caption}" VerticalAlignment="Center"/>
+                        <TextBlock Text="{Binding SearchResults.Count, StringFormat={}{0} 条结果}"
+                                   Style="{StaticResource Caption}" HorizontalAlignment="Right"
+                                   VerticalAlignment="Center" Typography.NumeralAlignment="Tabular"/>
+                    </Grid>
+                </Border>
+
+                <Grid MaxHeight="380" MinHeight="180">
+                    <ScrollViewer x:Name="SearchResultsScroll" VerticalScrollBarVisibility="Auto"
+                                  HorizontalScrollBarVisibility="Disabled" Padding="8,6">
+                        <ItemsControl ItemsSource="{Binding SearchResults}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="{x:Type vm:SearchItemVM}">
+                                    <Border x:Name="searchRow" CornerRadius="8" Padding="12,9" Margin="0,1"
+                                            Background="Transparent" BorderBrush="Transparent" BorderThickness="1"
+                                            Cursor="Hand" MouseLeftButtonUp="SearchItem_Click">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <Border Grid.Column="0" Background="{DynamicResource Surface3}"
+                                                    CornerRadius="4" Padding="6,2" VerticalAlignment="Center"
+                                                    Margin="0,0,10,0">
+                                                <TextBlock Text="{Binding KindBadge}" FontSize="11" FontWeight="SemiBold"
+                                                           Foreground="{DynamicResource TextSecondary}"/>
+                                            </Border>
+                                            <Ellipse Grid.Column="1" Width="7" Height="7"
+                                                     Fill="{Binding AccentBrush}"
+                                                     VerticalAlignment="Center" Margin="0,0,8,0"
+                                                     Visibility="{Binding HasAccent, Converter={StaticResource BoolToVisible}}"/>
+                                            <StackPanel Grid.Column="2" VerticalAlignment="Center">
+                                                <TextBlock x:Name="rowTitle" Text="{Binding Title}"
+                                                           FontSize="13.5" FontWeight="SemiBold"
+                                                           Foreground="{DynamicResource TextPrimary}"
+                                                           TextTrimming="CharacterEllipsis"/>
+                                                <TextBlock Text="{Binding Subtitle}" Style="{StaticResource Caption}"
+                                                           Margin="0,2,0,0" TextTrimming="CharacterEllipsis"
+                                                           Visibility="{Binding Subtitle, Converter={StaticResource EmptyToCollapsed}}"/>
+                                            </StackPanel>
+                                            <TextBlock Grid.Column="3" Text="&#xE76C;"
+                                                       FontFamily="{StaticResource IconFont}" FontSize="11"
+                                                       Foreground="{DynamicResource TextDisabled}"
+                                                       VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                        </Grid>
+                                    </Border>
+                                    <DataTemplate.Triggers>
+                                        <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                            <Setter TargetName="searchRow" Property="Background" Value="{DynamicResource AccentTint}"/>
+                                            <Setter TargetName="searchRow" Property="BorderBrush" Value="{DynamicResource Accent}"/>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding IsDone}" Value="True">
+                                            <Setter TargetName="rowTitle" Property="TextDecorations" Value="Strikethrough"/>
+                                            <Setter TargetName="rowTitle" Property="Opacity" Value="0.6"/>
+                                        </DataTrigger>
+                                    </DataTemplate.Triggers>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+
+                    <TextBlock Text="{Binding SearchEmptyHint}" Style="{StaticResource Caption}"
+                               FontSize="13" HorizontalAlignment="Center" VerticalAlignment="Center"
+                               IsHitTestVisible="False"
+                               Visibility="{Binding HasSearchResults, Converter={StaticResource BoolToVisible}, ConverterParameter=invert}"/>
+                </Grid>
+            </DockPanel>
         </ControlTemplate>
 
         <ControlTemplate x:Key="PresetManagerBodyTemplate" TargetType="ContentControl">
@@ -4393,6 +5062,37 @@
             </StackPanel>
 
             <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top">
+                <Button x:Name="SearchOpenButton" Style="{StaticResource GhostButton}"
+                        Height="26" Padding="10,0" Margin="0,6,6,0"
+                        VerticalAlignment="Top"
+                        Background="{DynamicResource Surface3}"
+                        BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="1"
+                        ToolTip="全局搜索"
+                        AutomationProperties.Name="全局搜索"
+                        AutomationProperties.AutomationId="SearchOpenButton"
+                        WindowChrome.IsHitTestVisibleInChrome="True"
+                        Click="SearchOpen_Click">
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock Text="&#xE721;" FontFamily="{StaticResource IconFont}" FontSize="11.5"
+                                   Foreground="{DynamicResource TextSecondary}" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                        <TextBlock Text="{Binding SearchShortcutHint}" FontSize="11.5" FontWeight="Medium"
+                                   Foreground="{DynamicResource TextSecondary}" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
+                <Button x:Name="UndoButton" Style="{StaticResource CaptionButton}"
+                        Content="&#xE7A7;" ToolTip="{Binding UndoTooltip}"
+                        IsEnabled="{Binding CanUndo}"
+                        AutomationProperties.Name="撤销"
+                        AutomationProperties.AutomationId="UndoButton"
+                        WindowChrome.IsHitTestVisibleInChrome="True"
+                        Click="Undo_Click"/>
+                <Button x:Name="RedoButton" Style="{StaticResource CaptionButton}"
+                        Content="&#xE7A6;" ToolTip="{Binding RedoTooltip}"
+                        IsEnabled="{Binding CanRedo}"
+                        AutomationProperties.Name="重做"
+                        AutomationProperties.AutomationId="RedoButton"
+                        WindowChrome.IsHitTestVisibleInChrome="True"
+                        Click="Redo_Click"/>
                 <Button x:Name="ThemeButton" Style="{StaticResource CaptionButton}"
                         Content="&#xE706;" ToolTip="切换明暗"
                         AutomationProperties.Name="切换明暗"
@@ -4540,7 +5240,81 @@
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
-                <!-- 快速录入已取消：日程只有一个创建入口——在「视图」页的时间轴上拖出一段 -->
+                <!-- 顶部常驻专注条（切到其它页时保持可见，在「专注」页本身收起） -->
+                <Border x:Name="FocusBar" Grid.Row="0"
+                        Background="{DynamicResource Surface2}"
+                        BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="0,0,0,1"
+                        Visibility="{Binding ShowTopFocusBar, Converter={StaticResource BoolToVisible}}">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="40"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <Grid Margin="16,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+
+                            <Button Grid.Column="0" Grid.ColumnSpan="2" Style="{StaticResource GhostButton}"
+                                    HorizontalAlignment="Left" Padding="6,4"
+                                    ToolTip="点击切换到「专注」页"
+                                    Click="FocusBarOpenPage_Click">
+                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                    <Ellipse x:Name="focusBarDot" Width="7" Height="7" Fill="{DynamicResource Accent}"
+                                             VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                    <TextBlock Text="{Binding Focus.ModeLabel}" FontSize="11.5" FontWeight="SemiBold"
+                                               Foreground="{DynamicResource TextSecondary}" VerticalAlignment="Center"
+                                               Margin="0,0,8,0"/>
+                                    <TextBlock Text="{Binding Focus.DisplayTitle}" FontSize="13" FontWeight="SemiBold"
+                                               Foreground="{DynamicResource TextPrimary}" TextTrimming="CharacterEllipsis"
+                                               MaxWidth="360" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+
+                            <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                                <TextBlock Text="{Binding Focus.TimeText}" FontSize="15" FontWeight="SemiBold"
+                                           Foreground="{DynamicResource TextPrimary}"
+                                           VerticalAlignment="Center" Margin="0,0,12,0"
+                                           Typography.NumeralAlignment="Tabular"/>
+                                <Button Style="{StaticResource GhostButton}" Padding="8,4" Margin="0,0,4,0"
+                                        Content="{Binding Focus.PauseButtonText}" FontSize="11.5"
+                                        Click="FocusPause_Click"/>
+                                <Button Style="{StaticResource GhostButton}" Padding="8,4" Margin="0,0,4,0"
+                                        Content="+5分" FontSize="11.5"
+                                        Visibility="{Binding Focus.CanExtend, Converter={StaticResource BoolToVisible}}"
+                                        Click="FocusExtend_Click"/>
+                                <Button Style="{StaticResource GhostButton}" Padding="8,4" Margin="0,0,4,0"
+                                        Foreground="{DynamicResource Success}"
+                                        Content="{Binding Focus.CompleteButtonText}" FontSize="11.5"
+                                        Click="FocusComplete_Click"/>
+                                <Button Style="{StaticResource GhostButton}" Padding="7,4" Margin="0,0,4,0"
+                                        FontFamily="{StaticResource IconFont}" FontSize="11" Content="&#xE8A7;"
+                                        ToolTip="呼出 / 隐藏桌面迷你悬浮窗"
+                                        Click="ToggleFocusMini_Click"/>
+                                <Button Style="{StaticResource GhostButton}" Padding="7,4"
+                                        Content="{Binding Focus.StopButtonText}" FontSize="11.5"
+                                        Foreground="{DynamicResource TextTertiary}"
+                                        Click="FocusStop_Click"/>
+                            </StackPanel>
+                        </Grid>
+
+                        <Grid x:Name="focusBarTrack" Grid.Row="1" Height="2"
+                              Background="{DynamicResource Surface3}"
+                              Visibility="{Binding Focus.ShowProgress, Converter={StaticResource BoolToVisible}}">
+                            <Border x:Name="focusBarFill" Background="{DynamicResource Accent}" HorizontalAlignment="Left">
+                                <Border.Width>
+                                    <MultiBinding Converter="{StaticResource RatioToWidth}">
+                                        <Binding ElementName="focusBarTrack" Path="ActualWidth"/>
+                                        <Binding Path="Focus.Progress"/>
+                                    </MultiBinding>
+                                </Border.Width>
+                            </Border>
+                        </Grid>
+                    </Grid>
+                </Border>
 
                 <!-- 页面宿主 -->
                 <Grid x:Name="PageHost" Grid.Row="1">
@@ -4815,6 +5589,15 @@
                         <ContentControl x:Name="EisenhowerPageHost" IsTabStop="False" Template="{x:Null}"/>
                     </Grid>
 
+                    <!-- 专注页：自动跟随日程 + 自由专注正计时 + 悬浮窗与音效管理 -->
+                    <Grid x:Name="PageFocus" Margin="24,14,24,0"
+                          Visibility="{Binding IsFocusPage, Converter={StaticResource BoolToVisible}}">
+                        <Grid.RenderTransform>
+                            <TranslateTransform/>
+                        </Grid.RenderTransform>
+                        <ContentControl x:Name="FocusPageHost" IsTabStop="False" Template="{x:Null}"/>
+                    </Grid>
+
                     <!-- 截止日期页：按天分组展示仅设截止日的日程 + 设了截止日的目标/子目标 -->
                     <Grid x:Name="PageDeadlines" Margin="24,14,24,0"
                           Visibility="{Binding IsDeadlines, Converter={StaticResource BoolToVisible}}">
@@ -4932,7 +5715,7 @@
         <Grid x:Name="SettingsLayer" Grid.RowSpan="2" Visibility="Collapsed">
             <Border x:Name="SettingsScrim" Background="{DynamicResource Scrim}" Opacity="0"
                     MouseLeftButtonDown="SettingsScrim_Click"/>
-            <Border x:Name="SettingsDialog" Width="484" MaxHeight="620"
+            <Border x:Name="SettingsDialog" Width="540" MaxHeight="640"
                     VerticalAlignment="Center" HorizontalAlignment="Center"
                     Background="{DynamicResource Surface4}"
                     BorderBrush="{DynamicResource BorderStrong}" BorderThickness="1"
@@ -5064,6 +5847,82 @@
                     <DropShadowEffect Color="Black" BlurRadius="24" ShadowDepth="8" Direction="270" Opacity="0.28"/>
                 </Border.Effect>
                 <ContentControl x:Name="ImportConfirmBodyHost" IsTabStop="False" Template="{x:Null}"/>
+            </Border>
+        </Grid>
+
+        <!-- ================= 全局搜索浮层（Command Palette） ================= -->
+        <Grid x:Name="SearchLayer" Grid.RowSpan="2" Visibility="Collapsed">
+            <Border x:Name="SearchScrim" Background="{DynamicResource Scrim}" Opacity="0"
+                    MouseLeftButtonDown="SearchScrim_Click"/>
+            <Border x:Name="SearchDialog" Width="560" MaxHeight="520"
+                    Margin="0,72,0,0"
+                    VerticalAlignment="Top" HorizontalAlignment="Center"
+                    Background="{DynamicResource Surface4}"
+                    BorderBrush="{DynamicResource BorderStrong}" BorderThickness="1"
+                    CornerRadius="12" ClipToBounds="True"
+                    Opacity="0" RenderTransformOrigin="0.5,0.5">
+                <Border.RenderTransform>
+                    <TransformGroup>
+                        <ScaleTransform x:Name="SearchScale" ScaleX="0.97" ScaleY="0.97"/>
+                        <TranslateTransform x:Name="SearchShift" Y="10"/>
+                    </TransformGroup>
+                </Border.RenderTransform>
+                <Border.Effect>
+                    <DropShadowEffect Color="Black" BlurRadius="24" ShadowDepth="8" Direction="270" Opacity="0.28"/>
+                </Border.Effect>
+                <ContentControl x:Name="SearchBodyHost" IsTabStop="False" Template="{x:Null}"/>
+            </Border>
+        </Grid>
+
+        <!-- ================= 无时段日程专注时长选择浮层 ================= -->
+        <Grid x:Name="FocusDurationLayer" Grid.RowSpan="2" Visibility="Collapsed">
+            <Border x:Name="FocusDurationScrim" Background="{DynamicResource Scrim}" Opacity="0"
+                    MouseLeftButtonDown="FocusDurationScrim_Click"/>
+            <Border x:Name="FocusDurationDialog" Width="340"
+                    VerticalAlignment="Center" HorizontalAlignment="Center"
+                    Background="{DynamicResource Surface4}"
+                    BorderBrush="{DynamicResource BorderStrong}" BorderThickness="1"
+                    CornerRadius="12" Padding="18,16"
+                    Opacity="0" RenderTransformOrigin="0.5,0.5">
+                <Border.RenderTransform>
+                    <TransformGroup>
+                        <ScaleTransform x:Name="FocusDurationScale" ScaleX="0.97" ScaleY="0.97"/>
+                        <TranslateTransform x:Name="FocusDurationShift" Y="10"/>
+                    </TransformGroup>
+                </Border.RenderTransform>
+                <Border.Effect>
+                    <DropShadowEffect Color="Black" BlurRadius="24" ShadowDepth="8" Direction="270" Opacity="0.28"/>
+                </Border.Effect>
+                <StackPanel>
+                    <Grid Margin="0,0,0,6">
+                        <TextBlock Text="选择专注方式" FontSize="15" FontWeight="SemiBold"/>
+                        <Button Style="{StaticResource GhostButton}" Content="&#xE711;"
+                                FontFamily="{StaticResource IconFont}" FontSize="10.5"
+                                HorizontalAlignment="Right" Padding="6,4"
+                                Click="FocusDurationClose_Click"/>
+                    </Grid>
+                    <TextBlock x:Name="FocusDurationTaskTitle" FontSize="12.5" FontWeight="Medium"
+                               Foreground="{DynamicResource TextSecondary}" TextTrimming="CharacterEllipsis"
+                               Margin="0,0,0,12"/>
+                    <WrapPanel Margin="0,0,0,10">
+                        <Button Style="{StaticResource GhostButton}" Background="{DynamicResource Surface3}"
+                                Padding="12,7" Margin="0,0,8,8" Content="15 分钟" Tag="15"
+                                Click="FocusDurationPick_Click"/>
+                        <Button Style="{StaticResource PrimaryButton}"
+                                Padding="14,7" Margin="0,0,8,8" Content="25 分钟" Tag="25"
+                                Click="FocusDurationPick_Click"/>
+                        <Button Style="{StaticResource GhostButton}" Background="{DynamicResource Surface3}"
+                                Padding="12,7" Margin="0,0,8,8" Content="45 分钟" Tag="45"
+                                Click="FocusDurationPick_Click"/>
+                        <Button Style="{StaticResource GhostButton}" Background="{DynamicResource Surface3}"
+                                Padding="12,7" Margin="0,0,8,8" Content="60 分钟" Tag="60"
+                                Click="FocusDurationPick_Click"/>
+                    </WrapPanel>
+                    <Button Style="{StaticResource GhostButton}" Background="{DynamicResource Surface3}"
+                            HorizontalContentAlignment="Center" Padding="12,8"
+                            Content="正计时专注（不设结束时间）"
+                            Click="FocusDurationStopwatch_Click"/>
+                </StackPanel>
             </Border>
         </Grid>
 

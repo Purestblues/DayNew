@@ -9,6 +9,7 @@ public enum PageKind
     Tags,
     Goals,
     Eisenhower,
+    Focus,
     Deadlines,
     Future,
     Overdue

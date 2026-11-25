@@ -6,7 +6,7 @@
     <SupportedOSPlatformVersion>10.0.17763.0</SupportedOSPlatformVersion>
     <RootNamespace>DayNew</RootNamespace>
     <AssemblyName>DayNew</AssemblyName>
-    <Version>0.8.0</Version>
+    <Version>0.10.0</Version>
     <Product>日新</Product>
     <AssemblyTitle>日新 DayNew</AssemblyTitle>
     <ApplicationIcon>Assets\DayNew.ico</ApplicationIcon>

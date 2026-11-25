@@ -29,6 +29,15 @@ public sealed class AppSettings
 
     public bool DailyDigestEnabled { get; set; } = true;
 
+    /// <summary>开始专注时自动弹出桌面迷你悬浮胶囊。</summary>
+    public bool FocusAutoOpenMini { get; set; }
+
+    /// <summary>主窗口关闭缩到托盘时保持桌面迷你悬浮胶囊显示。</summary>
+    public bool FocusKeepMiniOnCloseToTray { get; set; } = true;
+
+    /// <summary>专注计时开始与倒计时结束时播放轻提示音。</summary>
+    public bool FocusSoundEnabled { get; set; } = true;
+
     /// <summary>新建日程/快捷卡片时的默认提醒节点组合；空字符串 = 默认不提醒。</summary>
     public string DefaultRemind { get; set; } = RemindRules.Default;
 
@@ -69,7 +78,32 @@ public sealed class AppSettings
     /// <summary>经 Windows DPAPI 当前用户加密后的 MCP Bearer Token，绝不明文落盘。</summary>
     public string McpTokenProtected { get; set; } = "";
 
+    /// <summary>快捷键映射（actionId -> 快捷键字符串；空字符串 = 已禁用，缺省 = 使用默认值）。</summary>
+    public Dictionary<string, string> Shortcuts { get; set; } = new(StringComparer.Ordinal);
+
     public static string SettingsPath => Path.Combine(StoreFile.Folder, "settings.json");
+
+    public string GetShortcut(string actionId)
+    {
+        if (Shortcuts.TryGetValue(actionId, out var saved))
+            return string.IsNullOrWhiteSpace(saved) ? "" : ShortcutGesture.Normalize(saved);
+
+        return ShortcutCatalog.Find(actionId)?.DefaultGesture ?? "";
+    }
+
+    public void SetShortcut(string actionId, string? gesture)
+    {
+        var def = ShortcutCatalog.Find(actionId);
+        if (def is null) return;
+
+        var normalized = string.IsNullOrWhiteSpace(gesture) ? "" : ShortcutGesture.Normalize(gesture);
+        if (string.Equals(normalized, def.DefaultGesture, StringComparison.OrdinalIgnoreCase))
+            Shortcuts.Remove(actionId);
+        else
+            Shortcuts[actionId] = normalized;
+    }
+
+    public void ResetAllShortcuts() => Shortcuts.Clear();
 
     public string GetWebDavPassword() => UnprotectString(WebDavPasswordProtected);
 
@@ -155,6 +189,9 @@ public sealed class AppSettings
                 if (loaded.McpPort is < 1024 or > 65535)
                     loaded.McpPort = DefaultMcpPort;
                 loaded.McpTokenProtected ??= "";
+                loaded.Shortcuts = loaded.Shortcuts is null
+                    ? new Dictionary<string, string>(StringComparer.Ordinal)
+                    : new Dictionary<string, string>(loaded.Shortcuts, StringComparer.Ordinal);
 
                 if (string.IsNullOrWhiteSpace(loaded.DeviceId))
                 {

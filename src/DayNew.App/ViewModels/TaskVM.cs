@@ -84,7 +84,7 @@ public sealed class TaskVM : ObservableObject
         }
     }
 
-    /// <summary>原型阶段只是显示文本：每天 / 每周 / 每月。</summary>
+    /// <summary>基础重复规则：每天 / 每周 / 每月（空字符串 = 不重复）。</summary>
     public string Repeat
     {
         get => _repeat;

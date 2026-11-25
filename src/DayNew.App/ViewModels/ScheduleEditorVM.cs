@@ -293,9 +293,18 @@ public sealed class ScheduleEditorVM : ObservableObject
 
     public bool IsEditing => Task is not null;
 
-    public string Header => IsNew
-        ? (!HasDue ? "新建未来事项" : !HasTime ? "新建截止事项" : "新建日程")
-        : "编辑日程";
+    private bool _markDoneOnSave;
+    public bool MarkDoneOnSave
+    {
+        get => _markDoneOnSave;
+        private set => Set(ref _markDoneOnSave, value);
+    }
+
+    public string Header => MarkDoneOnSave
+        ? "记录专注成果"
+        : IsNew
+            ? (!HasDue ? "新建未来事项" : !HasTime ? "新建截止事项" : "新建日程")
+            : "编辑日程";
 
     public ObservableCollection<TagPickVM> TagPicks { get; } = new();
 
@@ -531,9 +540,27 @@ public sealed class ScheduleEditorVM : ObservableObject
         _owner.RefreshEditorHint();
     }
 
+    public void OpenFromFreeFocus(string title, DateTime date, int startMinutes, int endMinutes)
+    {
+        ResetCommonNew();
+        _markDoneOnSave = true;
+        _title = (title ?? "").Trim();
+        _remind = "";
+        _hasDue = true;
+        _hasTime = true;
+        _date = date.Date;
+        _startText = Clock(startMinutes);
+        _endText = Clock(Math.Max(startMinutes + 1, endMinutes));
+
+        BuildPicks(Array.Empty<TagVM>(), Array.Empty<PersonVM>(), Array.Empty<LocationVM>(), Array.Empty<GoalBindingVM>());
+        RaiseAll();
+        _owner.RefreshEditorHint();
+    }
+
     private void ResetCommonNew()
     {
         Task = null;
+        _markDoneOnSave = false;
         _title = "";
         _note = "";
         _remind = RemindRules.Normalize(_owner.Settings.DefaultRemind);
@@ -550,6 +577,7 @@ public sealed class ScheduleEditorVM : ObservableObject
     public void OpenExisting(TaskVM task)
     {
         Task = task;
+        _markDoneOnSave = false;
         _title = task.Title;
         _note = task.Note;
         _remind = RemindRules.Normalize(task.Remind);
@@ -689,6 +717,7 @@ public sealed class ScheduleEditorVM : ObservableObject
         OnPropertyChanged(nameof(Task));
         OnPropertyChanged(nameof(IsNew));
         OnPropertyChanged(nameof(IsEditing));
+        OnPropertyChanged(nameof(MarkDoneOnSave));
         OnPropertyChanged(nameof(Header));
         OnPropertyChanged(nameof(Title));
         OnPropertyChanged(nameof(Note));

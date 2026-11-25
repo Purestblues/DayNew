@@ -304,6 +304,103 @@ public sealed class StoreFile
         };
     }
 
+    /// <summary>生成不修改 Baseline 与 HLC 的纯内存快照（用于撤销/重做与状态比对）。</summary>
+    public static StoreDto ToRawSnapshotDto(DayStore store)
+    {
+        var goals = store.Goals.Select(BuildRawGoalDto).ToList();
+        goals.AddRange(store.DeletedGoals.Select(CloneGoalDto));
+
+        var tags = store.Tags.Select(BuildRawTagDto).ToList();
+        tags.AddRange(store.DeletedTags.Select(CloneTagDto));
+
+        var persons = store.Persons.Select(BuildRawPersonDto).ToList();
+        persons.AddRange(store.DeletedPersons.Select(ClonePersonDto));
+
+        var locations = store.Locations.Select(BuildRawLocationDto).ToList();
+        locations.AddRange(store.DeletedLocations.Select(CloneLocationDto));
+
+        var schedules = store.Schedules.Select(BuildRawScheduleDto).ToList();
+        schedules.AddRange(store.DeletedSchedules.Select(CloneScheduleDto));
+
+        var presets = store.Presets.Select(BuildRawPresetDto).ToList();
+        presets.AddRange(store.DeletedPresets.Select(ClonePresetDto));
+
+        return new StoreDto
+        {
+            Version = 1,
+            Goals = goals,
+            Tags = tags,
+            Persons = persons,
+            Locations = locations,
+            Schedules = schedules,
+            Presets = presets
+        };
+    }
+
+    /// <summary>撤销/重做恢复快照：保留原 Baseline 以便下次写盘正确推进 HLC，并提升被复活实体的 HLC。</summary>
+    public static void ApplyUndoSnapshot(StoreDto dto, DayStore store)
+    {
+        var prevBaselineGoals = new Dictionary<string, GoalDto>(store.BaselineGoals, StringComparer.Ordinal);
+        var prevBaselineTags = new Dictionary<string, TagDto>(store.BaselineTags, StringComparer.Ordinal);
+        var prevBaselinePersons = new Dictionary<string, PersonDto>(store.BaselinePersons, StringComparer.Ordinal);
+        var prevBaselineLocations = new Dictionary<string, LocationDto>(store.BaselineLocations, StringComparer.Ordinal);
+        var prevBaselineSchedules = new Dictionary<string, ScheduleDto>(store.BaselineSchedules, StringComparer.Ordinal);
+        var prevBaselinePresets = new Dictionary<string, PresetDto>(store.BaselinePresets, StringComparer.Ordinal);
+
+        var prevDeletedGoals = store.DeletedGoals.Select(g => g.Id).ToHashSet(StringComparer.Ordinal);
+        var prevDeletedTags = store.DeletedTags.Select(t => t.Id).ToHashSet(StringComparer.Ordinal);
+        var prevDeletedPersons = store.DeletedPersons.Select(p => p.Id).ToHashSet(StringComparer.Ordinal);
+        var prevDeletedLocations = store.DeletedLocations.Select(l => l.Id).ToHashSet(StringComparer.Ordinal);
+        var prevDeletedSchedules = store.DeletedSchedules.Select(s => s.Id).ToHashSet(StringComparer.Ordinal);
+        var prevDeletedPresets = store.DeletedPresets.Select(p => p.Id).ToHashSet(StringComparer.Ordinal);
+
+        Apply(dto, store);
+
+        RestoreBaselines(store.BaselineGoals, prevBaselineGoals);
+        RestoreBaselines(store.BaselineTags, prevBaselineTags);
+        RestoreBaselines(store.BaselinePersons, prevBaselinePersons);
+        RestoreBaselines(store.BaselineLocations, prevBaselineLocations);
+        RestoreBaselines(store.BaselineSchedules, prevBaselineSchedules);
+        RestoreBaselines(store.BaselinePresets, prevBaselinePresets);
+
+        foreach (var g in store.Goals)
+            if (prevDeletedGoals.Contains(g.Id))
+                BumpFieldsHlc(GoalFields, hlc => g.Hlc = hlc, g.FieldHlcs);
+
+        foreach (var t in store.Tags)
+            if (prevDeletedTags.Contains(t.Id))
+                BumpFieldsHlc(TagFields, hlc => t.Hlc = hlc, t.FieldHlcs);
+
+        foreach (var p in store.Persons)
+            if (prevDeletedPersons.Contains(p.Id))
+                BumpFieldsHlc(PersonFields, hlc => p.Hlc = hlc, p.FieldHlcs);
+
+        foreach (var l in store.Locations)
+            if (prevDeletedLocations.Contains(l.Id))
+                BumpFieldsHlc(LocationFields, hlc => l.Hlc = hlc, l.FieldHlcs);
+
+        foreach (var s in store.Schedules)
+            if (prevDeletedSchedules.Contains(s.Id))
+                BumpFieldsHlc(ScheduleFields, hlc => s.Hlc = hlc, s.FieldHlcs);
+
+        foreach (var p in store.Presets)
+            if (prevDeletedPresets.Contains(p.Id))
+                BumpFieldsHlc(PresetFields, hlc => p.Hlc = hlc, p.FieldHlcs);
+    }
+
+    private static void RestoreBaselines<TDto>(Dictionary<string, TDto> target, Dictionary<string, TDto> source)
+    {
+        target.Clear();
+        foreach (var kv in source) target[kv.Key] = kv.Value;
+    }
+
+    private static void BumpFieldsHlc(string[] fields, Action<string> setEntityHlc, Dictionary<string, string> fieldHlcs)
+    {
+        var tick = HlcClock.Tick();
+        setEntityHlc(tick);
+        foreach (var f in fields) fieldHlcs[f] = tick;
+    }
+
     internal static GoalDto BuildRawGoalDto(GoalVM g) => new()
     {
         Id = g.Id,

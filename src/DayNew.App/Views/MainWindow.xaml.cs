@@ -22,6 +22,7 @@ public partial class MainWindow : Window
     private readonly Action _onHideToTray;
     private readonly Action _onExitApp;
     private readonly Action _onTestNotify;
+    private readonly Action? _onToggleFocusMini;
     private readonly Rect? _savedBounds;
     private readonly WindowState? _savedState;
     private bool _allowExit;
@@ -29,6 +30,8 @@ public partial class MainWindow : Window
     private bool _hasCentered;
     private bool _cleanedUp;
     private bool _syncingPasswordBox;
+    private bool _isFocusDurationOpen;
+    private TaskVM? _pendingFocusTask;
 
     private Point _pressPoint;
     private TaskVM? _pressedTask;
@@ -151,11 +154,16 @@ public partial class MainWindow : Window
     // 目标树多选弹窗节点点击
     private GoalNodeVM? _pressedPickerNode;
 
+    // 卡片 / 标签就地编辑的撤销前快照
+    private string? _inlineEditBeforeSnapshot;
+    private string _inlineEditLabel = "编辑名称";
+
     public MainWindow(
         MainViewModel vm,
         Action onHideToTray,
         Action onExitApp,
         Action onTestNotify,
+        Action? onToggleFocusMini = null,
         Rect? savedBounds = null,
         WindowState? savedState = null)
     {
@@ -163,6 +171,7 @@ public partial class MainWindow : Window
         _onHideToTray = onHideToTray;
         _onExitApp = onExitApp;
         _onTestNotify = onTestNotify;
+        _onToggleFocusMini = onToggleFocusMini;
         _savedBounds = savedBounds;
         _savedState = savedState;
 
@@ -189,6 +198,7 @@ public partial class MainWindow : Window
         Loaded += OnWindowLoaded;
 
         _vm.PropertyChanged += OnViewModelPropertyChanged;
+        _vm.Focus.PropertyChanged += OnFocusPropertyChanged;
         _vm.DeadlinePicker.PropertyChanged += OnDeadlinePickerPropertyChanged;
         _vm.ToastRequested += ShowToast;
         _vm.TaskTouched += OnTaskTouched;
@@ -199,6 +209,7 @@ public partial class MainWindow : Window
         _nowLineTimer.Tick += OnNowLineTimerTick;
         _nowLineTimer.Start();
         _vm.RefreshCurrentTime();
+        UpdateFocusStatusBrushes();
 
         NavHost.SelectionChanged += OnNavHostSelectionChanged;
     }
@@ -289,6 +300,7 @@ public partial class MainWindow : Window
             PageKind.Goals => (GoalsPageHost, "GoalsPageTemplate"),
             PageKind.Tags => (TagsPageHost, "TagsPageTemplate"),
             PageKind.Eisenhower => (EisenhowerPageHost, "EisenhowerPageTemplate"),
+            PageKind.Focus => (FocusPageHost, "FocusPageTemplate"),
             PageKind.Deadlines => (DeadlinesPageHost, "DeadlinesPageTemplate"),
             PageKind.Future => (FuturePageHost, "FuturePageTemplate"),
             PageKind.Overdue => (OverduePageHost, "OverduePageTemplate"),
@@ -300,6 +312,7 @@ public partial class MainWindow : Window
         if (ReferenceEquals(host.Template, desired)) return;
         host.Template = desired;
         host.ApplyTemplate();
+        if (kind == PageKind.Focus) UpdateFocusStatusBrushes();
     }
 
     private static T? FindTemplateChild<T>(ContentControl host, string name) where T : class
@@ -317,11 +330,37 @@ public partial class MainWindow : Window
     private ScrollViewer? TagDetailScroll => FindTemplateChild<ScrollViewer>(TagDetailBodyHost, "TagDetailScroll");
     private ItemsControl? TagDetailDaysHost => FindTemplateChild<ItemsControl>(TagDetailBodyHost, "TagDetailDaysHost");
     private TextBox? EditorTitle => FindTemplateChild<TextBox>(EditorBodyHost, "EditorTitle");
+    private TextBox? SearchInputBox => FindTemplateChild<TextBox>(SearchBodyHost, "SearchInputBox");
     private PasswordBox? WebDavPasswordBox => FindTemplateChild<PasswordBox>(SettingsBodyHost, "WebDavPasswordBox");
     private TextBox? PresetTitleBox => FindTemplateChild<TextBox>(PresetManagerBodyHost, "PresetTitleBox");
     private Border? TreeEditorViewport => FindTemplateChild<Border>(GoalTreeEditorBodyHost, "TreeEditorViewport");
     private Border? TreeEditorConnectMenu => FindTemplateChild<Border>(GoalTreeEditorBodyHost, "TreeEditorConnectMenu");
     private Border? GoalPickerViewport => FindTemplateChild<Border>(GoalPickerBodyHost, "GoalPickerViewport");
+    private Ellipse? FocusHeroDot => FindTemplateChild<Ellipse>(FocusPageHost, "heroDot");
+    private Border? FocusHeroProgressFill => FindTemplateChild<Border>(FocusPageHost, "heroProgressFill");
+    private TextBox? FreeFocusTitleInput => FindTemplateChild<TextBox>(FocusPageHost, "FreeFocusTitleInput");
+
+    private void OnFocusPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(FocusTimerVM.StatusKind) or nameof(FocusTimerVM.IsOvertime) or nameof(FocusTimerVM.IsPaused))
+            UpdateFocusStatusBrushes();
+    }
+
+    private void UpdateFocusStatusBrushes()
+    {
+        var key = _vm.Focus.StatusKind switch
+        {
+            "overtime" => "Danger",
+            "paused" => "Warning",
+            "idle" => "TextDisabled",
+            _ => "Accent"
+        };
+
+        focusBarDot?.SetResourceReference(Shape.FillProperty, key);
+        focusBarFill?.SetResourceReference(Border.BackgroundProperty, _vm.Focus.IsOvertime ? "Danger" : key);
+        FocusHeroDot?.SetResourceReference(Shape.FillProperty, key);
+        FocusHeroProgressFill?.SetResourceReference(Border.BackgroundProperty, _vm.Focus.IsOvertime ? "Danger" : key);
+    }
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
@@ -356,6 +395,10 @@ public partial class MainWindow : Window
             AnimateModalVisibility(GoalPickerLayer, GoalPickerScrim, GoalPickerDialog, GoalPickerScale, GoalPickerShift,
                 GoalPickerBodyHost, "GoalPickerBodyTemplate",
                 _vm.IsGoalPickerOpen, () => _vm.IsGoalPickerOpen);
+        else if (e.PropertyName == nameof(MainViewModel.IsSearchOpen))
+            AnimateModalVisibility(SearchLayer, SearchScrim, SearchDialog, SearchScale, SearchShift,
+                SearchBodyHost, "SearchBodyTemplate",
+                _vm.IsSearchOpen, () => _vm.IsSearchOpen);
     }
 
     private void OnDeadlinePickerPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -431,7 +474,7 @@ public partial class MainWindow : Window
 
     private bool HandleHorizontalWheel(int delta)
     {
-        if (_vm.DeadlinePicker.IsOpen || _vm.IsGoalPickerOpen || _vm.IsGoalTreeEditorOpen || _vm.IsEditorOpen || _vm.IsImportConfirmOpen || _vm.IsSettingsOpen || _vm.IsPresetManagerOpen) return false;
+        if (_isFocusDurationOpen || _vm.DeadlinePicker.IsOpen || _vm.IsGoalPickerOpen || _vm.IsGoalTreeEditorOpen || _vm.IsEditorOpen || _vm.IsImportConfirmOpen || _vm.IsSettingsOpen || _vm.IsPresetManagerOpen) return false;
 
         var pos = Mouse.GetPosition(this);
         ScrollViewer? target = null;
@@ -605,10 +648,12 @@ public partial class MainWindow : Window
     private void PrepareHideToTray()
     {
         CancelActiveInteractions();
+        CloseFocusDurationPicker();
         _vm.DeadlinePicker.Close();
         _vm.CloseGoalPicker();
         _vm.CloseGoalTreeEditor();
         _vm.CancelImportConfirm();
+        _vm.CloseSearch();
         _vm.CloseSettings();
         _vm.ClosePresetManager();
         _vm.CloseTagDetail();
@@ -631,6 +676,7 @@ public partial class MainWindow : Window
         StopZoomAnimation();
 
         _vm.PropertyChanged -= OnViewModelPropertyChanged;
+        _vm.Focus.PropertyChanged -= OnFocusPropertyChanged;
         _vm.DeadlinePicker.PropertyChanged -= OnDeadlinePickerPropertyChanged;
         _vm.ToastRequested -= ShowToast;
         _vm.TaskTouched -= OnTaskTouched;
@@ -655,6 +701,138 @@ public partial class MainWindow : Window
     private void SettingsClose_Click(object sender, RoutedEventArgs e) => _vm.CloseSettings();
 
     private void SettingsScrim_Click(object sender, MouseButtonEventArgs e) => _vm.CloseSettings();
+
+    private void SettingsTab_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is ToggleButton { Tag: string raw } btn)
+        {
+            if (Enum.TryParse<SettingsTab>(raw, out var tab))
+                _vm.SelectedSettingsTab = tab;
+            SyncToggleBinding(btn);
+            if (_vm.IsSettingsTabSyncAndAi)
+                Dispatcher.BeginInvoke(new Action(SyncWebDavPasswordBox), DispatcherPriority.Loaded);
+        }
+    }
+
+    private void ShortcutRecord_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: string id })
+            _vm.BeginShortcutRecording(id);
+    }
+
+    private void ShortcutClear_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: string id })
+            _vm.ClearShortcut(id);
+    }
+
+    private void ShortcutReset_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: string id })
+            _vm.ResetShortcut(id);
+    }
+
+    private void ResetAllShortcuts_Click(object sender, RoutedEventArgs e) => _vm.ResetAllShortcuts();
+
+    public void OpenSearchFromExternal()
+    {
+        _vm.DeadlinePicker.Close();
+        _vm.CloseGoalPicker();
+        _vm.CloseGoalTreeEditor();
+        _vm.CancelImportConfirm();
+        _vm.CloseSettings();
+        _vm.ClosePresetManager();
+        _vm.CloseEditor();
+        _vm.CloseTagDetail();
+        _vm.CollapseAll();
+        _vm.OpenSearch();
+        FocusSearchInput();
+    }
+
+    public void OpenQuickNewFromExternal()
+    {
+        CloseFocusDurationPicker();
+        _vm.DeadlinePicker.Close();
+        _vm.CloseGoalPicker();
+        _vm.CloseGoalTreeEditor();
+        _vm.CancelImportConfirm();
+        _vm.CloseSettings();
+        _vm.ClosePresetManager();
+        _vm.CloseSearch();
+        _vm.CloseTagDetail();
+        _vm.CollapseAll();
+        _vm.OpenQuickNewSchedule();
+        FocusEditorTitle();
+    }
+
+    public void FocusEditorTitleFromExternal()
+    {
+        CloseFocusDurationPicker();
+        _vm.DeadlinePicker.Close();
+        _vm.CloseGoalPicker();
+        _vm.CloseGoalTreeEditor();
+        _vm.CancelImportConfirm();
+        _vm.CloseSettings();
+        _vm.ClosePresetManager();
+        _vm.CloseSearch();
+        _vm.CloseTagDetail();
+        _vm.CollapseAll();
+        FocusEditorTitle();
+    }
+
+    private void FocusSearchInput()
+        => Dispatcher.BeginInvoke(new Action(() =>
+        {
+            SearchInputBox?.Focus();
+            SearchInputBox?.SelectAll();
+        }), DispatcherPriority.Input);
+
+    private void SearchOpen_Click(object sender, RoutedEventArgs e)
+    {
+        _vm.CollapseAll();
+        _vm.OpenSearch();
+        FocusSearchInput();
+    }
+
+    private void SearchClose_Click(object sender, RoutedEventArgs e) => _vm.CloseSearch();
+
+    private void SearchScrim_Click(object sender, MouseButtonEventArgs e) => _vm.CloseSearch();
+
+    private void SearchInputBox_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (!_vm.IsSearchOpen) return;
+
+        switch (e.Key)
+        {
+            case Key.Down:
+                _vm.MoveSearchSelection(1);
+                e.Handled = true;
+                break;
+            case Key.Up:
+                _vm.MoveSearchSelection(-1);
+                e.Handled = true;
+                break;
+            case Key.Enter:
+                if (_vm.ActivateCurrentSearchResult() && _vm.IsEditorOpen)
+                    FocusEditorTitle();
+                e.Handled = true;
+                break;
+        }
+    }
+
+    private void SearchItem_Click(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: SearchItemVM item })
+        {
+            _vm.ActivateSearchResult(item);
+            if (_vm.IsEditorOpen) FocusEditorTitle();
+            e.Handled = true;
+        }
+    }
+
+    private void Undo_Click(object sender, RoutedEventArgs e) => _vm.Undo();
+
+    private void Redo_Click(object sender, RoutedEventArgs e) => _vm.Redo();
 
     private void OpenDataFolder_Click(object sender, RoutedEventArgs e) => _vm.OpenDataFolder();
 
@@ -847,10 +1025,27 @@ public partial class MainWindow : Window
         e.Handled = true;
     }
 
+    private void InlineTaskField_GotFocus(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement fe && FindDataContext<TaskVM>(fe) is { } task)
+        {
+            _inlineEditBeforeSnapshot = _vm.BeginUndoSnapshot();
+            _inlineEditLabel = $"编辑「{task.Title}」";
+        }
+    }
+
+    private void InlineTaskField_LostFocus(object sender, RoutedEventArgs e)
+    {
+        if (_inlineEditBeforeSnapshot is not { } snap) return;
+        _inlineEditBeforeSnapshot = null;
+        _vm.CommitUndoSnapshot(_inlineEditLabel, snap);
+    }
+
     private void TitleBox_KeyDown(object sender, KeyEventArgs e)
     {
         if (e.Key is Key.Enter or Key.Escape)
         {
+            Keyboard.ClearFocus();
             _vm.CollapseAll();
             e.Handled = true;
         }
@@ -932,6 +1127,164 @@ public partial class MainWindow : Window
     private void MenuDelete_Click(object sender, RoutedEventArgs e)
     {
         if (MenuTask(sender) is { } task) _vm.Delete(task);
+    }
+
+    private void MenuStartFocus_Click(object sender, RoutedEventArgs e)
+    {
+        if (MenuTask(sender) is { } task) StartFocusForTask(task);
+    }
+
+    private void ExpandFocus_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement fe && FindDataContext<TaskVM>(fe) is { } task)
+            StartFocusForTask(task);
+    }
+
+    private static TimelineBlockVM? MenuBlock(object sender)
+    {
+        if (sender is MenuItem { DataContext: TimelineBlockVM block }) return block;
+        return sender is MenuItem { Parent: ContextMenu { PlacementTarget: FrameworkElement fe } }
+            ? fe.DataContext as TimelineBlockVM
+            : null;
+    }
+
+    private void MenuStartFocusBlock_Click(object sender, RoutedEventArgs e)
+    {
+        if (MenuBlock(sender) is { } block) StartFocusForTask(block.Task);
+    }
+
+    private void MenuEditBlock_Click(object sender, RoutedEventArgs e)
+    {
+        if (MenuBlock(sender) is { } block)
+        {
+            _vm.OpenSchedule(block.Task);
+            FocusEditorTitle();
+        }
+    }
+
+    private void MenuToggleDoneBlock_Click(object sender, RoutedEventArgs e)
+    {
+        if (MenuBlock(sender) is { } block) _vm.ToggleDone(block.Task);
+    }
+
+    private void StartFocusForTask(TaskVM task)
+    {
+        if (task.HasTime)
+        {
+            _vm.Focus.StartTaskFocus(task);
+            return;
+        }
+
+        _pendingFocusTask = task;
+        FocusDurationTaskTitle.Text = string.IsNullOrWhiteSpace(task.Title) ? "未命名日程" : task.Title;
+        OpenFocusDurationPicker();
+    }
+
+    private void OpenFocusDurationPicker()
+    {
+        _isFocusDurationOpen = true;
+        FocusDurationLayer.Visibility = Visibility.Visible;
+        FocusDurationLayer.IsHitTestVisible = true;
+
+        FocusDurationScrim.BeginAnimation(OpacityProperty, null);
+        FocusDurationDialog.BeginAnimation(OpacityProperty, null);
+        FocusDurationScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+        FocusDurationScale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+        FocusDurationShift.BeginAnimation(TranslateTransform.YProperty, null);
+
+        FocusDurationScrim.Opacity = 0;
+        FocusDurationDialog.Opacity = 0;
+        FocusDurationScale.ScaleX = 0.97;
+        FocusDurationScale.ScaleY = 0.97;
+        FocusDurationShift.Y = 10;
+
+        Motion.AnimateOpacity(FocusDurationScrim, 1, TimeSpan.FromMilliseconds(180));
+        Motion.AnimateOpacity(FocusDurationDialog, 1, Motion.M);
+        FocusDurationScale.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(1, Motion.M) { EasingFunction = Motion.EaseOut });
+        FocusDurationScale.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(1, Motion.M) { EasingFunction = Motion.EaseOut });
+        Motion.AnimateOffsetY(FocusDurationShift, 0, Motion.M);
+    }
+
+    private void CloseFocusDurationPicker()
+    {
+        if (!_isFocusDurationOpen) return;
+        _isFocusDurationOpen = false;
+        _pendingFocusTask = null;
+        FocusDurationLayer.IsHitTestVisible = false;
+
+        Motion.AnimateOpacity(FocusDurationScrim, 0, Motion.S, Motion.EaseIn);
+        FocusDurationScale.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(0.98, Motion.S) { EasingFunction = Motion.EaseIn });
+        FocusDurationScale.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(0.98, Motion.S) { EasingFunction = Motion.EaseIn });
+        Motion.AnimateOffsetY(FocusDurationShift, 6, Motion.S, Motion.EaseIn);
+        Motion.AnimateOpacity(FocusDurationDialog, 0, Motion.S, Motion.EaseIn, () =>
+        {
+            if (!_isFocusDurationOpen)
+                FocusDurationLayer.Visibility = Visibility.Collapsed;
+        });
+    }
+
+    private void FocusDurationScrim_Click(object sender, MouseButtonEventArgs e) => CloseFocusDurationPicker();
+
+    private void FocusDurationClose_Click(object sender, RoutedEventArgs e) => CloseFocusDurationPicker();
+
+    private void FocusDurationPick_Click(object sender, RoutedEventArgs e)
+    {
+        if (_pendingFocusTask is not { } task) return;
+        var mins = sender is FrameworkElement { Tag: string raw } && int.TryParse(raw, out var m) ? m : 25;
+        CloseFocusDurationPicker();
+        _vm.Focus.StartTaskFocus(task, customMinutes: mins);
+    }
+
+    private void FocusDurationStopwatch_Click(object sender, RoutedEventArgs e)
+    {
+        if (_pendingFocusTask is not { } task) return;
+        CloseFocusDurationPicker();
+        _vm.Focus.StartTaskFocus(task, stopwatch: true);
+    }
+
+    private void FocusBarOpenPage_Click(object sender, RoutedEventArgs e) => _vm.NavigateToFocusPage();
+
+    private void FocusPause_Click(object sender, RoutedEventArgs e) => _vm.Focus.TogglePause();
+
+    private void FocusExtend_Click(object sender, RoutedEventArgs e) => _vm.Focus.ExtendMinutes(5);
+
+    private void FocusComplete_Click(object sender, RoutedEventArgs e) => _vm.Focus.CompleteCurrent();
+
+    private void FocusStop_Click(object sender, RoutedEventArgs e) => _vm.Focus.StopOrSkip();
+
+    private void ToggleFocusMini_Click(object sender, RoutedEventArgs e) => _onToggleFocusMini?.Invoke();
+
+    private void FocusStartFree_Click(object sender, RoutedEventArgs e) => _vm.Focus.StartFreeFocus();
+
+    private void FreeFocusInput_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter) return;
+        _vm.Focus.StartFreeFocus();
+        e.Handled = true;
+    }
+
+    private void FocusCandidateAuto_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: TaskVM task })
+            _vm.Focus.StartTaskFocus(task);
+    }
+
+    private void FocusCandidate25_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: TaskVM task })
+            _vm.Focus.StartTaskFocus(task, customMinutes: 25);
+    }
+
+    private void FocusCandidate45_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: TaskVM task })
+            _vm.Focus.StartTaskFocus(task, customMinutes: 45);
+    }
+
+    private void FocusCandidateStopwatch_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: TaskVM task })
+            _vm.Focus.StartTaskFocus(task, stopwatch: true);
     }
 
     private void GoalInput_KeyDown(object sender, KeyEventArgs e)
@@ -1298,8 +1651,31 @@ public partial class MainWindow : Window
         }
     }
 
+    private void TagEntityInput_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter) return;
+        _vm.SubmitTagEntityInput();
+        e.Handled = true;
+    }
+
+    private void SubmitTagEntity_Click(object sender, RoutedEventArgs e)
+        => _vm.SubmitTagEntityInput();
+
+    private void EntityNameBox_GotFocus(object sender, RoutedEventArgs e)
+    {
+        _inlineEditBeforeSnapshot = _vm.BeginUndoSnapshot();
+        _inlineEditLabel = "重命名";
+    }
+
     private void EntityNameBox_LostFocus(object sender, RoutedEventArgs e)
-        => _vm.OnEntityRenamed();
+    {
+        if (_inlineEditBeforeSnapshot is { } snap)
+        {
+            _inlineEditBeforeSnapshot = null;
+            _vm.CommitUndoSnapshot(_inlineEditLabel, snap);
+        }
+        _vm.OnEntityRenamed();
+    }
 
     private void EntityNameBox_KeyDown(object sender, KeyEventArgs e)
     {
@@ -1666,6 +2042,25 @@ public partial class MainWindow : Window
 
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
+        var actualKey = e.Key == Key.System ? e.SystemKey : e.Key;
+        if (actualKey == Key.ImeProcessed) actualKey = e.ImeProcessedKey;
+
+        // 快捷键录制模式：最优先拦截并保存新按键定义
+        if (_vm.IsSettingsOpen && _vm.IsRecordingShortcut)
+        {
+            if (actualKey == Key.None || ShortcutGesture.IsModifierOnly(actualKey))
+            {
+                e.Handled = true;
+                return;
+            }
+
+            if (_vm.CommitRecordedShortcut(Keyboard.Modifiers, actualKey))
+            {
+                e.Handled = true;
+                return;
+            }
+        }
+
         // 拦截单独的 Alt 键，防止 Alt+滚轮缩放松开后激活 Win32 系统菜单模式而吞掉后续滚轮事件
         if (e.Key == Key.System && e.SystemKey is Key.LeftAlt or Key.RightAlt)
         {
@@ -1675,6 +2070,13 @@ public partial class MainWindow : Window
 
         if (e.Key == Key.Escape)
         {
+            if (_isFocusDurationOpen)
+            {
+                CloseFocusDurationPicker();
+                e.Handled = true;
+                return;
+            }
+
             if (_vm.DeadlinePicker.IsOpen)
             {
                 _vm.DeadlinePicker.Close();
@@ -1721,6 +2123,13 @@ public partial class MainWindow : Window
                 return;
             }
 
+            if (_vm.IsSearchOpen)
+            {
+                _vm.CloseSearch();
+                e.Handled = true;
+                return;
+            }
+
             if (_vm.IsSettingsOpen)
             {
                 _vm.CloseSettings();
@@ -1761,7 +2170,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var modalBlocksGlobal = _vm.DeadlinePicker.IsOpen || _vm.IsEditorOpen || _vm.IsImportConfirmOpen || _vm.IsSettingsOpen || _vm.IsPresetManagerOpen || _vm.IsTagDetailOpen;
+        var modalBlocksGlobal = _isFocusDurationOpen || _vm.DeadlinePicker.IsOpen || _vm.IsSearchOpen || _vm.IsEditorOpen || _vm.IsImportConfirmOpen || _vm.IsSettingsOpen || _vm.IsPresetManagerOpen || _vm.IsTagDetailOpen;
         var canSpacePan = (!_vm.DeadlinePicker.IsOpen && (_vm.IsGoalPickerOpen || _vm.IsGoalTreeEditorOpen || (!modalBlocksGlobal && (_vm.IsTimeline || _vm.IsGoals))))
                           && Keyboard.FocusedElement is not TextBoxBase;
 
@@ -1776,15 +2185,78 @@ public partial class MainWindow : Window
             return;
         }
 
-        // 弹窗开着就别再响应全局快捷键
+        var mods = Keyboard.Modifiers;
+
+        // 搜索面板内部若按了关闭搜索的快捷键（再次按 Ctrl+K），也顺手收起
+        if (_vm.IsSearchOpen && _vm.MatchesShortcut(ShortcutIds.AppSearch, mods, actualKey))
+        {
+            _vm.CloseSearch();
+            e.Handled = true;
+            return;
+        }
+
+        // 弹窗开着就别再响应主界面应用内快捷键
         if (modalBlocksGlobal || _vm.IsGoalPickerOpen || _vm.IsGoalTreeEditorOpen) return;
 
-        if (e.Key == Key.N && Keyboard.Modifiers == ModifierKeys.Control)
+        if (_vm.MatchesShortcut(ShortcutIds.AppSearch, mods, actualKey) ||
+            (mods == ModifierKeys.Control && actualKey == Key.F && string.IsNullOrEmpty(_vm.GetShortcutGesture(ShortcutIds.AppSearch))))
         {
-            // 日程只能在视图页建，所以 Ctrl+N 把人送到那里
-            _vm.NavigateToTimeline();
-            Dispatcher.BeginInvoke(new Action(ScrollToToday), DispatcherPriority.Loaded);
+            _vm.CollapseAll();
+            _vm.OpenSearch();
+            FocusSearchInput();
             e.Handled = true;
+            return;
+        }
+
+        var isEditingText = Keyboard.FocusedElement is TextBoxBase tb && !tb.IsReadOnly;
+
+        if (!isEditingText && _vm.MatchesShortcut(ShortcutIds.AppUndo, mods, actualKey))
+        {
+            _vm.Undo();
+            e.Handled = true;
+            return;
+        }
+
+        if (!isEditingText && (_vm.MatchesShortcut(ShortcutIds.AppRedo, mods, actualKey) ||
+            (mods == (ModifierKeys.Control | ModifierKeys.Shift) && actualKey == Key.Z)))
+        {
+            _vm.Redo();
+            e.Handled = true;
+            return;
+        }
+
+        if (_vm.MatchesShortcut(ShortcutIds.AppNewSchedule, mods, actualKey))
+        {
+            _vm.CollapseAll();
+            _vm.OpenQuickNewSchedule();
+            FocusEditorTitle();
+            e.Handled = true;
+            return;
+        }
+
+        if (_vm.MatchesShortcut(ShortcutIds.AppSettings, mods, actualKey))
+        {
+            _vm.OpenSettings();
+            e.Handled = true;
+            return;
+        }
+
+        ReadOnlySpan<string> navIds =
+        [
+            ShortcutIds.AppNav1, ShortcutIds.AppNav2, ShortcutIds.AppNav3, ShortcutIds.AppNav4,
+            ShortcutIds.AppNav5, ShortcutIds.AppNav6, ShortcutIds.AppNav7, ShortcutIds.AppNav8,
+            ShortcutIds.AppNav9
+        ];
+        for (var i = 0; i < navIds.Length; i++)
+        {
+            if (_vm.MatchesShortcut(navIds[i], mods, actualKey))
+            {
+                _vm.NavigateToPageIndex(i + 1);
+                if (_vm.IsTimeline)
+                    Dispatcher.BeginInvoke(new Action(ScrollToToday), DispatcherPriority.Loaded);
+                e.Handled = true;
+                return;
+            }
         }
     }
 
@@ -2091,7 +2563,7 @@ public partial class MainWindow : Window
         }
 
         // 弹窗开着时，底下的东西一概不接鼠标
-        if (_vm.IsEditorOpen || _vm.IsImportConfirmOpen || _vm.IsSettingsOpen || _vm.IsPresetManagerOpen) return;
+        if (_isFocusDurationOpen || _vm.IsEditorOpen || _vm.IsImportConfirmOpen || _vm.IsSettingsOpen || _vm.IsPresetManagerOpen) return;
 
         if (IsInteractive(src))
         {
@@ -3934,6 +4406,7 @@ public partial class MainWindow : Window
             PageKind.Goals => PageGoals,
             PageKind.Tags => PageTags,
             PageKind.Eisenhower => PageEisenhower,
+            PageKind.Focus => PageFocus,
             PageKind.Deadlines => PageDeadlines,
             PageKind.Future => PageFuture,
             PageKind.Overdue => PageOverdue,

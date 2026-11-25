@@ -494,7 +494,7 @@
                         <Setter.Value>
                             <ControlTemplate TargetType="ListBoxItem">
                                 <StackPanel>
-                                    <Border x:Name="topDivider" Height="1" Margin="6,6,6,7"
+                                    <Border x:Name="topDivider" Height="1" Margin="6,16,6,16"
                                             Background="{DynamicResource BorderSubtle}"
                                             Visibility="Collapsed"/>
                                     <Border x:Name="bd" Background="Transparent" CornerRadius="8" Height="38"

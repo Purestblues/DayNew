@@ -24,6 +24,7 @@ public sealed class NotificationService : IDisposable
     private readonly Func<IReadOnlyList<TaskVM>> _getSchedules;
     private readonly Action _onOpenWindow;
     private readonly Action<string> _onCompleteTask;
+    private readonly Action<int>? _onExtendFocus;
 
     private readonly DispatcherTimer _timer;
     private readonly HashSet<string> _firedKeys = new();
@@ -37,12 +38,14 @@ public sealed class NotificationService : IDisposable
         AppSettings settings,
         Func<IReadOnlyList<TaskVM>> getSchedules,
         Action onOpenWindow,
-        Action<string> onCompleteTask)
+        Action<string> onCompleteTask,
+        Action<int>? onExtendFocus = null)
     {
         _settings = settings;
         _getSchedules = getSchedules;
         _onOpenWindow = onOpenWindow;
         _onCompleteTask = onCompleteTask;
+        _onExtendFocus = onExtendFocus;
 
         ToastNotificationManagerCompat.OnActivated += OnToastActivated;
         SystemEvents.PowerModeChanged += OnPowerModeChanged;
@@ -133,6 +136,51 @@ public sealed class NotificationService : IDisposable
             tag: "test",
             taskId: null,
             includeCompleteAction: false);
+    }
+
+    public void ShowFocusFinishedNotification(string title, string? taskId)
+    {
+        if (_disposed || !_settings.NotifyEnabled) return;
+
+        try
+        {
+            var builder = new ToastContentBuilder()
+                .AddArgument("action", "open")
+                .AddText($"专注倒计时已结束 · {title}")
+                .AddText("辛苦了！可以直接标为完成或再延长 5 分钟。");
+
+            if (!string.IsNullOrEmpty(taskId))
+                builder.AddArgument("taskId", taskId);
+
+            var iconPath = EnsureToastIconPath();
+            if (!string.IsNullOrEmpty(iconPath))
+                builder.AddAppLogoOverride(new Uri(iconPath), ToastGenericAppLogoCrop.Default);
+
+            if (!string.IsNullOrEmpty(taskId))
+            {
+                builder.AddButton(new ToastButton()
+                    .SetContent("标为完成")
+                    .AddArgument("action", "complete")
+                    .AddArgument("taskId", taskId)
+                    .SetBackgroundActivation());
+            }
+
+            builder.AddButton(new ToastButton()
+                .SetContent("+5 分钟")
+                .AddArgument("action", "focus_extend")
+                .AddArgument("minutes", "5")
+                .SetBackgroundActivation());
+
+            builder.Show(toast =>
+            {
+                toast.Tag = "focus-finished";
+                toast.Group = "daynew";
+            });
+        }
+        catch
+        {
+            // 通知中心异常或系统关闭通知时静默降级
+        }
     }
 
     /// <summary>当日程时间或提醒配置改变时，清理该任务尚未过期的已触发记录；已完成则清理贪睡队列。</summary>
@@ -328,6 +376,16 @@ public sealed class NotificationService : IDisposable
             if (action == "complete" && args.TryGetValue("taskId", out var taskId) && !string.IsNullOrEmpty(taskId))
             {
                 Application.Current?.Dispatcher.BeginInvoke(() => _onCompleteTask(taskId));
+                return;
+            }
+
+            if (action == "focus_extend"
+                && _onExtendFocus is not null
+                && args.TryGetValue("minutes", out var extendMinsStr)
+                && int.TryParse(extendMinsStr, out var extendMins)
+                && extendMins > 0)
+            {
+                Application.Current?.Dispatcher.BeginInvoke(() => _onExtendFocus(extendMins));
                 return;
             }
 

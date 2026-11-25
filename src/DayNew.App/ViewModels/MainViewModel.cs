@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
 using System.Windows;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
 using DayNew.Core;
@@ -18,6 +19,7 @@ public sealed class MainViewModel : ObservableObject
     private readonly DayStore _store = new();
     private readonly StoreFile _file = new();
     private readonly CompletionLog _history = new();
+    private readonly UndoManager _undo = new();
     private readonly DispatcherTimer _autoSyncTimer = new();
     private readonly DispatcherTimer _periodicSyncTimer = new();
     private bool _hasInitialized;
@@ -26,6 +28,7 @@ public sealed class MainViewModel : ObservableObject
     private bool _timelineDirty;
     private bool _suppressAutoSyncSchedule;
     private McpServerService? _mcpServer;
+    private GlobalHotKeyService? _hotKeyService;
     private string _mcpPortText = "";
     private string _mcpTokenCache = "";
     private bool _isMcpTokenRevealed;
@@ -67,8 +70,18 @@ public sealed class MainViewModel : ObservableObject
     /// <summary>目标 / 子目标可选截止日期选择器状态。</summary>
     public DeadlinePickerVM DeadlinePicker { get; } = new();
 
+    /// <summary>专注计时状态机。</summary>
+    public FocusTimerVM Focus { get; }
+
+    public ObservableCollection<TaskVM> FocusCandidateTasks { get; } = new();
+
     private bool _isEditorOpen;
     private bool _isSettingsOpen;
+    private SettingsTab _selectedSettingsTab = SettingsTab.General;
+    private string? _recordingShortcutId;
+    private bool _isSearchOpen;
+    private string _searchQuery = "";
+    private int _selectedSearchIndex = -1;
     private bool _isImportConfirmOpen;
     private bool _isWebDavBusy;
     private bool _isPresetManagerOpen;
@@ -86,6 +99,7 @@ public sealed class MainViewModel : ObservableObject
     private GoalVM? _selectedGoalDetail;
     private GoalNodeVM? _selectedGoalNodeDetail;
     private int _tagDetailTodayIndex;
+    private string? _goalTreeOpenSnapshot;
 
     public bool IsEditorOpen
     {
@@ -96,8 +110,82 @@ public sealed class MainViewModel : ObservableObject
     public bool IsSettingsOpen
     {
         get => _isSettingsOpen;
-        private set => Set(ref _isSettingsOpen, value);
+        private set
+        {
+            if (Set(ref _isSettingsOpen, value) && !value)
+                CancelShortcutRecording();
+        }
     }
+
+    public SettingsTab SelectedSettingsTab
+    {
+        get => _selectedSettingsTab;
+        set
+        {
+            if (!Set(ref _selectedSettingsTab, value)) return;
+            if (value != SettingsTab.Shortcuts) CancelShortcutRecording();
+            OnPropertyChanged(nameof(IsSettingsTabGeneral));
+            OnPropertyChanged(nameof(IsSettingsTabShortcuts));
+            OnPropertyChanged(nameof(IsSettingsTabSyncAndAi));
+        }
+    }
+
+    public bool IsSettingsTabGeneral => SelectedSettingsTab == SettingsTab.General;
+    public bool IsSettingsTabShortcuts => SelectedSettingsTab == SettingsTab.Shortcuts;
+    public bool IsSettingsTabSyncAndAi => SelectedSettingsTab == SettingsTab.SyncAndAi;
+
+    public ObservableCollection<ShortcutItemVM> GlobalShortcutItems { get; } = new();
+    public ObservableCollection<ShortcutItemVM> InAppShortcutItems { get; } = new();
+
+    public string? RecordingShortcutId
+    {
+        get => _recordingShortcutId;
+        private set
+        {
+            if (Set(ref _recordingShortcutId, value))
+                OnPropertyChanged(nameof(IsRecordingShortcut));
+        }
+    }
+
+    public bool IsRecordingShortcut => !string.IsNullOrEmpty(RecordingShortcutId);
+
+    public bool IsSearchOpen
+    {
+        get => _isSearchOpen;
+        private set => Set(ref _isSearchOpen, value);
+    }
+
+    public string SearchQuery
+    {
+        get => _searchQuery;
+        set
+        {
+            if (!Set(ref _searchQuery, value)) return;
+            RebuildSearchResults();
+        }
+    }
+
+    public ObservableCollection<SearchItemVM> SearchResults { get; } = new();
+
+    public bool HasSearchResults => SearchResults.Count > 0;
+
+    public string SearchEmptyHint => string.IsNullOrWhiteSpace(SearchQuery)
+        ? "暂无日程、目标或标签"
+        : $"没有找到匹配「{SearchQuery.Trim()}」的条目";
+
+    public string SearchShortcutHint
+    {
+        get
+        {
+            var g = GetShortcutGesture(ShortcutIds.AppSearch);
+            return string.IsNullOrEmpty(g) ? "搜索" : $"搜索 {g}";
+        }
+    }
+
+    public bool CanUndo => _undo.CanUndo;
+    public bool CanRedo => _undo.CanRedo;
+    public string UndoTooltip => _undo.NextUndoLabel is { } lbl ? $"撤销：{lbl}（{GetShortcutGesture(ShortcutIds.AppUndo)}）" : "暂无可撤销操作";
+    public string RedoTooltip => _undo.NextRedoLabel is { } lbl ? $"重做：{lbl}（{GetShortcutGesture(ShortcutIds.AppRedo)}）" : "暂无可重做操作";
 
     public bool IsImportConfirmOpen
     {
@@ -314,6 +402,42 @@ public sealed class MainViewModel : ObservableObject
         }
     }
 
+    public bool FocusAutoOpenMini
+    {
+        get => Settings.FocusAutoOpenMini;
+        set
+        {
+            if (Settings.FocusAutoOpenMini == value) return;
+            Settings.FocusAutoOpenMini = value;
+            Settings.Save();
+            OnPropertyChanged();
+        }
+    }
+
+    public bool FocusKeepMiniOnCloseToTray
+    {
+        get => Settings.FocusKeepMiniOnCloseToTray;
+        set
+        {
+            if (Settings.FocusKeepMiniOnCloseToTray == value) return;
+            Settings.FocusKeepMiniOnCloseToTray = value;
+            Settings.Save();
+            OnPropertyChanged();
+        }
+    }
+
+    public bool FocusSoundEnabled
+    {
+        get => Settings.FocusSoundEnabled;
+        set
+        {
+            if (Settings.FocusSoundEnabled == value) return;
+            Settings.FocusSoundEnabled = value;
+            Settings.Save();
+            OnPropertyChanged();
+        }
+    }
+
     public bool IsDefaultRemindNone => !RemindRules.HasAny(Settings.DefaultRemind);
 
     public bool IsDefaultRemindPre15 => RemindRules.HasNode(Settings.DefaultRemind, RemindRules.Pre15);
@@ -489,6 +613,7 @@ public sealed class MainViewModel : ObservableObject
     {
         _autoSyncTimer.Stop();
         _periodicSyncTimer.Stop();
+        Focus.Dispose();
     }
 
     // ---------------- P3: AI 与 MCP 接口 ----------------
@@ -760,13 +885,553 @@ public sealed class MainViewModel : ObservableObject
         return true;
     }
 
-    public void OpenSettings()
+    public void OpenSettings(SettingsTab? initialTab = null)
     {
+        if (initialTab is { } tab) SelectedSettingsTab = tab;
         OnPropertyChanged(nameof(AutoStartEnabled));
+        RefreshHotKeyStatuses();
         IsSettingsOpen = true;
     }
 
     public void CloseSettings() => IsSettingsOpen = false;
+
+    // ---------------- 快捷键管理（系统级全局热键 + 应用内快捷键） ----------------
+
+    public void AttachHotKeyService(GlobalHotKeyService service)
+    {
+        _hotKeyService = service;
+        _hotKeyService.StatusChanged += RefreshHotKeyStatuses;
+        _hotKeyService.ApplySettings(Settings);
+    }
+
+    private void RebuildShortcutItems()
+    {
+        GlobalShortcutItems.Clear();
+        InAppShortcutItems.Clear();
+
+        foreach (var def in ShortcutCatalog.All)
+        {
+            var gesture = Settings.GetShortcut(def.Id);
+            var status = def.Scope == ShortcutScope.Global
+                ? (_hotKeyService?.GetStatus(def.Id) ?? (string.IsNullOrEmpty(gesture) ? HotKeyStatus.Disabled : HotKeyStatus.Registered))
+                : HotKeyStatus.Disabled;
+
+            var item = new ShortcutItemVM(def, gesture, status);
+            if (def.Scope == ShortcutScope.Global) GlobalShortcutItems.Add(item);
+            else InAppShortcutItems.Add(item);
+        }
+    }
+
+    public void RefreshHotKeyStatuses()
+    {
+        foreach (var item in GlobalShortcutItems)
+        {
+            var status = _hotKeyService?.GetStatus(item.Id) ??
+                         (string.IsNullOrEmpty(item.Gesture) ? HotKeyStatus.Disabled : HotKeyStatus.Registered);
+            item.HotKeyStatus = status;
+        }
+    }
+
+    public string GetShortcutGesture(string actionId) => Settings.GetShortcut(actionId);
+
+    public bool MatchesShortcut(string actionId, ModifierKeys modifiers, Key key)
+        => ShortcutGesture.Matches(Settings.GetShortcut(actionId), modifiers, key);
+
+    public void BeginShortcutRecording(string actionId)
+    {
+        RecordingShortcutId = string.Equals(RecordingShortcutId, actionId, StringComparison.Ordinal) ? null : actionId;
+        SyncShortcutRecordingState();
+    }
+
+    public void CancelShortcutRecording()
+    {
+        if (RecordingShortcutId is null) return;
+        RecordingShortcutId = null;
+        SyncShortcutRecordingState();
+    }
+
+    private void SyncShortcutRecordingState()
+    {
+        foreach (var item in GlobalShortcutItems)
+            item.IsRecording = string.Equals(item.Id, RecordingShortcutId, StringComparison.Ordinal);
+        foreach (var item in InAppShortcutItems)
+            item.IsRecording = string.Equals(item.Id, RecordingShortcutId, StringComparison.Ordinal);
+    }
+
+    public bool CommitRecordedShortcut(ModifierKeys modifiers, Key key)
+    {
+        if (RecordingShortcutId is not { } actionId) return false;
+        var item = GlobalShortcutItems.Concat(InAppShortcutItems).FirstOrDefault(x => x.Id == actionId);
+        if (item is null)
+        {
+            CancelShortcutRecording();
+            return false;
+        }
+
+        if (key == Key.Escape && modifiers == ModifierKeys.None)
+        {
+            CancelShortcutRecording();
+            return true;
+        }
+
+        if ((key == Key.Back || key == Key.Delete) && modifiers == ModifierKeys.None)
+        {
+            ClearShortcut(actionId);
+            return true;
+        }
+
+        if (ShortcutGesture.IsModifierOnly(key)) return true;
+
+        if (!ShortcutGesture.IsValidForScope(item.Scope, modifiers, key))
+        {
+            Notify(item.IsGlobal
+                ? "全局热键需包含修饰键（Ctrl/Alt/Shift/Win）或功能键 F1–F12"
+                : "应用内快捷键需包含 Ctrl / Alt / Win 组合键或 F1–F12", highlight: true);
+            return true;
+        }
+
+        var formatted = ShortcutGesture.Format(modifiers, key);
+        var siblingList = item.IsGlobal ? GlobalShortcutItems : InAppShortcutItems;
+        var conflict = siblingList.FirstOrDefault(other =>
+            !string.Equals(other.Id, actionId, StringComparison.Ordinal) &&
+            string.Equals(other.Gesture, formatted, StringComparison.OrdinalIgnoreCase));
+
+        if (conflict is not null)
+        {
+            Notify($"「{formatted}」已被「{conflict.Title}」使用，请先更换或清除原快捷键", highlight: true);
+            return true;
+        }
+
+        Settings.SetShortcut(actionId, formatted);
+        Settings.Save();
+        item.Gesture = formatted;
+        CancelShortcutRecording();
+
+        if (item.IsGlobal)
+        {
+            _hotKeyService?.ApplySettings(Settings);
+            if (_hotKeyService?.GetStatus(actionId) == HotKeyStatus.ConflictOrFailed)
+                Notify($"全局热键「{formatted}」注册失败，可能已被其他软件占用", highlight: true);
+            else
+                Notify($"已更新全局热键：{item.Title} → {formatted}");
+        }
+        else
+        {
+            OnPropertyChanged(nameof(SearchShortcutHint));
+            OnPropertyChanged(nameof(UndoTooltip));
+            OnPropertyChanged(nameof(RedoTooltip));
+            Notify($"已更新快捷键：{item.Title} → {formatted}");
+        }
+
+        return true;
+    }
+
+    public void ClearShortcut(string actionId)
+    {
+        var item = GlobalShortcutItems.Concat(InAppShortcutItems).FirstOrDefault(x => x.Id == actionId);
+        if (item is null) return;
+
+        Settings.SetShortcut(actionId, "");
+        Settings.Save();
+        item.Gesture = "";
+        CancelShortcutRecording();
+
+        if (item.IsGlobal) _hotKeyService?.ApplySettings(Settings);
+        else
+        {
+            OnPropertyChanged(nameof(SearchShortcutHint));
+            OnPropertyChanged(nameof(UndoTooltip));
+            OnPropertyChanged(nameof(RedoTooltip));
+        }
+
+        Notify($"已禁用快捷键「{item.Title}」");
+    }
+
+    public void ResetShortcut(string actionId)
+    {
+        var item = GlobalShortcutItems.Concat(InAppShortcutItems).FirstOrDefault(x => x.Id == actionId);
+        if (item is null) return;
+
+        var siblingList = item.IsGlobal ? GlobalShortcutItems : InAppShortcutItems;
+        var conflict = siblingList.FirstOrDefault(other =>
+            !string.Equals(other.Id, actionId, StringComparison.Ordinal) &&
+            string.Equals(other.Gesture, item.DefaultGesture, StringComparison.OrdinalIgnoreCase));
+        if (conflict is not null)
+        {
+            Notify($"默认键「{item.DefaultGesture}」正被「{conflict.Title}」占用，请先调整后者", highlight: true);
+            return;
+        }
+
+        Settings.SetShortcut(actionId, item.DefaultGesture);
+        Settings.Save();
+        item.Gesture = item.DefaultGesture;
+        CancelShortcutRecording();
+
+        if (item.IsGlobal)
+        {
+            _hotKeyService?.ApplySettings(Settings);
+            if (_hotKeyService?.GetStatus(actionId) == HotKeyStatus.ConflictOrFailed)
+                Notify($"默认全局热键「{item.DefaultGesture}」被系统或其他软件占用", highlight: true);
+            else
+                Notify($"已恢复默认：{item.Title} → {item.DefaultGesture}");
+        }
+        else
+        {
+            OnPropertyChanged(nameof(SearchShortcutHint));
+            OnPropertyChanged(nameof(UndoTooltip));
+            OnPropertyChanged(nameof(RedoTooltip));
+            Notify($"已恢复默认：{item.Title} → {item.DefaultGesture}");
+        }
+    }
+
+    public void ResetAllShortcuts()
+    {
+        CancelShortcutRecording();
+        Settings.ResetAllShortcuts();
+        Settings.Save();
+        _hotKeyService?.ApplySettings(Settings);
+        RebuildShortcutItems();
+        OnPropertyChanged(nameof(SearchShortcutHint));
+        OnPropertyChanged(nameof(UndoTooltip));
+        OnPropertyChanged(nameof(RedoTooltip));
+        Notify("已将全部快捷键恢复为默认配置");
+    }
+
+    // ---------------- 全局搜索面板（Command Palette） ----------------
+
+    public void OpenSearch()
+    {
+        _searchQuery = "";
+        OnPropertyChanged(nameof(SearchQuery));
+        RebuildSearchResults();
+        IsSearchOpen = true;
+    }
+
+    public void CloseSearch() => IsSearchOpen = false;
+
+    public void MoveSearchSelection(int delta)
+    {
+        if (SearchResults.Count == 0)
+        {
+            _selectedSearchIndex = -1;
+            return;
+        }
+
+        var next = _selectedSearchIndex < 0
+            ? (delta > 0 ? 0 : SearchResults.Count - 1)
+            : (_selectedSearchIndex + delta + SearchResults.Count) % SearchResults.Count;
+
+        SelectSearchIndex(next);
+    }
+
+    public void SelectSearchItem(SearchItemVM item)
+    {
+        var idx = SearchResults.IndexOf(item);
+        if (idx >= 0) SelectSearchIndex(idx);
+    }
+
+    private void SelectSearchIndex(int idx)
+    {
+        _selectedSearchIndex = idx;
+        for (var i = 0; i < SearchResults.Count; i++)
+            SearchResults[i].IsSelected = i == idx;
+    }
+
+    public bool ActivateCurrentSearchResult()
+    {
+        if (SearchResults.Count == 0) return false;
+        var idx = _selectedSearchIndex >= 0 && _selectedSearchIndex < SearchResults.Count ? _selectedSearchIndex : 0;
+        ActivateSearchResult(SearchResults[idx]);
+        return true;
+    }
+
+    public void ActivateSearchResult(SearchItemVM item)
+    {
+        IsSearchOpen = false;
+
+        switch (item.Kind)
+        {
+            case SearchResultKind.Schedule when item.Task is { } task:
+                OpenSchedule(task);
+                break;
+
+            case SearchResultKind.Goal when item.Goal is { } goal:
+                NavigateToGoals();
+                OpenGoalDetail(goal);
+                break;
+
+            case SearchResultKind.Tag when item.Tag is { } tag:
+                SelectedNav = NavItems.First(n => n.Kind == PageKind.Tags);
+                SelectedTagPageTab = TagPageTab.Tags;
+                OpenTagDetail(tag);
+                break;
+
+            case SearchResultKind.Person when item.Person is { } person:
+                SelectedNav = NavItems.First(n => n.Kind == PageKind.Tags);
+                SelectedTagPageTab = TagPageTab.Persons;
+                OpenPersonDetail(person);
+                break;
+
+            case SearchResultKind.Location when item.Location is { } loc:
+                SelectedNav = NavItems.First(n => n.Kind == PageKind.Tags);
+                SelectedTagPageTab = TagPageTab.Locations;
+                OpenLocationDetail(loc);
+                break;
+        }
+    }
+
+    private void RebuildSearchResults()
+    {
+        SearchResults.Clear();
+        var raw = (SearchQuery ?? "").Trim();
+        var tokens = raw.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        if (tokens.Length == 0)
+        {
+            // 空查询展示最常用的待办与活跃目标
+            foreach (var task in _all
+                         .Where(t => !t.Done)
+                         .OrderBy(t => t.Due ?? DateTime.MaxValue)
+                         .ThenBy(t => t.StartTime ?? TimeSpan.MaxValue)
+                         .ThenBy(t => t.Order)
+                         .Take(10))
+            {
+                SearchResults.Add(CreateScheduleSearchItem(task));
+            }
+
+            foreach (var goal in ActiveGoals.Take(4))
+            {
+                SearchResults.Add(new SearchItemVM
+                {
+                    Kind = SearchResultKind.Goal,
+                    KindBadge = "目标",
+                    Title = goal.Title,
+                    Subtitle = goal.ProgressText,
+                    AccentBrush = goal.Color,
+                    Goal = goal
+                });
+            }
+        }
+        else
+        {
+            foreach (var task in _all
+                         .Where(t => MatchesAllTokens(tokens,
+                             t.Title, t.Note, t.GoalLabel,
+                             string.Join(' ', t.Tags.Select(x => x.Name)),
+                             string.Join(' ', t.Persons.Select(x => x.Name)),
+                             string.Join(' ', t.Locations.Select(x => x.Name))))
+                         .OrderBy(t => t.Done)
+                         .ThenBy(t => t.Due ?? DateTime.MaxValue)
+                         .ThenBy(t => t.StartTime ?? TimeSpan.MaxValue)
+                         .Take(20))
+            {
+                SearchResults.Add(CreateScheduleSearchItem(task));
+            }
+
+            foreach (var goal in Goals
+                         .Where(g => MatchesAllTokens(tokens, g.Title, string.Join(' ', g.Nodes.Select(n => n.Title))))
+                         .Take(8))
+            {
+                SearchResults.Add(new SearchItemVM
+                {
+                    Kind = SearchResultKind.Goal,
+                    KindBadge = "目标",
+                    Title = goal.Title,
+                    Subtitle = goal.IsCompleted ? "已完成目标" : goal.ProgressText,
+                    AccentBrush = goal.Color,
+                    IsDone = goal.IsCompleted,
+                    Goal = goal
+                });
+            }
+
+            foreach (var tag in Tags.Where(t => MatchesAllTokens(tokens, t.Name)).Take(6))
+            {
+                var count = _all.Count(s => s.Tags.Contains(tag));
+                SearchResults.Add(new SearchItemVM
+                {
+                    Kind = SearchResultKind.Tag,
+                    KindBadge = "标签",
+                    Title = "#" + tag.Name,
+                    Subtitle = count == 0 ? "暂无关联日程" : $"{count} 条日程",
+                    AccentBrush = tag.Color,
+                    Tag = tag
+                });
+            }
+
+            foreach (var person in Persons.Where(p => MatchesAllTokens(tokens, p.Name)).Take(6))
+            {
+                var count = _all.Count(s => s.Persons.Contains(person));
+                SearchResults.Add(new SearchItemVM
+                {
+                    Kind = SearchResultKind.Person,
+                    KindBadge = "人物",
+                    Title = "@" + person.Name,
+                    Subtitle = count == 0 ? "暂无关联日程" : $"{count} 条日程",
+                    Person = person
+                });
+            }
+
+            foreach (var loc in Locations.Where(l => MatchesAllTokens(tokens, l.Name)).Take(6))
+            {
+                var count = _all.Count(s => s.Locations.Contains(loc));
+                SearchResults.Add(new SearchItemVM
+                {
+                    Kind = SearchResultKind.Location,
+                    KindBadge = "地点",
+                    Title = loc.Name,
+                    Subtitle = count == 0 ? "暂无关联日程" : $"{count} 条日程",
+                    Location = loc
+                });
+            }
+        }
+
+        SelectSearchIndex(SearchResults.Count > 0 ? 0 : -1);
+        OnPropertyChanged(nameof(HasSearchResults));
+        OnPropertyChanged(nameof(SearchEmptyHint));
+    }
+
+    private static bool MatchesAllTokens(string[] tokens, params string[] fields)
+    {
+        foreach (var token in tokens)
+        {
+            var hit = false;
+            foreach (var field in fields)
+            {
+                if (!string.IsNullOrEmpty(field) &&
+                    field.Contains(token, StringComparison.OrdinalIgnoreCase))
+                {
+                    hit = true;
+                    break;
+                }
+            }
+            if (!hit) return false;
+        }
+        return true;
+    }
+
+    private static SearchItemVM CreateScheduleSearchItem(TaskVM task)
+    {
+        var parts = new List<string>(4);
+        if (task.Due is { } due)
+        {
+            var today = DateTime.Today;
+            var dayLabel = due.Date == today
+                ? "今天"
+                : due.Date == today.AddDays(1)
+                    ? "明天"
+                    : due.Date == today.AddDays(-1)
+                        ? "昨天"
+                        : $"{due:M月d日}";
+            parts.Add(task.HasTime ? $"{dayLabel} {task.TimeLabel}" : dayLabel);
+        }
+        else
+        {
+            parts.Add("不定日期");
+        }
+
+        if (task.HasGoal) parts.Add(task.GoalLabel);
+        if (task.Tags.Count > 0) parts.Add(string.Join(" ", task.Tags.Take(2).Select(t => "#" + t.Name)));
+        if (task.Persons.Count > 0) parts.Add(string.Join(" ", task.Persons.Take(2).Select(p => "@" + p.Name)));
+
+        return new SearchItemVM
+        {
+            Kind = SearchResultKind.Schedule,
+            KindBadge = task.Done ? "已完成" : "日程",
+            Title = task.Title,
+            Subtitle = string.Join(" · ", parts),
+            AccentBrush = task.HasGoal ? task.PrimaryGoalColor : task.Tags.FirstOrDefault()?.Color,
+            IsDone = task.Done,
+            Task = task
+        };
+    }
+
+    // ---------------- 快捷新建与导航 ----------------
+
+    public void OpenQuickNewSchedule()
+    {
+        if (SelectedNav.Kind == PageKind.Future) OpenNewFutureSchedule();
+        else OpenNewDeadlineSchedule(DateTime.Today);
+    }
+
+    public void NavigateToPageIndex(int oneBasedIndex)
+    {
+        var idx = oneBasedIndex - 1;
+        if (idx >= 0 && idx < NavItems.Count)
+            SelectedNav = NavItems[idx];
+    }
+
+    // ---------------- 业务撤销 / 重做 ----------------
+
+    public string BeginUndoSnapshot() => UndoManager.CaptureJson(_store);
+
+    public void CommitUndoSnapshot(
+        string label,
+        string beforeJson,
+        IReadOnlyList<CompletionUndoEvent>? completions = null)
+    {
+        var afterJson = UndoManager.CaptureJson(_store);
+        _undo.Push(label, beforeJson, afterJson, completions);
+        RaiseUndoStateChanged();
+    }
+
+    private void RecordUndo(string label, Action action)
+    {
+        var before = BeginUndoSnapshot();
+        action();
+        CommitUndoSnapshot(label, before);
+    }
+
+    public bool Undo()
+    {
+        if (!_undo.TryUndo(_store, _history, out var label))
+        {
+            Notify("没有可撤销的操作");
+            return false;
+        }
+
+        ApplyUndoOrRedoRefresh();
+        Notify($"已撤销：{label}");
+        return true;
+    }
+
+    public bool Redo()
+    {
+        if (!_undo.TryRedo(_store, _history, out var label))
+        {
+            Notify("没有可重做的操作");
+            return false;
+        }
+
+        ApplyUndoOrRedoRefresh();
+        Notify($"已重做：{label}");
+        return true;
+    }
+
+    private void ApplyUndoOrRedoRefresh()
+    {
+        if (IsEditorOpen) CloseEditor();
+        if (IsGoalPickerOpen) CloseGoalPicker();
+        if (IsGoalTreeEditorOpen)
+        {
+            DeadlinePicker.Close();
+            IsGoalTreeEditorOpen = false;
+            GoalTreeEditor.Close();
+        }
+        if (IsTagDetailOpen) CloseTagDetail();
+        if (IsPresetManagerOpen) PresetManager.StartNew();
+
+        Rebuild();
+        if (IsSearchOpen) RebuildSearchResults();
+        RaiseUndoStateChanged();
+    }
+
+    private void RaiseUndoStateChanged()
+    {
+        OnPropertyChanged(nameof(CanUndo));
+        OnPropertyChanged(nameof(CanRedo));
+        OnPropertyChanged(nameof(UndoTooltip));
+        OnPropertyChanged(nameof(RedoTooltip));
+    }
 
     public void OpenDataFolder()
     {
@@ -849,6 +1514,8 @@ public sealed class MainViewModel : ObservableObject
 
             _pendingImportPackage = null;
             IsImportConfirmOpen = false;
+            _undo.Clear();
+            RaiseUndoStateChanged();
             Rebuild();
 
             var backupName = Path.GetFileName(result.BackupPath);
@@ -917,9 +1584,11 @@ public sealed class MainViewModel : ObservableObject
 
         NavItems = new ObservableCollection<NavItemVM>
         {
+            new(PageKind.Focus, "专注", "\uE916",
+                "专注计时中心：自动跟随当前日程、自由正计时与悬浮胶囊管理。"),
             new(PageKind.Overview, "概览", "\uE80F",
                 "你每天真正会打开的页：一横排档位，拖一下就换个时间做。"),
-            new(PageKind.Timeline, "视图", "\uE787",
+            new(PageKind.Timeline, "时间轴", "\uE787",
                 "纵向是 24 小时，横向是日期，一屏七天。任务有了起止时间就能直接拖进格子；放大时刻度会变细。"),
             new(PageKind.Tags, "标签", "\uE8EC",
                 "在这里创建、改名、删除标签。概览页里只负责往卡片上贴，不负责管理。"),
@@ -936,7 +1605,7 @@ public sealed class MainViewModel : ObservableObject
                 "已过截止日还没完成的日程都收在这里，勾选完成、移到今天，或双击细改。")
         };
 
-        _selectedNav = NavItems[0];
+        _selectedNav = NavItems.First(n => n.Kind == PageKind.Overview);
 
         ZoomOptions = new ObservableCollection<ZoomOptionVM>();
         for (var i = 0; i < Zooms.Length; i++) ZoomOptions.Add(new ZoomOptionVM(i, Zooms[i].Label));
@@ -950,6 +1619,14 @@ public sealed class MainViewModel : ObservableObject
         };
 
         LoadOrSeed();
+        Focus = new FocusTimerVM(
+            () => _all,
+            () => FocusSoundEnabled,
+            ToggleDone,
+            (msg, hl) => Notify(msg, hl));
+        Focus.SessionStarted += () => OnPropertyChanged(nameof(ShowTopFocusBar));
+        Focus.SessionEnded += () => OnPropertyChanged(nameof(ShowTopFocusBar));
+        RebuildShortcutItems();
         if (deferUiBuild)
         {
             _uiDirty = true;
@@ -1015,10 +1692,14 @@ public sealed class MainViewModel : ObservableObject
         set
         {
             if (!Set(ref _selectedTagPageTab, value)) return;
+            _tagEntityInput = "";
+            OnPropertyChanged(nameof(TagEntityInput));
             OnPropertyChanged(nameof(IsTagTabTags));
             OnPropertyChanged(nameof(IsTagTabPersons));
             OnPropertyChanged(nameof(IsTagTabLocations));
             OnPropertyChanged(nameof(TagPageBlurb));
+            OnPropertyChanged(nameof(TagEntityPlaceholder));
+            OnPropertyChanged(nameof(TagEntityButtonText));
         }
     }
 
@@ -1033,7 +1714,39 @@ public sealed class MainViewModel : ObservableObject
         _ => "标签只在这里管理；概览页里只负责往卡片上贴。全库只有一份，改名直接作用到所有用到它的日程。"
     };
 
+    private string _tagEntityInput = "";
+    public string TagEntityInput
+    {
+        get => _tagEntityInput;
+        set => Set(ref _tagEntityInput, value);
+    }
+
+    public string TagEntityPlaceholder => SelectedTagPageTab switch
+    {
+        TagPageTab.Persons => "新建人物，回车确认（比如「@张三」或「产品经理」）",
+        TagPageTab.Locations => "新建地点，回车确认（比如「会议室A」或「图书馆」）",
+        _ => "新建标签，回车确认（比如「#工作」或「阅读」）"
+    };
+
+    public string TagEntityButtonText => SelectedTagPageTab switch
+    {
+        TagPageTab.Persons => "新建人物",
+        TagPageTab.Locations => "新建地点",
+        _ => "新建标签"
+    };
+
     public ObservableCollection<QuadrantVM> Quadrants { get; } = new();
+
+    private bool _showCompletedInEisenhower;
+    public bool ShowCompletedInEisenhower
+    {
+        get => _showCompletedInEisenhower;
+        set
+        {
+            if (Set(ref _showCompletedInEisenhower, value))
+                RebuildQuadrants();
+        }
+    }
 
     public ObservableCollection<DeadlineDayGroupVM> DeadlineGroups { get; } = new();
 
@@ -1067,6 +1780,8 @@ public sealed class MainViewModel : ObservableObject
             OnPropertyChanged(nameof(IsGoals));
             OnPropertyChanged(nameof(IsTags));
             OnPropertyChanged(nameof(IsEisenhower));
+            OnPropertyChanged(nameof(IsFocusPage));
+            OnPropertyChanged(nameof(ShowTopFocusBar));
             OnPropertyChanged(nameof(IsDeadlines));
             OnPropertyChanged(nameof(IsFuture));
             OnPropertyChanged(nameof(IsOverduePage));
@@ -1087,13 +1802,17 @@ public sealed class MainViewModel : ObservableObject
 
     public bool IsEisenhower => SelectedNav.Kind == PageKind.Eisenhower;
 
+    public bool IsFocusPage => SelectedNav.Kind == PageKind.Focus;
+
+    public bool ShowTopFocusBar => Focus.IsActive && !IsFocusPage;
+
     public bool IsDeadlines => SelectedNav.Kind == PageKind.Deadlines;
 
     public bool IsFuture => SelectedNav.Kind == PageKind.Future;
 
     public bool IsOverduePage => SelectedNav.Kind == PageKind.Overdue;
 
-    public bool IsPlaceholder => SelectedNav.Kind is not (PageKind.Overview or PageKind.Timeline or PageKind.Tags or PageKind.Goals or PageKind.Eisenhower or PageKind.Deadlines or PageKind.Future or PageKind.Overdue);
+    public bool IsPlaceholder => SelectedNav.Kind is not (PageKind.Overview or PageKind.Timeline or PageKind.Tags or PageKind.Goals or PageKind.Eisenhower or PageKind.Focus or PageKind.Deadlines or PageKind.Future or PageKind.Overdue);
 
     public string CurrentTitle => SelectedNav.Title;
 
@@ -1227,6 +1946,7 @@ public sealed class MainViewModel : ObservableObject
         foreach (var quadrant in Quadrants) quadrant.Items.Clear();
         DeadlineGroups.Clear();
         FutureTasks.Clear();
+        FocusCandidateTasks.Clear();
         TagDetailDays.Clear();
         TimelineDays.Clear();
         TimelineHours.Clear();
@@ -1236,6 +1956,7 @@ public sealed class MainViewModel : ObservableObject
 
     public void Rebuild()
     {
+        Focus.SyncWithSchedules();
         if (!_hasActiveView)
         {
             _uiDirty = true;
@@ -1286,18 +2007,13 @@ public sealed class MainViewModel : ObservableObject
         RebuildUsageRows(_store.Locations, _all.SelectMany(t => t.Locations), l => l.Name, LocationRows, (l, n) => new LocationRowVM(l, n));
 
         // 四象限：两个标记决定一格；两个都没打的落「没标记」
-        foreach (var quadrant in Quadrants) quadrant.Items.Clear();
-        foreach (var task in _all.OrderBy(t => t.Order))
-        {
-            var quadrant = Quadrants.First(q => q.IsUrgent == task.IsUrgent && q.IsImportant == task.IsImportant);
-            quadrant.Items.Add(task);
-        }
-        foreach (var quadrant in Quadrants) quadrant.RaiseCount();
+        RebuildQuadrants();
 
         NavItems.First(n => n.Kind == PageKind.Overdue).BadgeCount = OverdueLane.Count;
 
         RebuildDeadlines();
         RebuildFutureTasks();
+        RebuildFocusCandidates();
 
         OnPropertyChanged(nameof(StatusLeft));
         OnPropertyChanged(nameof(StatusRight));
@@ -1322,6 +2038,18 @@ public sealed class MainViewModel : ObservableObject
 
         var (todayPending, overdueCount) = GetSummaryCounts();
         SummaryChanged?.Invoke(todayPending, overdueCount);
+    }
+
+    private void RebuildQuadrants()
+    {
+        foreach (var quadrant in Quadrants) quadrant.Items.Clear();
+        foreach (var task in _all.OrderBy(t => t.Done).ThenBy(t => t.Order))
+        {
+            if (task.Done && !_showCompletedInEisenhower) continue;
+            var quadrant = Quadrants.First(q => q.IsUrgent == task.IsUrgent && q.IsImportant == task.IsImportant);
+            quadrant.Items.Add(task);
+        }
+        foreach (var quadrant in Quadrants) quadrant.RaiseCount();
     }
 
     private void RebuildDeadlines()
@@ -1379,6 +2107,31 @@ public sealed class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(FutureTaskCount));
     }
 
+    private void RebuildFocusCandidates()
+    {
+        var today = DateTime.Today;
+        var now = DateTime.Now.TimeOfDay;
+
+        var candidates = _all
+            .Where(t => !t.Done && t.Due?.Date == today)
+            .OrderBy(t =>
+            {
+                if (t.StartTime is { } s && t.EndTime is { } e && now >= s && now < e) return 0;
+                if (t.HasTime) return 1;
+                return 2;
+            })
+            .ThenBy(t => t.StartTime ?? TimeSpan.MaxValue)
+            .ThenBy(t => t.Order)
+            .ToList();
+
+        FocusCandidateTasks.Clear();
+        foreach (var task in candidates)
+            FocusCandidateTasks.Add(task);
+    }
+
+    public void NavigateToFocusPage()
+        => SelectedNav = NavItems.First(n => n.Kind == PageKind.Focus);
+
     private void SyncGoalGroups()
     {
         var desiredActive = Goals.Where(g => !g.IsCompleted).ToList();
@@ -1402,6 +2155,7 @@ public sealed class MainViewModel : ObservableObject
     /// <summary>拖拽落点：跨档位时改 due；同档位内只改顺序，保留原日期。</summary>
     public void MoveTask(TaskVM task, LaneVM target, int index)
     {
+        var before = BeginUndoSnapshot();
         var crossLane = LaneFor(task) != target.Kind;
         _all.Remove(task);
 
@@ -1419,6 +2173,7 @@ public sealed class MainViewModel : ObservableObject
 
         _all.Add(task);
         Rebuild();
+        CommitUndoSnapshot(crossLane ? $"移动「{task.Title}」到{target.Title}" : $"调整「{task.Title}」顺序", before);
         TaskTouched?.Invoke(task);
         if (crossLane) Notify($"已移到「{target.Title}」");
     }
@@ -1438,56 +2193,107 @@ public sealed class MainViewModel : ObservableObject
 
     public void ToggleDone(TaskVM task)
     {
+        var before = BeginUndoSnapshot();
+        var rule = RepeatRules.Normalize(task.Repeat);
+        if (!task.Done && rule.Length > 0)
+        {
+            var recordedForDate = task.Due?.Date;
+            _history.Append(task.Id, recordedForDate, done: true);
+
+            if (RepeatRules.NextOccurrence(task.Due, rule) is { } nextDue)
+            {
+                task.Due = nextDue;
+                task.Done = false;
+
+                var shiftedHint = "";
+                if (task.StartTime is { } start && task.EndTime is { } end)
+                {
+                    var startMin = (int)start.TotalMinutes;
+                    var duration = Math.Max(5, (int)(end - start).TotalMinutes);
+                    var freeStart = FindFreeStart(nextDue, startMin, duration, exclude: task);
+                    if (freeStart != startMin)
+                    {
+                        task.StartTime = TimeSpan.FromMinutes(freeStart);
+                        task.EndTime = TimeSpan.FromMinutes(freeStart + duration);
+                        shiftedHint = $"（时段冲突已顺延至 {task.TimeLabel}）";
+                    }
+                }
+
+                Rebuild();
+                CommitUndoSnapshot($"完成重复日程「{task.Title}」", before, [new CompletionUndoEvent(task.Id, recordedForDate, true)]);
+                TaskTouched?.Invoke(task);
+                Notify($"已完成本次「{task.Title}」，已推进至 {nextDue:M月d日}{shiftedHint}");
+                return;
+            }
+        }
+
+        var forDate = task.Due?.Date;
         task.Done = !task.Done;
 
         // 完成记录单独追加一行，不进主文件（重复日程的历史会把它撞爆）
-        _history.Append(task.Id, task.Due?.Date, task.Done);
+        _history.Append(task.Id, forDate, task.Done);
 
         Rebuild();
+        CommitUndoSnapshot(task.Done ? $"完成「{task.Title}」" : $"恢复待办「{task.Title}」", before, [new CompletionUndoEvent(task.Id, forDate, task.Done)]);
         Notify(task.Done ? $"已完成「{task.Title}」" : $"已恢复待办「{task.Title}」");
     }
 
     public void Delete(TaskVM task)
     {
-        _store.RemoveSchedule(task);
-        Rebuild();
-        Notify($"已删除「{task.Title}」");
+        var title = task.Title;
+        RecordUndo($"删除「{title}」", () =>
+        {
+            _store.RemoveSchedule(task);
+            Rebuild();
+        });
+        Notify($"已删除「{title}」");
     }
 
     /// <summary>右键菜单：只改日子，不动时段。</summary>
     public void MoveToDay(TaskVM task, DateTime date)
     {
-        task.Due = date.Date;
-        Rebuild();
-        TaskTouched?.Invoke(task);
-
         var label = date.Date == DateTime.Today
             ? "今天"
             : date.Date == DateTime.Today.AddDays(1)
                 ? "明天"
                 : $"{date:M月d日}";
+
+        RecordUndo($"移到{label}「{task.Title}」", () =>
+        {
+            task.Due = date.Date;
+            Rebuild();
+        });
+        TaskTouched?.Invoke(task);
         Notify($"已移到{label}");
     }
 
     public void MoveToFuture(TaskVM task)
     {
-        task.Due = null;
-        task.StartTime = null;
-        task.EndTime = null;
-        Rebuild();
+        RecordUndo($"移到未来事项「{task.Title}」", () =>
+        {
+            task.Due = null;
+            task.StartTime = null;
+            task.EndTime = null;
+            Rebuild();
+        });
         TaskTouched?.Invoke(task);
         Notify("已移到「未来事项」");
     }
 
     public void CycleRepeat(TaskVM task)
     {
-        task.Repeat = task.Repeat switch
+        RecordUndo($"切换重复「{task.Title}」", () =>
         {
-            "" => "每天",
-            "每天" => "每周",
-            "每周" => "每月",
-            _ => ""
-        };
+            task.Repeat = RepeatRules.Normalize(task.Repeat) switch
+            {
+                "" => RepeatRules.Daily,
+                RepeatRules.Daily => RepeatRules.Weekly,
+                RepeatRules.Weekly => RepeatRules.Monthly,
+                _ => ""
+            };
+            _file.MarkDirty(_store);
+            if (_hasInitialized) ScheduleAutoSync();
+        });
     }
 
     public void ToggleTaskRemindNode(TaskVM task, string node)
@@ -1495,9 +2301,12 @@ public sealed class MainViewModel : ObservableObject
         var next = RemindRules.ToggleNode(task.Remind, node);
         if (task.Remind == next) return;
 
-        task.Remind = next;
-        _file.MarkDirty(_store);
-        if (_hasInitialized) ScheduleAutoSync();
+        RecordUndo($"调整提醒「{task.Title}」", () =>
+        {
+            task.Remind = next;
+            _file.MarkDirty(_store);
+            if (_hasInitialized) ScheduleAutoSync();
+        });
         TaskTouched?.Invoke(task);
     }
 
@@ -1521,98 +2330,203 @@ public sealed class MainViewModel : ObservableObject
 
     public void AddTag(TaskVM task, string tag)
     {
-        var entity = _store.GetOrCreateTag(tag);
-        if (entity is null) return;
-        if (!task.Tags.Contains(entity)) task.Tags.Add(entity);
-        Rebuild();
+        RecordUndo($"添加标签「{tag}」", () =>
+        {
+            var entity = _store.GetOrCreateTag(tag);
+            if (entity is null) return;
+            if (!task.Tags.Contains(entity)) task.Tags.Add(entity);
+            Rebuild();
+        });
     }
 
     public void RemoveTag(TaskVM task, TagVM tag)
     {
-        task.Tags.Remove(tag);
-        Rebuild();
+        RecordUndo($"移除标签「#{tag.Name}」", () =>
+        {
+            task.Tags.Remove(tag);
+            Rebuild();
+        });
     }
 
     public void AddPerson(TaskVM task, string person)
     {
-        var entity = _store.GetOrCreatePerson(person);
-        if (entity is null) return;
-        if (!task.Persons.Contains(entity)) task.Persons.Add(entity);
-        Rebuild();
+        RecordUndo($"关联人物「{person}」", () =>
+        {
+            var entity = _store.GetOrCreatePerson(person);
+            if (entity is null) return;
+            if (!task.Persons.Contains(entity)) task.Persons.Add(entity);
+            Rebuild();
+        });
     }
 
     public void RemovePerson(TaskVM task, PersonVM person)
     {
-        task.Persons.Remove(person);
-        Rebuild();
+        RecordUndo($"移除人物「@{person.Name}」", () =>
+        {
+            task.Persons.Remove(person);
+            Rebuild();
+        });
     }
 
     public void AddLocation(TaskVM task, string location)
     {
-        var entity = _store.GetOrCreateLocation(location);
-        if (entity is null) return;
-        if (!task.Locations.Contains(entity)) task.Locations.Add(entity);
-        Rebuild();
+        RecordUndo($"关联地点「{location}」", () =>
+        {
+            var entity = _store.GetOrCreateLocation(location);
+            if (entity is null) return;
+            if (!task.Locations.Contains(entity)) task.Locations.Add(entity);
+            Rebuild();
+        });
     }
 
     public void RemoveLocation(TaskVM task, LocationVM location)
     {
-        task.Locations.Remove(location);
-        Rebuild();
+        RecordUndo($"移除地点「{location.Name}」", () =>
+        {
+            task.Locations.Remove(location);
+            Rebuild();
+        });
     }
 
     // ---------------- 标签 / 人物 / 地点（页） ----------------
+
+    public void SubmitTagEntityInput()
+    {
+        var raw = (TagEntityInput ?? "").Trim();
+        if (raw.Length == 0) return;
+
+        switch (SelectedTagPageTab)
+        {
+            case TagPageTab.Persons:
+            {
+                var name = raw.TrimStart('@').Trim();
+                if (name.Length == 0) return;
+                if (_store.FindPerson(name) is not null)
+                {
+                    Notify($"人物「@{name}」已存在");
+                    TagEntityInput = "";
+                    return;
+                }
+                RecordUndo($"新建人物「@{name}」", () =>
+                {
+                    _store.GetOrCreatePerson(name);
+                    TagEntityInput = "";
+                    Rebuild();
+                });
+                Notify($"已新建人物「@{name}」");
+                break;
+            }
+            case TagPageTab.Locations:
+            {
+                var name = raw;
+                if (_store.FindLocation(name) is not null)
+                {
+                    Notify($"地点「{name}」已存在");
+                    TagEntityInput = "";
+                    return;
+                }
+                RecordUndo($"新建地点「{name}」", () =>
+                {
+                    _store.GetOrCreateLocation(name);
+                    TagEntityInput = "";
+                    Rebuild();
+                });
+                Notify($"已新建地点「{name}」");
+                break;
+            }
+            default:
+            {
+                var name = raw.TrimStart('#').Trim();
+                if (name.Length == 0) return;
+                if (_store.FindTag(name) is not null)
+                {
+                    Notify($"标签「#{name}」已存在");
+                    TagEntityInput = "";
+                    return;
+                }
+                RecordUndo($"新建标签「#{name}」", () =>
+                {
+                    _store.GetOrCreateTag(name);
+                    TagEntityInput = "";
+                    Rebuild();
+                });
+                Notify($"已新建标签「#{name}」");
+                break;
+            }
+        }
+    }
 
     /// <summary>改名只改实体本身；日程里存的是引用，监听已经处理好了。</summary>
     public void RenameTag(TagVM tag, string name)
     {
         var trimmed = (name ?? "").Trim().TrimStart('#');
-        if (trimmed.Length == 0) return;
+        if (trimmed.Length == 0 || trimmed == tag.Name) return;
 
-        tag.Name = trimmed;
-        OnPropertyChanged(nameof(TagRows));
-        OnEntityRenamed();
+        RecordUndo($"重命名标签「#{trimmed}」", () =>
+        {
+            tag.Name = trimmed;
+            OnPropertyChanged(nameof(TagRows));
+            OnEntityRenamed();
+        });
     }
 
     public void DeleteTag(TagVM tag)
     {
-        _store.RemoveTag(tag);
-        Rebuild();
-        Notify($"已移除标签「#{tag.Name}」");
+        var name = tag.Name;
+        RecordUndo($"删除标签「#{name}」", () =>
+        {
+            _store.RemoveTag(tag);
+            Rebuild();
+        });
+        Notify($"已移除标签「#{name}」");
     }
 
     public void RenamePerson(PersonVM person, string name)
     {
         var trimmed = (name ?? "").Trim().TrimStart('@');
-        if (trimmed.Length == 0) return;
+        if (trimmed.Length == 0 || trimmed == person.Name) return;
 
-        person.Name = trimmed;
-        OnPropertyChanged(nameof(PersonRows));
-        OnEntityRenamed();
+        RecordUndo($"重命名人物「@{trimmed}」", () =>
+        {
+            person.Name = trimmed;
+            OnPropertyChanged(nameof(PersonRows));
+            OnEntityRenamed();
+        });
     }
 
     public void DeletePerson(PersonVM person)
     {
-        _store.RemovePerson(person);
-        Rebuild();
-        Notify($"已移除人物「{person.Name}」");
+        var name = person.Name;
+        RecordUndo($"删除人物「@{name}」", () =>
+        {
+            _store.RemovePerson(person);
+            Rebuild();
+        });
+        Notify($"已移除人物「{name}」");
     }
 
     public void RenameLocation(LocationVM location, string name)
     {
         var trimmed = (name ?? "").Trim();
-        if (trimmed.Length == 0) return;
+        if (trimmed.Length == 0 || trimmed == location.Name) return;
 
-        location.Name = trimmed;
-        OnPropertyChanged(nameof(LocationRows));
-        OnEntityRenamed();
+        RecordUndo($"重命名地点「{trimmed}」", () =>
+        {
+            location.Name = trimmed;
+            OnPropertyChanged(nameof(LocationRows));
+            OnEntityRenamed();
+        });
     }
 
     public void DeleteLocation(LocationVM location)
     {
-        _store.RemoveLocation(location);
-        Rebuild();
-        Notify($"已移除地点「{location.Name}」");
+        var name = location.Name;
+        RecordUndo($"删除地点「{name}」", () =>
+        {
+            _store.RemoveLocation(location);
+            Rebuild();
+        });
+        Notify($"已移除地点「{name}」");
     }
 
     public void OnEntityRenamed()
@@ -1786,14 +2700,20 @@ public sealed class MainViewModel : ObservableObject
 
     public void ToggleUrgent(TaskVM task)
     {
-        task.IsUrgent = !task.IsUrgent;
-        Rebuild();
+        RecordUndo($"标记紧急「{task.Title}」", () =>
+        {
+            task.IsUrgent = !task.IsUrgent;
+            Rebuild();
+        });
     }
 
     public void ToggleImportant(TaskVM task)
     {
-        task.IsImportant = !task.IsImportant;
-        Rebuild();
+        RecordUndo($"标记重要「{task.Title}」", () =>
+        {
+            task.IsImportant = !task.IsImportant;
+            Rebuild();
+        });
     }
 
     /// <summary>拖到哪一格就把两个标记设成那格。</summary>
@@ -1801,9 +2721,12 @@ public sealed class MainViewModel : ObservableObject
     {
         if (task.IsUrgent == quadrant.IsUrgent && task.IsImportant == quadrant.IsImportant) return;
 
-        task.IsUrgent = quadrant.IsUrgent;
-        task.IsImportant = quadrant.IsImportant;
-        Rebuild();
+        RecordUndo($"移到「{quadrant.Title}」", () =>
+        {
+            task.IsUrgent = quadrant.IsUrgent;
+            task.IsImportant = quadrant.IsImportant;
+            Rebuild();
+        });
         TaskTouched?.Invoke(task);
         Notify($"已移到「{quadrant.Title}」");
     }
@@ -1824,10 +2747,13 @@ public sealed class MainViewModel : ObservableObject
         var newEnd = TimeSpan.FromMinutes(free + duration);
         var changed = task.Due?.Date != date || task.StartTime != newStart || task.EndTime != newEnd;
 
-        task.Due = date;
-        task.StartTime = newStart;
-        task.EndTime = newEnd;
-        Rebuild();
+        RecordUndo($"修改时间「{task.Title}」", () =>
+        {
+            task.Due = date;
+            task.StartTime = newStart;
+            task.EndTime = newEnd;
+            Rebuild();
+        });
         if (changed) TaskTouched?.Invoke(task);
 
         if (free != (int)start.TotalMinutes)
@@ -1838,9 +2764,12 @@ public sealed class MainViewModel : ObservableObject
 
     public void ClearTime(TaskVM task)
     {
-        task.StartTime = null;
-        task.EndTime = null;
-        Rebuild();
+        RecordUndo($"清除时间「{task.Title}」", () =>
+        {
+            task.StartTime = null;
+            task.EndTime = null;
+            Rebuild();
+        });
     }
 
     // ---------------- 视图（时间轴） ----------------
@@ -2185,10 +3114,13 @@ public sealed class MainViewModel : ObservableObject
         var duration = DurationMinutes(task);
         var start = FindFreeStart(date, startMinutes, duration, task);
 
-        task.Due = date.Date;
-        task.StartTime = TimeSpan.FromMinutes(start);
-        task.EndTime = TimeSpan.FromMinutes(start + duration);
-        Rebuild();
+        RecordUndo($"移动日程块「{task.Title}」", () =>
+        {
+            task.Due = date.Date;
+            task.StartTime = TimeSpan.FromMinutes(start);
+            task.EndTime = TimeSpan.FromMinutes(start + duration);
+            Rebuild();
+        });
         TaskTouched?.Invoke(task);
 
         if (start != startMinutes)
@@ -2224,9 +3156,12 @@ public sealed class MainViewModel : ObservableObject
         startMinutes = Math.Clamp(startMinutes, 0, 24 * 60 - 5);
         endMinutes = Math.Clamp(endMinutes, startMinutes + 5, 24 * 60);
 
-        task.StartTime = TimeSpan.FromMinutes(startMinutes);
-        task.EndTime = TimeSpan.FromMinutes(endMinutes);
-        Rebuild();
+        RecordUndo($"调整时长「{task.Title}」", () =>
+        {
+            task.StartTime = TimeSpan.FromMinutes(startMinutes);
+            task.EndTime = TimeSpan.FromMinutes(endMinutes);
+            Rebuild();
+        });
         TaskTouched?.Invoke(task);
         Notify($"已调整至 {Clock(startMinutes)}–{Clock(endMinutes)}");
     }
@@ -2308,14 +3243,18 @@ public sealed class MainViewModel : ObservableObject
         var title = (GoalInput ?? "").Trim();
         if (title.Length == 0) return;
 
-        _store.AddGoal(title);
-        GoalInput = "";
-        Rebuild();
+        RecordUndo($"新建目标「{title}」", () =>
+        {
+            _store.AddGoal(title);
+            GoalInput = "";
+            Rebuild();
+        });
         Notify($"已新建目标「{title}」");
     }
 
     public void OpenGoalTreeEditor(GoalVM goal)
     {
+        _goalTreeOpenSnapshot = BeginUndoSnapshot();
         GoalTreeEditor.Open(goal);
         IsGoalTreeEditorOpen = true;
     }
@@ -2326,6 +3265,11 @@ public sealed class MainViewModel : ObservableObject
         IsGoalTreeEditorOpen = false;
         GoalTreeEditor.Close();
         Rebuild();
+        if (_goalTreeOpenSnapshot is { } snap)
+        {
+            _goalTreeOpenSnapshot = null;
+            CommitUndoSnapshot("编辑目标结构", snap);
+        }
     }
 
     public void OpenNodeDeadlinePicker(GoalNodeVM node)
@@ -2339,8 +3283,11 @@ public sealed class MainViewModel : ObservableObject
         var label = string.IsNullOrWhiteSpace(goal.Title) ? "目标" : goal.Title;
         DeadlinePicker.Open($"「{label}」截止日期", goal.Due, due =>
         {
-            goal.Due = due;
-            OnGoalStructureChanged(rebuildTimelineAndCards: false);
+            RecordUndo($"修改目标截止日「{label}」", () =>
+            {
+                goal.Due = due;
+                OnGoalStructureChanged(rebuildTimelineAndCards: false);
+            });
             Notify(due.HasValue ? $"已设截止日期：{goal.DueBadgeText}" : "已清除截止日期");
         });
     }
@@ -2369,36 +3316,46 @@ public sealed class MainViewModel : ObservableObject
 
     public void RemoveGoalSubNode(GoalVM goal, GoalNodeVM node)
     {
-        foreach (var task in _all)
+        var label = node.DisplayTitle;
+        RecordUndo($"删除子目标「{label}」", () =>
         {
-            if (task.GoalBindings.Any(b => ReferenceEquals(b.Goal, goal) && ReferenceEquals(b.Node, node)))
-                task.SetGoalBindings(task.GoalBindings.Where(b => !(ReferenceEquals(b.Goal, goal) && ReferenceEquals(b.Node, node))));
-        }
+            foreach (var task in _all)
+            {
+                if (task.GoalBindings.Any(b => ReferenceEquals(b.Goal, goal) && ReferenceEquals(b.Node, node)))
+                    task.SetGoalBindings(task.GoalBindings.Where(b => !(ReferenceEquals(b.Goal, goal) && ReferenceEquals(b.Node, node))));
+            }
 
-        foreach (var preset in _store.Presets)
-        {
-            if (preset.GoalBindings.Any(b => ReferenceEquals(b.Goal, goal) && ReferenceEquals(b.Node, node)))
-                preset.SetGoalBindings(preset.GoalBindings.Where(b => !(ReferenceEquals(b.Goal, goal) && ReferenceEquals(b.Node, node))));
-        }
+            foreach (var preset in _store.Presets)
+            {
+                if (preset.GoalBindings.Any(b => ReferenceEquals(b.Goal, goal) && ReferenceEquals(b.Node, node)))
+                    preset.SetGoalBindings(preset.GoalBindings.Where(b => !(ReferenceEquals(b.Goal, goal) && ReferenceEquals(b.Node, node))));
+            }
 
-        goal.RemoveSubGoal(node);
-        Rebuild();
-        Notify($"已删除子目标「{node.DisplayTitle}」");
+            goal.RemoveSubGoal(node);
+            Rebuild();
+        });
+        Notify($"已删除子目标「{label}」");
     }
 
     public void ToggleGoalNodeCompleted(GoalVM goal, GoalNodeVM node)
     {
         var next = !node.IsCompleted;
-        goal.SetNodeCompleted(node, next);
-        Rebuild();
+        RecordUndo(next ? $"完成子目标「{node.DisplayTitle}」" : $"恢复子目标「{node.DisplayTitle}」", () =>
+        {
+            goal.SetNodeCompleted(node, next);
+            Rebuild();
+        });
         Notify(next ? $"已完成「{node.DisplayTitle}」" : $"已恢复「{node.DisplayTitle}」");
     }
 
     public void ToggleGoalCompleted(GoalVM goal)
     {
         var next = !goal.IsCompleted;
-        goal.SetGoalCompleted(next);
-        Rebuild();
+        RecordUndo(next ? $"完成目标「{goal.Title}」" : $"恢复目标「{goal.Title}」", () =>
+        {
+            goal.SetGoalCompleted(next);
+            Rebuild();
+        });
         Notify(next ? $"目标「{goal.Title}」已完成，已移入下方区域" : $"已恢复目标「{goal.Title}」");
     }
 
@@ -2447,6 +3404,13 @@ public sealed class MainViewModel : ObservableObject
     public void OpenNewFutureSchedule()
     {
         Editor.OpenNewFuture();
+        IsEditorOpen = true;
+    }
+
+    /// <summary>自由专注结束 → 打开日程编辑窗，保存后自动写入时间轴并标记完成。</summary>
+    public void OpenScheduleFromFreeFocus(string title, DateTime date, int startMinutes, int endMinutes)
+    {
+        Editor.OpenFromFreeFocus(title, date, startMinutes, endMinutes);
         IsEditorOpen = true;
     }
 
@@ -2514,7 +3478,10 @@ public sealed class MainViewModel : ObservableObject
         if (title.Length == 0) title = "未命名";
 
         var isNew = Editor.Task is null;
-        var task = Editor.Task ?? _store.AddSchedule();
+        var markDone = Editor.MarkDoneOnSave;
+        TaskVM task = null!;
+        var before = BeginUndoSnapshot();
+        task = Editor.Task ?? _store.AddSchedule();
 
         task.Title = title;
         task.Note = Editor.Note ?? "";
@@ -2543,6 +3510,9 @@ public sealed class MainViewModel : ObservableObject
             task.EndTime = TimeSpan.FromMinutes(free + duration);
         }
 
+        if (markDone)
+            task.Done = true;
+
         task.Tags.Clear();
         foreach (var tag in ResolveSelectedTags(Editor.SelectedTagPicks)) task.Tags.Add(tag);
 
@@ -2552,14 +3522,21 @@ public sealed class MainViewModel : ObservableObject
         task.Locations.Clear();
         foreach (var location in ResolveSelectedLocations(Editor.SelectedLocationPicks)) task.Locations.Add(location);
 
+        if (markDone)
+            _history.Append(task.Id, task.Due?.Date, done: true);
+
         IsEditorOpen = false;
         Rebuild();
+        CommitUndoSnapshot(
+            markDone ? $"记录并完成「{title}」" : isNew ? $"新建「{title}」" : $"编辑「{title}」",
+            before,
+            markDone ? [new CompletionUndoEvent(task.Id, task.Due?.Date, true)] : null);
         TaskTouched?.Invoke(task);
 
         if (Editor.HasDue && Editor.HasTime && free != start)
-            Notify($"已避开冲突，保存至 {Clock(free)}–{Clock(free + duration)}", highlight: true);
+            Notify(markDone ? $"已避开冲突，保存并完成至 {Clock(free)}–{Clock(free + duration)}" : $"已避开冲突，保存至 {Clock(free)}–{Clock(free + duration)}", highlight: true);
         else
-            Notify(isNew ? $"已创建「{title}」" : $"已保存「{title}」");
+            Notify(markDone ? $"已保存并完成「{title}」" : isNew ? $"已创建「{title}」" : $"已保存「{title}」");
     }
 
     public void DeleteEdited()
@@ -2717,42 +3694,49 @@ public sealed class MainViewModel : ObservableObject
         }
 
         var isNew = PresetManager.EditingPreset is null;
-        var preset = PresetManager.EditingPreset ?? _store.AddPreset();
+        RecordUndo(isNew ? $"添加快捷卡片「{title}」" : $"保存快捷卡片「{title}」", () =>
+        {
+            var preset = PresetManager.EditingPreset ?? _store.AddPreset();
 
-        preset.Title = title;
-        preset.DurationMinutes = duration;
-        preset.Remind = PresetManager.Remind;
-        preset.Note = PresetManager.Note ?? "";
-        preset.IsUrgent = PresetManager.IsUrgent;
-        preset.IsImportant = PresetManager.IsImportant;
-        preset.SetGoalBindings(PresetManager.SelectedGoalBindings);
+            preset.Title = title;
+            preset.DurationMinutes = duration;
+            preset.Remind = PresetManager.Remind;
+            preset.Note = PresetManager.Note ?? "";
+            preset.IsUrgent = PresetManager.IsUrgent;
+            preset.IsImportant = PresetManager.IsImportant;
+            preset.SetGoalBindings(PresetManager.SelectedGoalBindings);
 
-        preset.Tags.Clear();
-        foreach (var tag in ResolveSelectedTags(PresetManager.SelectedTagPicks))
-            preset.Tags.Add(tag);
+            preset.Tags.Clear();
+            foreach (var tag in ResolveSelectedTags(PresetManager.SelectedTagPicks))
+                preset.Tags.Add(tag);
 
-        preset.Persons.Clear();
-        foreach (var person in ResolveSelectedPersons(PresetManager.SelectedPersonPicks))
-            preset.Persons.Add(person);
+            preset.Persons.Clear();
+            foreach (var person in ResolveSelectedPersons(PresetManager.SelectedPersonPicks))
+                preset.Persons.Add(person);
 
-        preset.Locations.Clear();
-        foreach (var location in ResolveSelectedLocations(PresetManager.SelectedLocationPicks))
-            preset.Locations.Add(location);
+            preset.Locations.Clear();
+            foreach (var location in ResolveSelectedLocations(PresetManager.SelectedLocationPicks))
+                preset.Locations.Add(location);
 
-        Rebuild();
-        PresetManager.StartNew();
+            Rebuild();
+            PresetManager.StartNew();
+        });
         Notify(isNew ? $"已添加快捷卡片「{title}」" : $"已保存快捷卡片「{title}」");
     }
 
     public void DeletePreset(SchedulePresetVM preset)
     {
+        var label = preset.DisplayTitle;
         if (ReferenceEquals(PresetManager.EditingPreset, preset))
             PresetManager.StartNew();
 
-        _store.RemovePreset(preset);
-        _file.MarkDirty(_store);
-        if (_hasInitialized) ScheduleAutoSync();
-        Notify($"已删除快捷卡片「{preset.DisplayTitle}」");
+        RecordUndo($"删除快捷卡片「{label}」", () =>
+        {
+            _store.RemovePreset(preset);
+            _file.MarkDirty(_store);
+            if (_hasInitialized) ScheduleAutoSync();
+        });
+        Notify($"已删除快捷卡片「{label}」");
     }
 
     /// <summary>把快捷卡片拖到时间轴松手：直接落盘生成一条日程（撞到别人自动让开）。</summary>
@@ -2762,29 +3746,33 @@ public sealed class MainViewModel : ObservableObject
         var free = FindFreeStart(date, desiredStartMinutes, duration);
         var title = string.IsNullOrWhiteSpace(preset.Title) ? "未命名" : preset.Title.Trim();
 
-        var task = _store.AddSchedule(s =>
+        TaskVM task = null!;
+        RecordUndo($"从快捷卡片创建「{title}」", () =>
         {
-            s.Title = title;
-            s.Note = preset.Note;
-            s.Remind = preset.Remind;
-            s.Due = date.Date;
-            s.StartTime = TimeSpan.FromMinutes(free);
-            s.EndTime = TimeSpan.FromMinutes(free + duration);
-            s.IsUrgent = preset.IsUrgent;
-            s.IsImportant = preset.IsImportant;
-            s.SetGoalBindings(preset.GoalBindings.Select(b => new GoalBindingVM(b.Goal, b.Node)));
+            task = _store.AddSchedule(s =>
+            {
+                s.Title = title;
+                s.Note = preset.Note;
+                s.Remind = preset.Remind;
+                s.Due = date.Date;
+                s.StartTime = TimeSpan.FromMinutes(free);
+                s.EndTime = TimeSpan.FromMinutes(free + duration);
+                s.IsUrgent = preset.IsUrgent;
+                s.IsImportant = preset.IsImportant;
+                s.SetGoalBindings(preset.GoalBindings.Select(b => new GoalBindingVM(b.Goal, b.Node)));
+            });
+
+            foreach (var tag in preset.Tags)
+                if (!task.Tags.Contains(tag)) task.Tags.Add(tag);
+
+            foreach (var person in preset.Persons)
+                if (!task.Persons.Contains(person)) task.Persons.Add(person);
+
+            foreach (var location in preset.Locations)
+                if (!task.Locations.Contains(location)) task.Locations.Add(location);
+
+            Rebuild();
         });
-
-        foreach (var tag in preset.Tags)
-            if (!task.Tags.Contains(tag)) task.Tags.Add(tag);
-
-        foreach (var person in preset.Persons)
-            if (!task.Persons.Contains(person)) task.Persons.Add(person);
-
-        foreach (var location in preset.Locations)
-            if (!task.Locations.Contains(location)) task.Locations.Add(location);
-
-        Rebuild();
         TaskTouched?.Invoke(task);
 
         if (free != desiredStartMinutes)
@@ -2834,14 +3822,18 @@ public sealed class MainViewModel : ObservableObject
         if (IsGoalPickerOpen && ReferenceEquals(GoalPicker.Goal, goal))
             CloseGoalPicker();
 
-        foreach (var task in _all.Where(t => t.HasGoalRef(goal)))
-            task.SetGoalBindings(task.GoalBindings.Where(b => !ReferenceEquals(b.Goal, goal)));
-        foreach (var preset in _store.Presets.Where(p => p.HasGoalRef(goal)))
-            preset.SetGoalBindings(preset.GoalBindings.Where(b => !ReferenceEquals(b.Goal, goal)));
+        var title = goal.Title;
+        RecordUndo($"删除目标「{title}」", () =>
+        {
+            foreach (var task in _all.Where(t => t.HasGoalRef(goal)))
+                task.SetGoalBindings(task.GoalBindings.Where(b => !ReferenceEquals(b.Goal, goal)));
+            foreach (var preset in _store.Presets.Where(p => p.HasGoalRef(goal)))
+                preset.SetGoalBindings(preset.GoalBindings.Where(b => !ReferenceEquals(b.Goal, goal)));
 
-        _store.RemoveGoal(goal);
-        Rebuild();
-        Notify($"已删除目标「{goal.Title}」");
+            _store.RemoveGoal(goal);
+            Rebuild();
+        });
+        Notify($"已删除目标「{title}」");
     }
 
     /// <summary>把任务挂到目标下。拖到有子目标的目标卡上时弹出目标树选择。</summary>
@@ -2851,12 +3843,15 @@ public sealed class MainViewModel : ObservableObject
         {
             OpenGoalPickerForDraft(goal, task.GoalBindings, nodes =>
             {
-                var next = task.GoalBindings
-                    .Where(b => !ReferenceEquals(b.Goal, goal))
-                    .Concat(nodes.Select(n => new GoalBindingVM(goal, n.IsRoot ? null : n)))
-                    .ToList();
-                task.SetGoalBindings(next);
-                Rebuild();
+                RecordUndo($"关联目标「{goal.Title}」", () =>
+                {
+                    var next = task.GoalBindings
+                        .Where(b => !ReferenceEquals(b.Goal, goal))
+                        .Concat(nodes.Select(n => new GoalBindingVM(goal, n.IsRoot ? null : n)))
+                        .ToList();
+                    task.SetGoalBindings(next);
+                    Rebuild();
+                });
                 TaskTouched?.Invoke(task);
                 Notify(nodes.Count > 0
                     ? $"已关联「{goal.Title}」下的 {nodes.Count} 项目标"
@@ -2871,10 +3866,13 @@ public sealed class MainViewModel : ObservableObject
             return;
         }
 
-        var updated = task.GoalBindings.ToList();
-        updated.Add(new GoalBindingVM(goal, null));
-        task.SetGoalBindings(updated);
-        Rebuild();
+        RecordUndo($"关联目标「{goal.Title}」", () =>
+        {
+            var updated = task.GoalBindings.ToList();
+            updated.Add(new GoalBindingVM(goal, null));
+            task.SetGoalBindings(updated);
+            Rebuild();
+        });
         TaskTouched?.Invoke(task);
         Notify($"已关联目标「{goal.Title}」");
     }
@@ -2882,8 +3880,11 @@ public sealed class MainViewModel : ObservableObject
     public void ClearGoal(TaskVM task)
     {
         if (!task.HasGoal) return;
-        task.SetGoalBindings(Array.Empty<GoalBindingVM>());
-        Rebuild();
+        RecordUndo($"取消目标关联「{task.Title}」", () =>
+        {
+            task.SetGoalBindings(Array.Empty<GoalBindingVM>());
+            Rebuild();
+        });
     }
 
     public void ToggleGoalExpand(GoalVM goal)
