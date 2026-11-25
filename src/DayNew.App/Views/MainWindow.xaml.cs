@@ -186,6 +186,7 @@ public partial class MainWindow : Window
         PreviewMouseLeftButtonUp += OnPreviewUp;
         PreviewMouseRightButtonDown += OnPreviewRightDown;
         PreviewMouseRightButtonUp += OnPreviewRightUp;
+        PreviewMouseWheel += OnWindowPreviewMouseWheel;
         PreviewKeyDown += OnPreviewKeyDown;
         PreviewKeyUp += OnPreviewKeyUp;
         Deactivated += OnWindowDeactivated;
@@ -472,30 +473,126 @@ public partial class MainWindow : Window
         return IntPtr.Zero;
     }
 
+    private static bool IsTouchpadFineWheel(int delta) => Math.Abs(delta) < 120 || delta % 120 != 0;
+
+    private static DependencyObject? GetParentNode(DependencyObject d)
+        => d is Visual or System.Windows.Media.Media3D.Visual3D
+            ? VisualTreeHelper.GetParent(d)
+            : LogicalTreeHelper.GetParent(d);
+
+    private static ScrollViewer? FindScrollableAncestor(
+        DependencyObject? origin,
+        bool horizontal,
+        int offsetDelta,
+        ScrollViewer? stopAt = null)
+    {
+        var d = origin;
+        while (d is not null)
+        {
+            if (stopAt is not null && ReferenceEquals(d, stopAt))
+                return null;
+
+            if (d is ScrollViewer sv)
+            {
+                if (horizontal)
+                {
+                    if (sv.ScrollableWidth > 0 &&
+                        ((offsetDelta > 0 && sv.HorizontalOffset < sv.ScrollableWidth - 0.5) ||
+                         (offsetDelta < 0 && sv.HorizontalOffset > 0.5)))
+                    {
+                        return sv;
+                    }
+                }
+                else
+                {
+                    if (sv.ScrollableHeight > 0 &&
+                        ((offsetDelta > 0 && sv.VerticalOffset < sv.ScrollableHeight - 0.5) ||
+                         (offsetDelta < 0 && sv.VerticalOffset > 0.5)))
+                    {
+                        return sv;
+                    }
+                }
+            }
+
+            d = GetParentNode(d);
+        }
+
+        return null;
+    }
+
+    private void OnWindowPreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        if (e.Handled || e.Delta == 0) return;
+
+        var mods = Keyboard.Modifiers;
+        var pos = e.GetPosition(this);
+        var hasAnyOverlay = _isFocusDurationOpen || _vm.DeadlinePicker.IsOpen || _vm.IsSearchOpen ||
+                            _vm.IsEditorOpen || _vm.IsImportConfirmOpen || _vm.IsSettingsOpen ||
+                            _vm.IsPresetManagerOpen || _vm.IsTagDetailOpen || _vm.IsGoalPickerOpen ||
+                            _vm.IsGoalTreeEditorOpen;
+
+        if (_vm.IsGoalTreeEditorOpen && IsInsideElement(pos, TreeEditorViewport)) return;
+        if (_vm.IsGoalPickerOpen && IsInsideElement(pos, GoalPickerViewport)) return;
+        if (_vm.IsTagDetailOpen && IsInsideElement(pos, TagDetailDialog)) return;
+        if (!hasAnyOverlay && _vm.IsTimeline && IsInsideElement(pos, PageTimeline)) return;
+
+        var origin = e.OriginalSource as DependencyObject;
+        if (!hasAnyOverlay && _vm.IsGoals && FindAncestorTag(origin, "goalcanvas") is not null)
+            return;
+
+        var wantHorizontal = (mods & ModifierKeys.Shift) != 0;
+        var offsetDelta = -e.Delta;
+        var target = FindScrollableAncestor(origin, wantHorizontal, offsetDelta);
+
+        if (target is not null)
+        {
+            e.Handled = true;
+            if (wantHorizontal)
+                target.ScrollToHorizontalOffset(Math.Clamp(target.HorizontalOffset + offsetDelta * 0.38, 0, target.ScrollableWidth));
+            else
+                target.ScrollToVerticalOffset(Math.Clamp(target.VerticalOffset + offsetDelta * 0.35, 0, target.ScrollableHeight));
+            return;
+        }
+
+        if (IsTouchpadFineWheel(e.Delta))
+            e.Handled = true;
+    }
+
     private bool HandleHorizontalWheel(int delta)
     {
-        if (_isFocusDurationOpen || _vm.DeadlinePicker.IsOpen || _vm.IsGoalPickerOpen || _vm.IsGoalTreeEditorOpen || _vm.IsEditorOpen || _vm.IsImportConfirmOpen || _vm.IsSettingsOpen || _vm.IsPresetManagerOpen) return false;
-
         var pos = Mouse.GetPosition(this);
-        ScrollViewer? target = null;
 
-        if (VisualTreeHelper.HitTest(this, pos)?.VisualHit is DependencyObject hit)
+        if (_vm.IsGoalTreeEditorOpen && IsInsideElement(pos, TreeEditorViewport))
         {
-            var d = hit;
-            while (d is not null)
-            {
-                if (d is ScrollViewer sv && sv.ScrollableWidth > 0)
-                {
-                    target = sv;
-                    break;
-                }
-                d = VisualTreeHelper.GetParent(d);
-            }
+            _vm.GoalTreeEditor.CancelConnectMenu();
+            _vm.GoalTreeEditor.PanX -= delta * 0.50;
+            return true;
         }
+
+        if (_vm.IsGoalPickerOpen && IsInsideElement(pos, GoalPickerViewport))
+        {
+            _vm.GoalPicker.PanX -= delta * 0.50;
+            return true;
+        }
+
+        var hit = VisualTreeHelper.HitTest(this, pos)?.VisualHit;
+        var modalBlocksGoals = _isFocusDurationOpen || _vm.DeadlinePicker.IsOpen || _vm.IsSearchOpen ||
+                               _vm.IsEditorOpen || _vm.IsImportConfirmOpen || _vm.IsSettingsOpen ||
+                               _vm.IsPresetManagerOpen || _vm.IsTagDetailOpen;
+
+        if (!modalBlocksGoals && _vm.IsGoals &&
+            FindAncestorTag(hit, "goalcanvas") is FrameworkElement { DataContext: GoalVM goalCard })
+        {
+            goalCard.ClearHoverNode();
+            goalCard.ViewPanX -= delta * 0.50;
+            return true;
+        }
+
+        ScrollViewer? target = FindScrollableAncestor(hit, horizontal: true, delta);
 
         if (target is null && _vm.IsTagDetailOpen && IsInsideElement(pos, TagDetailDialog) && TagDetailScroll is { ScrollableWidth: > 0 } tds)
             target = tds;
-        else if (target is null && _vm.IsTimeline && IsInsideElement(pos, PageTimeline) && BodyScroll is { ScrollableWidth: > 0 } bs)
+        else if (target is null && !modalBlocksGoals && _vm.IsTimeline && IsInsideElement(pos, PageTimeline) && BodyScroll is { ScrollableWidth: > 0 } bs)
             target = bs;
 
         if (target is null) return false;
@@ -1329,8 +1426,20 @@ public partial class MainWindow : Window
         if (sender is not FrameworkElement viewport || viewport.DataContext is not GoalVM goal) return;
         e.Handled = true;
         goal.ClearHoverNode();
-        var factor = Math.Pow(1.14, e.Delta / 120.0);
-        goal.ZoomAt(factor, e.GetPosition(viewport));
+
+        var mods = Keyboard.Modifiers;
+        if ((mods & (ModifierKeys.Control | ModifierKeys.Alt)) != 0 ||
+            (mods == ModifierKeys.None && !IsTouchpadFineWheel(e.Delta)))
+        {
+            var factor = Math.Pow(1.14, e.Delta / 120.0);
+            goal.ZoomAt(factor, e.GetPosition(viewport));
+            return;
+        }
+
+        if ((mods & ModifierKeys.Shift) != 0)
+            goal.ViewPanX += e.Delta * 0.45;
+        else
+            goal.ViewPanY += e.Delta * 0.55;
     }
 
     private void GoalCardNode_MouseEnter(object sender, MouseEventArgs e)
@@ -1439,8 +1548,20 @@ public partial class MainWindow : Window
     private void TreeEditorViewport_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
     {
         e.Handled = true;
-        var factor = Math.Pow(1.14, e.Delta / 120.0);
-        _vm.GoalTreeEditor.ZoomAt(factor, e.GetPosition(TreeEditorViewport));
+        var mods = Keyboard.Modifiers;
+        if ((mods & (ModifierKeys.Control | ModifierKeys.Alt)) != 0 ||
+            (mods == ModifierKeys.None && !IsTouchpadFineWheel(e.Delta)))
+        {
+            var factor = Math.Pow(1.14, e.Delta / 120.0);
+            _vm.GoalTreeEditor.ZoomAt(factor, e.GetPosition(TreeEditorViewport));
+            return;
+        }
+
+        _vm.GoalTreeEditor.CancelConnectMenu();
+        if ((mods & ModifierKeys.Shift) != 0)
+            _vm.GoalTreeEditor.PanX += e.Delta * 0.45;
+        else
+            _vm.GoalTreeEditor.PanY += e.Delta * 0.55;
     }
 
     private void TreeEditorNode_MouseEnter(object sender, MouseEventArgs e)
@@ -1625,8 +1746,19 @@ public partial class MainWindow : Window
     private void GoalPickerViewport_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
     {
         e.Handled = true;
-        var factor = Math.Pow(1.14, e.Delta / 120.0);
-        _vm.GoalPicker.ZoomAt(factor, e.GetPosition(GoalPickerViewport));
+        var mods = Keyboard.Modifiers;
+        if ((mods & (ModifierKeys.Control | ModifierKeys.Alt)) != 0 ||
+            (mods == ModifierKeys.None && !IsTouchpadFineWheel(e.Delta)))
+        {
+            var factor = Math.Pow(1.14, e.Delta / 120.0);
+            _vm.GoalPicker.ZoomAt(factor, e.GetPosition(GoalPickerViewport));
+            return;
+        }
+
+        if ((mods & ModifierKeys.Shift) != 0)
+            _vm.GoalPicker.PanX += e.Delta * 0.45;
+        else
+            _vm.GoalPicker.PanY += e.Delta * 0.55;
     }
 
     // ==================== 标签 / 四象限 ====================
@@ -1735,10 +1867,23 @@ public partial class MainWindow : Window
     {
         if (!_vm.IsTagDetailOpen || _vm.IsEditorOpen || TagDetailScroll is not { } scroll) return;
 
+        var offsetDelta = -e.Delta;
+        if ((Keyboard.Modifiers & ModifierKeys.Shift) == 0)
+        {
+            var inner = FindScrollableAncestor(e.OriginalSource as DependencyObject, horizontal: false, offsetDelta, stopAt: scroll);
+            if (inner is not null)
+            {
+                e.Handled = true;
+                inner.ScrollToVerticalOffset(
+                    Math.Clamp(inner.VerticalOffset + offsetDelta * 0.35, 0, inner.ScrollableHeight));
+                return;
+            }
+        }
+
         StopTagDetailScrollAnimation();
         e.Handled = true;
         scroll.ScrollToHorizontalOffset(
-            Math.Clamp(scroll.HorizontalOffset - e.Delta * 0.45, 0, scroll.ScrollableWidth));
+            Math.Clamp(scroll.HorizontalOffset + offsetDelta * 0.40, 0, scroll.ScrollableWidth));
     }
 
     private void ScrollTagDetailToToday(bool animate)
@@ -4564,7 +4709,7 @@ public partial class MainWindow : Window
         while (d is not null)
         {
             if (d is FrameworkElement fe && Equals(fe.Tag, tag)) return d;
-            d = VisualTreeHelper.GetParent(d);
+            d = GetParentNode(d);
         }
 
         return null;

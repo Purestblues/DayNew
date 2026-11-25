@@ -13,7 +13,8 @@
         SizeToContent="WidthAndHeight"
         Foreground="{DynamicResource TextPrimary}"
         FontFamily="{StaticResource AppFont}"
-        TextOptions.TextFormattingMode="Display"
+        TextOptions.TextFormattingMode="Ideal"
+        TextOptions.TextRenderingMode="ClearType"
         UseLayoutRounding="True"
         SnapsToDevicePixels="True"
         MouseLeftButtonDown="Root_MouseLeftButtonDown">
@@ -23,139 +24,210 @@
         <core:RatioToWidthConverter x:Key="RatioToWidth"/>
     </Window.Resources>
 
-    <Border Margin="10"
-            MinWidth="276" MaxWidth="356"
+    <Border x:Name="ShellBorder"
+            Margin="18"
             Background="{DynamicResource Surface4}"
             BorderBrush="{DynamicResource BorderStrong}"
             BorderThickness="1"
-            CornerRadius="12"
-            ClipToBounds="True"
+            CornerRadius="16"
+            RenderOptions.ClearTypeHint="Enabled"
             Cursor="SizeAll">
         <Border.Effect>
-            <DropShadowEffect Color="Black" BlurRadius="16" ShadowDepth="4" Direction="270" Opacity="0.22"/>
+            <DropShadowEffect Color="Black" BlurRadius="12" ShadowDepth="2" Direction="270" Opacity="0.16"/>
         </Border.Effect>
 
-        <Grid>
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
-            </Grid.RowDefinitions>
+        <Border CornerRadius="15" ClipToBounds="True">
+            <Grid x:Name="ContentHost">
+                <!-- 收起态：类灵动岛紧凑药丸（未悬停/失焦时展示） -->
+                <Grid x:Name="CompactView" MinWidth="136" MaxWidth="236">
+                    <!-- 收起 · 进行中 -->
+                    <Grid Margin="12,7,12,7"
+                          Visibility="{Binding IsActive, Converter={StaticResource BoolToVisible}}">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
 
-            <!-- 进行中形态 -->
-            <StackPanel Margin="12,10,10,9"
-                        Visibility="{Binding IsActive, Converter={StaticResource BoolToVisible}}">
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
 
-                    <Ellipse x:Name="statusDot" Grid.Column="0" Width="8" Height="8"
-                             VerticalAlignment="Center" Margin="0,0,8,0"
-                             Fill="{DynamicResource Accent}"/>
+                            <Ellipse x:Name="compactStatusDot" Grid.Column="0" Width="7" Height="7"
+                                     VerticalAlignment="Center" Margin="0,0,8,0"
+                                     Fill="{DynamicResource Accent}"/>
 
-                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="0,0,12,0">
-                        <TextBlock Text="{Binding DisplayTitle}"
-                                   FontSize="12.5" FontWeight="SemiBold"
-                                   TextTrimming="CharacterEllipsis"
-                                   Foreground="{DynamicResource TextPrimary}"/>
-                        <TextBlock Text="{Binding SubStatusText}"
-                                   FontSize="10.5" FontWeight="Medium"
-                                   TextTrimming="CharacterEllipsis"
-                                   Foreground="{DynamicResource TextTertiary}"
-                                   Typography.NumeralAlignment="Tabular"/>
+                            <TextBlock Grid.Column="1" Text="{Binding DisplayTitle}"
+                                       MaxWidth="118"
+                                       FontSize="12" FontWeight="SemiBold"
+                                       VerticalAlignment="Center" Margin="0,0,10,0"
+                                       TextTrimming="CharacterEllipsis"
+                                       Foreground="{DynamicResource TextPrimary}"/>
+
+                            <TextBlock Grid.Column="2" Text="{Binding TimeText}"
+                                       FontSize="13.5" FontWeight="SemiBold"
+                                       VerticalAlignment="Center"
+                                       Foreground="{DynamicResource TextPrimary}"
+                                       Typography.NumeralAlignment="Tabular"/>
+                        </Grid>
+
+                        <Border x:Name="compactProgressTrack" Grid.Row="1" Height="2"
+                                Margin="0,5,0,0" CornerRadius="1" ClipToBounds="True"
+                                Background="{DynamicResource Surface3}"
+                                Visibility="{Binding ShowProgress, Converter={StaticResource BoolToVisible}}">
+                            <Border x:Name="compactProgressFill" CornerRadius="1"
+                                    Background="{DynamicResource Accent}" HorizontalAlignment="Left">
+                                <Border.Width>
+                                    <MultiBinding Converter="{StaticResource RatioToWidth}">
+                                        <Binding ElementName="compactProgressTrack" Path="ActualWidth"/>
+                                        <Binding Path="Progress"/>
+                                    </MultiBinding>
+                                </Border.Width>
+                            </Border>
+                        </Border>
+                    </Grid>
+
+                    <!-- 收起 · 空闲 -->
+                    <StackPanel Orientation="Horizontal" Margin="12,7,12,7"
+                                VerticalAlignment="Center"
+                                Visibility="{Binding IsIdle, Converter={StaticResource BoolToVisible}}">
+                        <Ellipse Width="7" Height="7" VerticalAlignment="Center" Margin="0,0,7,0"
+                                 Fill="{DynamicResource TextDisabled}"/>
+                        <TextBlock Text="专注空闲" FontSize="12" FontWeight="SemiBold"
+                                   VerticalAlignment="Center"
+                                   Foreground="{DynamicResource TextSecondary}"/>
+                        <TextBlock Text="&#xE916;" FontFamily="{StaticResource IconFont}"
+                                   FontSize="10.5" VerticalAlignment="Center" Margin="8,0,0,0"
+                                   Foreground="{DynamicResource TextTertiary}"/>
                     </StackPanel>
-
-                    <TextBlock Grid.Column="2" Text="{Binding TimeText}"
-                               FontSize="18" FontWeight="SemiBold"
-                               VerticalAlignment="Center"
-                               Foreground="{DynamicResource TextPrimary}"
-                               Typography.NumeralAlignment="Tabular"/>
                 </Grid>
 
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0" Cursor="Arrow">
-                    <Button Style="{StaticResource GhostButton}" Padding="7,3" Margin="0,0,4,0"
-                            ToolTip="{Binding PauseButtonText}"
-                            AutomationProperties.Name="暂停或继续"
-                            Click="Pause_Click">
-                        <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="{Binding PauseButtonIcon}" FontFamily="{StaticResource IconFont}"
-                                       FontSize="10" VerticalAlignment="Center" Margin="0,0,4,0"/>
-                            <TextBlock Text="{Binding PauseButtonText}" FontSize="11" VerticalAlignment="Center"/>
-                        </StackPanel>
-                    </Button>
-                    <Button Style="{StaticResource GhostButton}" Padding="7,3" Margin="0,0,4,0"
-                            Content="+5分" FontSize="11"
-                            Visibility="{Binding CanExtend, Converter={StaticResource BoolToVisible}}"
-                            ToolTip="延长 5 分钟"
-                            Click="Extend_Click"/>
-                    <Button Style="{StaticResource GhostButton}" Padding="7,3" Margin="0,0,4,0"
-                            Foreground="{DynamicResource Success}"
-                            ToolTip="{Binding CompleteButtonText}"
-                            AutomationProperties.Name="完成专注"
-                            Click="Complete_Click">
-                        <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="&#xE73E;" FontFamily="{StaticResource IconFont}"
-                                       FontSize="10" VerticalAlignment="Center" Margin="0,0,4,0"/>
-                            <TextBlock Text="完成" FontSize="11" VerticalAlignment="Center"/>
-                        </StackPanel>
-                    </Button>
-                    <Button Style="{StaticResource GhostButton}" Padding="6,3" Margin="0,0,2,0"
-                            FontFamily="{StaticResource IconFont}" FontSize="10.5" Content="&#xE8A7;"
-                            ToolTip="打开主窗口"
-                            AutomationProperties.Name="打开主窗口"
-                            Click="OpenMain_Click"/>
-                    <Button Style="{StaticResource GhostButton}" Padding="6,3"
-                            FontFamily="{StaticResource IconFont}" FontSize="10" Content="&#xE711;"
-                            ToolTip="隐藏迷你窗（不停止计时）"
-                            AutomationProperties.Name="隐藏迷你窗"
-                            Click="Hide_Click"/>
-                </StackPanel>
-            </StackPanel>
+                <!-- 展开态：悬停/聚焦后展开完整信息与操作按钮 -->
+                <Grid x:Name="ExpandedView" MinWidth="272" MaxWidth="344" Visibility="Collapsed">
+                    <!-- 展开 · 进行中形态 -->
+                    <StackPanel Margin="14,11,12,10"
+                                Visibility="{Binding IsActive, Converter={StaticResource BoolToVisible}}">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
 
-            <!-- 空闲形态（用户手动呼出迷你窗时展示） -->
-            <Grid Margin="12,10,10,10"
-                  Visibility="{Binding IsIdle, Converter={StaticResource BoolToVisible}}">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-                <StackPanel VerticalAlignment="Center" Margin="0,0,10,0">
-                    <TextBlock Text="专注空闲中" FontSize="12.5" FontWeight="SemiBold"
-                               Foreground="{DynamicResource TextPrimary}"/>
-                    <TextBlock Text="可随时开启自由正计时" FontSize="10.5"
-                               Foreground="{DynamicResource TextTertiary}"/>
-                </StackPanel>
-                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Cursor="Arrow">
-                    <Button Style="{StaticResource PrimaryButton}" Padding="10,5" FontSize="11.5"
-                            Margin="0,0,4,0" Content="自由专注"
-                            Click="StartFree_Click"/>
-                    <Button Style="{StaticResource GhostButton}" Padding="6,4" Margin="0,0,2,0"
-                            FontFamily="{StaticResource IconFont}" FontSize="10.5" Content="&#xE8A7;"
-                            ToolTip="打开主窗口"
-                            Click="OpenMain_Click"/>
-                    <Button Style="{StaticResource GhostButton}" Padding="6,4"
-                            FontFamily="{StaticResource IconFont}" FontSize="10" Content="&#xE711;"
-                            ToolTip="隐藏迷你窗"
-                            Click="Hide_Click"/>
-                </StackPanel>
-            </Grid>
+                            <Ellipse x:Name="expandedStatusDot" Grid.Column="0" Width="8" Height="8"
+                                     VerticalAlignment="Center" Margin="0,0,8,0"
+                                     Fill="{DynamicResource Accent}"/>
 
-            <!-- 底部细进度条 -->
-            <Grid x:Name="progressTrack" Grid.Row="1" Height="2"
-                  Background="{DynamicResource Surface3}"
-                  Visibility="{Binding ShowProgress, Converter={StaticResource BoolToVisible}}">
-                <Border x:Name="progressFill" Background="{DynamicResource Accent}" HorizontalAlignment="Left">
-                    <Border.Width>
-                        <MultiBinding Converter="{StaticResource RatioToWidth}">
-                            <Binding ElementName="progressTrack" Path="ActualWidth"/>
-                            <Binding Path="Progress"/>
-                        </MultiBinding>
-                    </Border.Width>
-                </Border>
+                            <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="0,0,12,0">
+                                <TextBlock Text="{Binding DisplayTitle}"
+                                           FontSize="13" FontWeight="SemiBold"
+                                           TextTrimming="CharacterEllipsis"
+                                           Foreground="{DynamicResource TextPrimary}"/>
+                                <TextBlock Text="{Binding SubStatusText}"
+                                           FontSize="10.5" FontWeight="Medium"
+                                           TextTrimming="CharacterEllipsis"
+                                           Foreground="{DynamicResource TextTertiary}"
+                                           Typography.NumeralAlignment="Tabular"/>
+                            </StackPanel>
+
+                            <TextBlock Grid.Column="2" Text="{Binding TimeText}"
+                                       FontSize="18" FontWeight="SemiBold"
+                                       VerticalAlignment="Center"
+                                       Foreground="{DynamicResource TextPrimary}"
+                                       Typography.NumeralAlignment="Tabular"/>
+                        </Grid>
+
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,9,0,0" Cursor="Arrow">
+                            <Button Style="{StaticResource GhostButton}" Padding="7,3" Margin="0,0,4,0"
+                                    ToolTip="{Binding PauseButtonText}"
+                                    AutomationProperties.Name="暂停或继续"
+                                    Click="Pause_Click">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="{Binding PauseButtonIcon}" FontFamily="{StaticResource IconFont}"
+                                               FontSize="10" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                                    <TextBlock Text="{Binding PauseButtonText}" FontSize="11" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+                            <Button Style="{StaticResource GhostButton}" Padding="7,3" Margin="0,0,4,0"
+                                    Content="+5分" FontSize="11"
+                                    Visibility="{Binding CanExtend, Converter={StaticResource BoolToVisible}}"
+                                    ToolTip="延长 5 分钟"
+                                    AutomationProperties.Name="延长 5 分钟"
+                                    Click="Extend_Click"/>
+                            <Button Style="{StaticResource GhostButton}" Padding="7,3" Margin="0,0,4,0"
+                                    Foreground="{DynamicResource Success}"
+                                    ToolTip="{Binding CompleteButtonText}"
+                                    AutomationProperties.Name="完成专注"
+                                    Click="Complete_Click">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="&#xE73E;" FontFamily="{StaticResource IconFont}"
+                                               FontSize="10" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                                    <TextBlock Text="完成" FontSize="11" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+                            <Button Style="{StaticResource GhostButton}" Padding="6,3" Margin="0,0,2,0"
+                                    FontFamily="{StaticResource IconFont}" FontSize="10.5" Content="&#xE8A7;"
+                                    ToolTip="打开主窗口"
+                                    AutomationProperties.Name="打开主窗口"
+                                    Click="OpenMain_Click"/>
+                            <Button Style="{StaticResource GhostButton}" Padding="6,3"
+                                    FontFamily="{StaticResource IconFont}" FontSize="10" Content="&#xE711;"
+                                    ToolTip="隐藏迷你窗（不停止计时）"
+                                    AutomationProperties.Name="隐藏迷你窗"
+                                    Click="Hide_Click"/>
+                        </StackPanel>
+
+                        <Border x:Name="expandedProgressTrack" Height="2.5"
+                                Margin="0,8,0,0" CornerRadius="1.25" ClipToBounds="True"
+                                Background="{DynamicResource Surface3}"
+                                Visibility="{Binding ShowProgress, Converter={StaticResource BoolToVisible}}">
+                            <Border x:Name="expandedProgressFill" CornerRadius="1.25"
+                                    Background="{DynamicResource Accent}" HorizontalAlignment="Left">
+                                <Border.Width>
+                                    <MultiBinding Converter="{StaticResource RatioToWidth}">
+                                        <Binding ElementName="expandedProgressTrack" Path="ActualWidth"/>
+                                        <Binding Path="Progress"/>
+                                    </MultiBinding>
+                                </Border.Width>
+                            </Border>
+                        </Border>
+                    </StackPanel>
+
+                    <!-- 展开 · 空闲形态（用户手动呼出迷你窗时展示） -->
+                    <Grid Margin="14,11,12,11"
+                          Visibility="{Binding IsIdle, Converter={StaticResource BoolToVisible}}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center" Margin="0,0,10,0">
+                            <TextBlock Text="专注空闲中" FontSize="12.5" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource TextPrimary}"/>
+                            <TextBlock Text="可随时开启自由正计时" FontSize="10.5"
+                                       Foreground="{DynamicResource TextTertiary}"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Cursor="Arrow">
+                            <Button Style="{StaticResource PrimaryButton}" Padding="10,5" FontSize="11.5"
+                                    Margin="0,0,4,0" Content="自由专注"
+                                    AutomationProperties.Name="自由专注"
+                                    Click="StartFree_Click"/>
+                            <Button Style="{StaticResource GhostButton}" Padding="6,4" Margin="0,0,2,0"
+                                    FontFamily="{StaticResource IconFont}" FontSize="10.5" Content="&#xE8A7;"
+                                    ToolTip="打开主窗口"
+                                    AutomationProperties.Name="打开主窗口"
+                                    Click="OpenMain_Click"/>
+                            <Button Style="{StaticResource GhostButton}" Padding="6,4"
+                                    FontFamily="{StaticResource IconFont}" FontSize="10" Content="&#xE711;"
+                                    ToolTip="隐藏迷你窗"
+                                    AutomationProperties.Name="隐藏迷你窗"
+                                    Click="Hide_Click"/>
+                        </StackPanel>
+                    </Grid>
+                </Grid>
             </Grid>
-        </Grid>
+        </Border>
     </Border>
 
     <Window.Style>

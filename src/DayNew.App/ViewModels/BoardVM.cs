@@ -24,7 +24,7 @@ public sealed class TagRowVM
 
     public int Count { get; }
 
-    public string CountText => Count == 0 ? "" : $"{Count} 条日程";
+    public string CountText => Count == 0 ? "暂无关联日程" : $"{Count} 条日程";
 
     public override string ToString() => Tag.Name;
 }

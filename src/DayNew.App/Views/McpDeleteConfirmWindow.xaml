@@ -13,7 +13,9 @@
         Background="{DynamicResource Surface4}"
         Foreground="{DynamicResource TextPrimary}"
         FontFamily="{StaticResource AppFont}"
-        TextOptions.TextFormattingMode="Display"
+        TextOptions.TextFormattingMode="Ideal"
+        TextOptions.TextRenderingMode="ClearType"
+        RenderOptions.ClearTypeHint="Enabled"
         UseLayoutRounding="True"
         SnapsToDevicePixels="True"
         PreviewKeyDown="Window_PreviewKeyDown">

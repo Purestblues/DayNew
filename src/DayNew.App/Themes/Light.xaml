@@ -10,10 +10,10 @@
     <SolidColorBrush x:Key="BorderSubtle" Color="#D8DEE9"/>
     <SolidColorBrush x:Key="BorderStrong" Color="#C2CAD8"/>
 
-    <SolidColorBrush x:Key="TextPrimary" Color="#2E3440"/>
-    <SolidColorBrush x:Key="TextSecondary" Color="#646E82"/>
-    <SolidColorBrush x:Key="TextTertiary" Color="#677389"/>
-    <SolidColorBrush x:Key="TextDisabled" Color="#9AA3B5"/>
+    <SolidColorBrush x:Key="TextPrimary" Color="#1B2028"/>
+    <SolidColorBrush x:Key="TextSecondary" Color="#495264"/>
+    <SolidColorBrush x:Key="TextTertiary" Color="#5A6478"/>
+    <SolidColorBrush x:Key="TextDisabled" Color="#838DA0"/>
 
     <SolidColorBrush x:Key="Accent" Color="#527CE6"/>
     <SolidColorBrush x:Key="AccentHover" Color="#426BD6"/>

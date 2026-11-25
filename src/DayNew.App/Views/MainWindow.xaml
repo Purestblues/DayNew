@@ -12,7 +12,9 @@
         Foreground="{DynamicResource TextPrimary}"
         FontFamily="{StaticResource AppFont}"
         WindowStartupLocation="CenterScreen"
-        TextOptions.TextFormattingMode="Display"
+        TextOptions.TextFormattingMode="Ideal"
+        TextOptions.TextRenderingMode="ClearType"
+        RenderOptions.ClearTypeHint="Enabled"
         UseLayoutRounding="True"
         SnapsToDevicePixels="True">
 
@@ -34,8 +36,8 @@
 
         <Style x:Key="TitleEditor" TargetType="TextBox">
             <Setter Property="FontFamily" Value="{StaticResource AppFont}"/>
-            <Setter Property="FontSize" Value="13.5"/>
-            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="FontWeight" Value="Bold"/>
             <Setter Property="Foreground" Value="{DynamicResource TextPrimary}"/>
             <Setter Property="CaretBrush" Value="{DynamicResource Accent}"/>
             <Setter Property="SelectionBrush" Value="{DynamicResource SelectionPill}"/>
@@ -1475,33 +1477,33 @@
                                     <ItemsControl ItemsSource="{Binding TagRows}">
                                         <ItemsControl.ItemsPanel>
                                             <ItemsPanelTemplate>
-                                                <core:ResponsiveGridPanel MinColumnWidth="236" ColumnGap="12" RowGap="12"/>
+                                                <core:ResponsiveGridPanel MinColumnWidth="224" ColumnGap="12" RowGap="10"/>
                                             </ItemsPanelTemplate>
                                         </ItemsControl.ItemsPanel>
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate DataType="{x:Type vm:TagRowVM}">
                                                 <Border x:Name="tagCard" Tag="tagcard"
                                                         Style="{StaticResource GridCard}"
-                                                        Height="116" Cursor="Hand"
+                                                        Height="80" Padding="14,11" Cursor="Hand"
                                                         RenderTransformOrigin="0.5,0.5"
                                                         ToolTip="点击查看该标签下的日程"
                                                         AutomationProperties.Name="{Binding Tag.Name}">
                                                     <Grid>
                                                         <Grid.RowDefinitions>
-                                                            <RowDefinition Height="Auto"/>
                                                             <RowDefinition Height="*"/>
                                                             <RowDefinition Height="Auto"/>
                                                         </Grid.RowDefinitions>
 
-                                                        <Grid>
+                                                        <Grid Grid.Row="0">
                                                             <Grid.ColumnDefinitions>
                                                                 <ColumnDefinition Width="Auto"/>
                                                                 <ColumnDefinition Width="*"/>
                                                                 <ColumnDefinition Width="Auto"/>
                                                             </Grid.ColumnDefinitions>
-                                                            <Ellipse Width="8" Height="8" Fill="{Binding Tag.Color}"
-                                                                     VerticalAlignment="Center" Margin="0,1,8,0"/>
+                                                            <Ellipse Width="9" Height="9" Fill="{Binding Tag.Color}"
+                                                                     VerticalAlignment="Center" Margin="0,1,9,0"/>
                                                             <TextBox Grid.Column="1" Style="{StaticResource TitleEditor}"
+                                                                     FontSize="15.5" FontWeight="Bold"
                                                                      HorizontalAlignment="Left" MinWidth="32"
                                                                      VerticalAlignment="Center" Cursor="IBeam"
                                                                      ToolTip="点击名称可重命名"
@@ -1509,22 +1511,41 @@
                                                                      KeyDown="EntityNameBox_KeyDown"
                                                                      Text="{Binding Tag.Name, UpdateSourceTrigger=PropertyChanged}"/>
                                                             <TextBlock Grid.Column="2" Text="&#xE76C;"
-                                                                       FontFamily="{StaticResource IconFont}" FontSize="10"
-                                                                       Foreground="{DynamicResource TextDisabled}"
+                                                                       FontFamily="{StaticResource IconFont}" FontSize="11"
+                                                                       Foreground="{DynamicResource TextTertiary}"
                                                                        VerticalAlignment="Center" Margin="8,0,0,0"/>
                                                         </Grid>
 
-                                                        <TextBlock Grid.Row="1" Text="{Binding CountText}"
-                                                                   Style="{StaticResource Caption}"
-                                                                   VerticalAlignment="Center" Margin="0,6,0,6"/>
-
-                                                        <Button Grid.Row="2" Style="{StaticResource GhostButton}"
-                                                                HorizontalAlignment="Left" Content="删除"
-                                                                Foreground="{DynamicResource TextTertiary}"
-                                                                Tag="{Binding Tag}" ToolTip="从所有日程上拿掉这个标签"
-                                                                Click="DeleteTagRow_Click"/>
+                                                        <Grid Grid.Row="1" Margin="0,8,0,0">
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="*"/>
+                                                                <ColumnDefinition Width="Auto"/>
+                                                            </Grid.ColumnDefinitions>
+                                                            <TextBlock Grid.Column="0" Text="{Binding CountText}"
+                                                                       FontSize="12.5" FontWeight="Medium"
+                                                                       Foreground="{DynamicResource TextSecondary}"
+                                                                       Typography.NumeralAlignment="Tabular"
+                                                                       TextTrimming="CharacterEllipsis"
+                                                                       VerticalAlignment="Center"/>
+                                                            <Button x:Name="deleteBtn" Grid.Column="1"
+                                                                    Style="{StaticResource GhostButton}"
+                                                                    FontFamily="{StaticResource IconFont}"
+                                                                    FontSize="12" Content="&#xE74D;"
+                                                                    Padding="6,4" Margin="6,0,0,0"
+                                                                    Opacity="0"
+                                                                    Foreground="{DynamicResource TextTertiary}"
+                                                                    Tag="{Binding Tag}"
+                                                                    ToolTip="从所有日程上拿掉这个标签"
+                                                                    AutomationProperties.Name="删除标签"
+                                                                    Click="DeleteTagRow_Click"/>
+                                                        </Grid>
                                                     </Grid>
                                                 </Border>
+                                                <DataTemplate.Triggers>
+                                                    <Trigger SourceName="tagCard" Property="IsMouseOver" Value="True">
+                                                        <Setter TargetName="deleteBtn" Property="Opacity" Value="1"/>
+                                                    </Trigger>
+                                                </DataTemplate.Triggers>
                                             </DataTemplate>
                                         </ItemsControl.ItemTemplate>
                                     </ItemsControl>
@@ -1535,34 +1556,34 @@
                                         <ItemsControl ItemsSource="{Binding PersonRows}">
                                             <ItemsControl.ItemsPanel>
                                                 <ItemsPanelTemplate>
-                                                    <core:ResponsiveGridPanel MinColumnWidth="236" ColumnGap="12" RowGap="12"/>
+                                                    <core:ResponsiveGridPanel MinColumnWidth="224" ColumnGap="12" RowGap="10"/>
                                                 </ItemsPanelTemplate>
                                             </ItemsControl.ItemsPanel>
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate DataType="{x:Type vm:PersonRowVM}">
                                                     <Border x:Name="personCard" Tag="personcard"
                                                             Style="{StaticResource GridCard}"
-                                                            Height="116" Cursor="Hand"
+                                                            Height="80" Padding="14,11" Cursor="Hand"
                                                             RenderTransformOrigin="0.5,0.5"
                                                             ToolTip="点击查看该人物关联的日程"
                                                             AutomationProperties.Name="{Binding Person.Name}">
                                                         <Grid>
                                                             <Grid.RowDefinitions>
-                                                                <RowDefinition Height="Auto"/>
                                                                 <RowDefinition Height="*"/>
                                                                 <RowDefinition Height="Auto"/>
                                                             </Grid.RowDefinitions>
 
-                                                            <Grid>
+                                                            <Grid Grid.Row="0">
                                                                 <Grid.ColumnDefinitions>
                                                                     <ColumnDefinition Width="Auto"/>
                                                                     <ColumnDefinition Width="*"/>
                                                                     <ColumnDefinition Width="Auto"/>
                                                                 </Grid.ColumnDefinitions>
-                                                                <TextBlock Text="&#xE77B;" FontFamily="{StaticResource IconFont}" FontSize="13"
+                                                                <TextBlock Text="&#xE77B;" FontFamily="{StaticResource IconFont}" FontSize="14.5"
                                                                            Foreground="{DynamicResource TextSecondary}"
-                                                                           VerticalAlignment="Center" Margin="0,1,8,0"/>
+                                                                           VerticalAlignment="Center" Margin="0,1,9,0"/>
                                                                 <TextBox Grid.Column="1" Style="{StaticResource TitleEditor}"
+                                                                         FontSize="15.5" FontWeight="Bold"
                                                                          HorizontalAlignment="Left" MinWidth="32"
                                                                          VerticalAlignment="Center" Cursor="IBeam"
                                                                          ToolTip="点击名称可重命名"
@@ -1570,22 +1591,41 @@
                                                                          KeyDown="EntityNameBox_KeyDown"
                                                                          Text="{Binding Person.Name, UpdateSourceTrigger=PropertyChanged}"/>
                                                                 <TextBlock Grid.Column="2" Text="&#xE76C;"
-                                                                           FontFamily="{StaticResource IconFont}" FontSize="10"
-                                                                           Foreground="{DynamicResource TextDisabled}"
+                                                                           FontFamily="{StaticResource IconFont}" FontSize="11"
+                                                                           Foreground="{DynamicResource TextTertiary}"
                                                                            VerticalAlignment="Center" Margin="8,0,0,0"/>
                                                             </Grid>
 
-                                                            <TextBlock Grid.Row="1" Text="{Binding CountText}"
-                                                                       Style="{StaticResource Caption}"
-                                                                       VerticalAlignment="Center" Margin="0,6,0,6"/>
-
-                                                            <Button Grid.Row="2" Style="{StaticResource GhostButton}"
-                                                                    HorizontalAlignment="Left" Content="删除"
-                                                                    Foreground="{DynamicResource TextTertiary}"
-                                                                    Tag="{Binding Person}" ToolTip="从所有日程上移除该人物"
-                                                                    Click="DeletePersonRow_Click"/>
+                                                            <Grid Grid.Row="1" Margin="0,8,0,0">
+                                                                <Grid.ColumnDefinitions>
+                                                                    <ColumnDefinition Width="*"/>
+                                                                    <ColumnDefinition Width="Auto"/>
+                                                                </Grid.ColumnDefinitions>
+                                                                <TextBlock Grid.Column="0" Text="{Binding CountText}"
+                                                                           FontSize="12.5" FontWeight="Medium"
+                                                                           Foreground="{DynamicResource TextSecondary}"
+                                                                           Typography.NumeralAlignment="Tabular"
+                                                                           TextTrimming="CharacterEllipsis"
+                                                                           VerticalAlignment="Center"/>
+                                                                <Button x:Name="deleteBtn" Grid.Column="1"
+                                                                        Style="{StaticResource GhostButton}"
+                                                                        FontFamily="{StaticResource IconFont}"
+                                                                        FontSize="12" Content="&#xE74D;"
+                                                                        Padding="6,4" Margin="6,0,0,0"
+                                                                        Opacity="0"
+                                                                        Foreground="{DynamicResource TextTertiary}"
+                                                                        Tag="{Binding Person}"
+                                                                        ToolTip="从所有日程上移除该人物"
+                                                                        AutomationProperties.Name="删除人物"
+                                                                        Click="DeletePersonRow_Click"/>
+                                                            </Grid>
                                                         </Grid>
                                                     </Border>
+                                                    <DataTemplate.Triggers>
+                                                        <Trigger SourceName="personCard" Property="IsMouseOver" Value="True">
+                                                            <Setter TargetName="deleteBtn" Property="Opacity" Value="1"/>
+                                                        </Trigger>
+                                                    </DataTemplate.Triggers>
                                                 </DataTemplate>
                                             </ItemsControl.ItemTemplate>
                                         </ItemsControl>
@@ -1608,34 +1648,34 @@
                                         <ItemsControl ItemsSource="{Binding LocationRows}">
                                             <ItemsControl.ItemsPanel>
                                                 <ItemsPanelTemplate>
-                                                    <core:ResponsiveGridPanel MinColumnWidth="236" ColumnGap="12" RowGap="12"/>
+                                                    <core:ResponsiveGridPanel MinColumnWidth="224" ColumnGap="12" RowGap="10"/>
                                                 </ItemsPanelTemplate>
                                             </ItemsControl.ItemsPanel>
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate DataType="{x:Type vm:LocationRowVM}">
                                                     <Border x:Name="locationCard" Tag="locationcard"
                                                             Style="{StaticResource GridCard}"
-                                                            Height="116" Cursor="Hand"
+                                                            Height="80" Padding="14,11" Cursor="Hand"
                                                             RenderTransformOrigin="0.5,0.5"
                                                             ToolTip="点击查看该地点关联的日程"
                                                             AutomationProperties.Name="{Binding Location.Name}">
                                                         <Grid>
                                                             <Grid.RowDefinitions>
-                                                                <RowDefinition Height="Auto"/>
                                                                 <RowDefinition Height="*"/>
                                                                 <RowDefinition Height="Auto"/>
                                                             </Grid.RowDefinitions>
 
-                                                            <Grid>
+                                                            <Grid Grid.Row="0">
                                                                 <Grid.ColumnDefinitions>
                                                                     <ColumnDefinition Width="Auto"/>
                                                                     <ColumnDefinition Width="*"/>
                                                                     <ColumnDefinition Width="Auto"/>
                                                                 </Grid.ColumnDefinitions>
-                                                                <TextBlock Text="&#xE707;" FontFamily="{StaticResource IconFont}" FontSize="13"
+                                                                <TextBlock Text="&#xE707;" FontFamily="{StaticResource IconFont}" FontSize="14.5"
                                                                            Foreground="{DynamicResource TextSecondary}"
-                                                                           VerticalAlignment="Center" Margin="0,1,8,0"/>
+                                                                           VerticalAlignment="Center" Margin="0,1,9,0"/>
                                                                 <TextBox Grid.Column="1" Style="{StaticResource TitleEditor}"
+                                                                         FontSize="15.5" FontWeight="Bold"
                                                                          HorizontalAlignment="Left" MinWidth="32"
                                                                          VerticalAlignment="Center" Cursor="IBeam"
                                                                          ToolTip="点击名称可重命名"
@@ -1643,22 +1683,41 @@
                                                                          KeyDown="EntityNameBox_KeyDown"
                                                                          Text="{Binding Location.Name, UpdateSourceTrigger=PropertyChanged}"/>
                                                                 <TextBlock Grid.Column="2" Text="&#xE76C;"
-                                                                           FontFamily="{StaticResource IconFont}" FontSize="10"
-                                                                           Foreground="{DynamicResource TextDisabled}"
+                                                                           FontFamily="{StaticResource IconFont}" FontSize="11"
+                                                                           Foreground="{DynamicResource TextTertiary}"
                                                                            VerticalAlignment="Center" Margin="8,0,0,0"/>
                                                             </Grid>
 
-                                                            <TextBlock Grid.Row="1" Text="{Binding CountText}"
-                                                                       Style="{StaticResource Caption}"
-                                                                       VerticalAlignment="Center" Margin="0,6,0,6"/>
-
-                                                            <Button Grid.Row="2" Style="{StaticResource GhostButton}"
-                                                                    HorizontalAlignment="Left" Content="删除"
-                                                                    Foreground="{DynamicResource TextTertiary}"
-                                                                    Tag="{Binding Location}" ToolTip="从所有日程上移除该地点"
-                                                                    Click="DeleteLocationRow_Click"/>
+                                                            <Grid Grid.Row="1" Margin="0,8,0,0">
+                                                                <Grid.ColumnDefinitions>
+                                                                    <ColumnDefinition Width="*"/>
+                                                                    <ColumnDefinition Width="Auto"/>
+                                                                </Grid.ColumnDefinitions>
+                                                                <TextBlock Grid.Column="0" Text="{Binding CountText}"
+                                                                           FontSize="12.5" FontWeight="Medium"
+                                                                           Foreground="{DynamicResource TextSecondary}"
+                                                                           Typography.NumeralAlignment="Tabular"
+                                                                           TextTrimming="CharacterEllipsis"
+                                                                           VerticalAlignment="Center"/>
+                                                                <Button x:Name="deleteBtn" Grid.Column="1"
+                                                                        Style="{StaticResource GhostButton}"
+                                                                        FontFamily="{StaticResource IconFont}"
+                                                                        FontSize="12" Content="&#xE74D;"
+                                                                        Padding="6,4" Margin="6,0,0,0"
+                                                                        Opacity="0"
+                                                                        Foreground="{DynamicResource TextTertiary}"
+                                                                        Tag="{Binding Location}"
+                                                                        ToolTip="从所有日程上移除该地点"
+                                                                        AutomationProperties.Name="删除地点"
+                                                                        Click="DeleteLocationRow_Click"/>
+                                                            </Grid>
                                                         </Grid>
                                                     </Border>
+                                                    <DataTemplate.Triggers>
+                                                        <Trigger SourceName="locationCard" Property="IsMouseOver" Value="True">
+                                                            <Setter TargetName="deleteBtn" Property="Opacity" Value="1"/>
+                                                        </Trigger>
+                                                    </DataTemplate.Triggers>
                                                 </DataTemplate>
                                             </ItemsControl.ItemTemplate>
                                         </ItemsControl>
