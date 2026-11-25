@@ -1500,8 +1500,17 @@
                                                                 <ColumnDefinition Width="*"/>
                                                                 <ColumnDefinition Width="Auto"/>
                                                             </Grid.ColumnDefinitions>
-                                                            <Ellipse Width="9" Height="9" Fill="{Binding Tag.Color}"
-                                                                     VerticalAlignment="Center" Margin="0,1,9,0"/>
+                                                            <Button Grid.Column="0"
+                                                                    Style="{StaticResource GhostButton}"
+                                                                    Width="22" Height="22" Padding="0"
+                                                                    Margin="-6,1,4,0"
+                                                                    VerticalAlignment="Center"
+                                                                    Tag="{Binding Tag}"
+                                                                    ToolTip="点击更换标签颜色"
+                                                                    AutomationProperties.Name="更换标签颜色"
+                                                                    Click="TagColorDot_Click">
+                                                                <Ellipse Width="10" Height="10" Fill="{Binding Tag.Color}"/>
+                                                            </Button>
                                                             <TextBox Grid.Column="1" Style="{StaticResource TitleEditor}"
                                                                      FontSize="15.5" FontWeight="Bold"
                                                                      HorizontalAlignment="Left" MinWidth="32"
@@ -6005,6 +6014,26 @@
                            VerticalAlignment="Center"/>
             </StackPanel>
         </Border>
+
+        <!-- 标签颜色选择浮层 -->
+        <Popup x:Name="TagColorPopup"
+               StaysOpen="False"
+               AllowsTransparency="True"
+               Placement="Bottom"
+               VerticalOffset="4">
+            <Border Margin="8"
+                    Padding="10,9"
+                    CornerRadius="10"
+                    Background="{DynamicResource Surface4}"
+                    BorderBrush="{DynamicResource BorderStrong}"
+                    BorderThickness="1"
+                    RenderOptions.ClearTypeHint="Enabled">
+                <Border.Effect>
+                    <DropShadowEffect Color="Black" BlurRadius="14" ShadowDepth="3" Direction="270" Opacity="0.20"/>
+                </Border.Effect>
+                <UniformGrid x:Name="TagColorPaletteGrid" Columns="6" Rows="2"/>
+            </Border>
+        </Popup>
 
         <!-- 拖拽幽灵层 -->
         <Canvas x:Name="DragLayer" Grid.RowSpan="2" IsHitTestVisible="False"/>

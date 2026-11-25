@@ -157,6 +157,7 @@ public partial class MainWindow : Window
     // 卡片 / 标签就地编辑的撤销前快照
     private string? _inlineEditBeforeSnapshot;
     private string _inlineEditLabel = "编辑名称";
+    private TagVM? _colorPickerTag;
 
     public MainWindow(
         MainViewModel vm,
@@ -1815,6 +1816,85 @@ public partial class MainWindow : Window
         {
             Keyboard.ClearFocus();
             e.Handled = true;
+        }
+    }
+
+    private void TagColorDot_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: TagVM tag } anchor) return;
+        _colorPickerTag = tag;
+        PopulateTagColorPalette(tag);
+        TagColorPopup.PlacementTarget = anchor;
+        TagColorPopup.IsOpen = true;
+    }
+
+    private void PopulateTagColorPalette(TagVM tag)
+    {
+        TagColorPaletteGrid.Children.Clear();
+        var currentHex = tag.ColorHex;
+        var ringBrush = TryFindResource("TextPrimary") as Brush ?? Brushes.Gray;
+        var ghostStyle = TryFindResource("GhostButton") as Style;
+        var iconFont = TryFindResource("IconFont") as FontFamily;
+
+        foreach (var hex in DayStore.TagPalette)
+        {
+            var isCurrent = string.Equals(currentHex, hex, StringComparison.OrdinalIgnoreCase);
+            var contentGrid = new Grid();
+
+            if (isCurrent)
+            {
+                contentGrid.Children.Add(new Ellipse
+                {
+                    Width = 24,
+                    Height = 24,
+                    Stroke = ringBrush,
+                    StrokeThickness = 1.5,
+                    Opacity = 0.72
+                });
+            }
+
+            contentGrid.Children.Add(new Ellipse
+            {
+                Width = 18,
+                Height = 18,
+                Fill = DayStore.BrushFromHex(hex)
+            });
+
+            if (isCurrent)
+            {
+                contentGrid.Children.Add(new TextBlock
+                {
+                    Text = "\uE73E",
+                    FontFamily = iconFont,
+                    FontSize = 9,
+                    Foreground = Brushes.White,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center
+                });
+            }
+
+            var btn = new Button
+            {
+                Width = 28,
+                Height = 28,
+                Margin = new Thickness(2),
+                Padding = new Thickness(0),
+                Cursor = Cursors.Hand,
+                Content = contentGrid,
+                ToolTip = hex
+            };
+            if (ghostStyle is not null) btn.Style = ghostStyle;
+            System.Windows.Automation.AutomationProperties.SetName(btn, $"选择颜色 {hex}");
+
+            var pickedHex = hex;
+            btn.Click += (_, _) =>
+            {
+                if (_colorPickerTag is not null)
+                    _vm.SetTagColor(_colorPickerTag, pickedHex);
+                TagColorPopup.IsOpen = false;
+            };
+
+            TagColorPaletteGrid.Children.Add(btn);
         }
     }
 

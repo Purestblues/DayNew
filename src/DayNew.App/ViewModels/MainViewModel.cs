@@ -2348,6 +2348,18 @@ public sealed class MainViewModel : ObservableObject
         });
     }
 
+    public void SetTagColor(TagVM tag, string hex)
+    {
+        if (string.IsNullOrWhiteSpace(hex)) return;
+        if (string.Equals(tag.ColorHex, hex, StringComparison.OrdinalIgnoreCase)) return;
+
+        RecordUndo($"更改标签「#{tag.Name}」颜色", () =>
+        {
+            tag.Color = DayStore.BrushFromHex(hex);
+            Rebuild();
+        });
+    }
+
     public void AddPerson(TaskVM task, string person)
     {
         RecordUndo($"关联人物「{person}」", () =>
@@ -3576,7 +3588,7 @@ public sealed class MainViewModel : ObservableObject
             name,
             '#',
             _store.FindTag,
-            n => new TagVM(n) { Color = DayStore.TagPaletteColor(_store.Tags.Count) },
+            n => new TagVM(n) { Color = _store.PickLeastUsedTagColor() },
             (e, sel, prov) => new TagPickVM(e, sel) { IsProvisional = prov });
 
     private void AddProvisionalOrExistingPerson(

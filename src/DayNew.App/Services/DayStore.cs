@@ -47,7 +47,6 @@ public sealed class DayStore
 
     private int _scheduleOrder;
     private int _goalColorIndex;
-    private int _tagColorIndex;
 
     // ---------------- 标签 ----------------
 
@@ -190,20 +189,61 @@ public sealed class DayStore
         "#BF616A", "#5E81AC", "#D08770", "#9D7298", "#689D6A", "#4C566A"
     };
 
+    /// <summary>标签专属 12 色高区分度色板（均匀分布色相环，深浅主题均清晰醒目）。</summary>
+    public static readonly string[] TagPalette =
+    {
+        "#3B82F6", // 钴蓝
+        "#10B981", // 翡翠绿
+        "#F59E0B", // 琥珀橙
+        "#EF4444", // 珊瑚红
+        "#8B5CF6", // 紫罗兰
+        "#06B6D4", // 青碧
+        "#EC4899", // 玫红
+        "#84CC16", // 柠绿
+        "#6366F1", // 靛蓝
+        "#F97316", // 暖橘
+        "#14B8A6", // 松绿
+        "#64748B"  // 石板灰
+    };
+
     private System.Windows.Media.SolidColorBrush NextGoalColor()
     {
         var hex = GoalPalette[_goalColorIndex++ % GoalPalette.Length];
         return BrushFromHex(hex);
     }
 
-    /// <summary>标签配色：从目标配色的后半段开始取，减少跟目标撞色。</summary>
-    private System.Windows.Media.SolidColorBrush NextTagColor() => TagPaletteColor(_tagColorIndex++);
+    /// <summary>标签配色：统计当前所有标签色板使用次数，优先分配最少使用的颜色，避免重启后撞色。</summary>
+    private System.Windows.Media.SolidColorBrush NextTagColor() => PickLeastUsedTagColor();
+
+    public System.Windows.Media.SolidColorBrush PickLeastUsedTagColor()
+    {
+        var counts = new int[TagPalette.Length];
+        foreach (var tag in Tags)
+        {
+            var hex = tag.ColorHex;
+            if (string.IsNullOrEmpty(hex)) continue;
+            for (var i = 0; i < TagPalette.Length; i++)
+            {
+                if (string.Equals(TagPalette[i], hex, StringComparison.OrdinalIgnoreCase))
+                {
+                    counts[i]++;
+                    break;
+                }
+            }
+        }
+
+        var bestIdx = 0;
+        for (var i = 1; i < counts.Length; i++)
+        {
+            if (counts[i] < counts[bestIdx])
+                bestIdx = i;
+        }
+
+        return BrushFromHex(TagPalette[bestIdx]);
+    }
 
     public static System.Windows.Media.SolidColorBrush TagPaletteColor(int index)
-    {
-        var offset = GoalPalette.Length / 2;
-        return BrushFromHex(GoalPalette[(offset + index) % GoalPalette.Length]);
-    }
+        => BrushFromHex(TagPalette[((index % TagPalette.Length) + TagPalette.Length) % TagPalette.Length]);
 
     public static System.Windows.Media.SolidColorBrush BrushFromHex(string hex)
     {

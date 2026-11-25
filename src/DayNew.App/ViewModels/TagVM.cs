@@ -10,6 +10,7 @@ namespace DayNew.ViewModels;
 public sealed class TagVM : ObservableObject
 {
     private string _name;
+    private Brush _color = Brushes.Transparent;
 
     public TagVM(string name, string? id = null)
     {
@@ -24,7 +25,19 @@ public sealed class TagVM : ObservableObject
     public Dictionary<string, string> FieldHlcs { get; set; } = new(StringComparer.Ordinal);
 
     /// <summary>强调色。标签在卡片上就是一个色点 + 文字，一眼能分堆。</summary>
-    public Brush Color { get; set; } = Brushes.Transparent;
+    public Brush Color
+    {
+        get => _color;
+        set
+        {
+            if (Set(ref _color, value))
+                OnPropertyChanged(nameof(ColorHex));
+        }
+    }
+
+    public string ColorHex => _color is SolidColorBrush sb
+        ? $"#{sb.Color.R:X2}{sb.Color.G:X2}{sb.Color.B:X2}"
+        : "";
 
     public string Name
     {
