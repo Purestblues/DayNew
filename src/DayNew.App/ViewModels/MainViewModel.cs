@@ -2826,7 +2826,14 @@ public sealed class MainViewModel : ObservableObject
 
     public int CurrentMinutes => _currentMinutes;
 
+    private const double NowBadgeHeight = 18;
+    private const double NowDotSize = 7;
+
     public double NowLineTop => _currentMinutes / 60.0 * PxPerHourValue;
+
+    public double NowBadgeTop => Math.Clamp(NowLineTop - NowBadgeHeight / 2.0, 0, Math.Max(0, GridHeight - NowBadgeHeight));
+
+    public double NowDotTop => Math.Clamp(NowLineTop - 3.0, 0, Math.Max(0, GridHeight - NowDotSize));
 
     public string NowTimeText => Clock(_currentMinutes);
 
@@ -2845,6 +2852,8 @@ public sealed class MainViewModel : ObservableObject
             Rebuild();
             OnPropertyChanged(nameof(CurrentMinutes));
             OnPropertyChanged(nameof(NowLineTop));
+            OnPropertyChanged(nameof(NowBadgeTop));
+            OnPropertyChanged(nameof(NowDotTop));
             OnPropertyChanged(nameof(NowTimeText));
             return;
         }
@@ -2852,8 +2861,11 @@ public sealed class MainViewModel : ObservableObject
         if (mins == _currentMinutes) return;
 
         _currentMinutes = mins;
+        UpdateTimelineTickOverlap();
         OnPropertyChanged(nameof(CurrentMinutes));
         OnPropertyChanged(nameof(NowLineTop));
+        OnPropertyChanged(nameof(NowBadgeTop));
+        OnPropertyChanged(nameof(NowDotTop));
         OnPropertyChanged(nameof(NowTimeText));
     }
 
@@ -2920,13 +2932,29 @@ public sealed class MainViewModel : ObservableObject
         return Math.Max(1, interval);
     }
 
+    private void UpdateTimelineTickOverlap()
+    {
+        var badgeTop = NowBadgeTop;
+        var badgeBottom = badgeTop + NowBadgeHeight;
+        var pxPerHour = PxPerHourValue;
+
+        foreach (var hour in TimelineHours)
+        {
+            var tickTop = hour.Minutes / 60.0 * pxPerHour;
+            var tickTextHeight = hour.IsHour ? 17.0 : 15.0;
+            hour.IsCoveredByNow = tickTop < badgeBottom + 1.0 && tickTop + tickTextHeight > badgeTop - 1.0;
+        }
+    }
+
     private void RebuildTimelineHours(double pxPerHour, int step)
     {
         _tickStepMinutes = step;
         var slotHeight = pxPerHour * step / 60.0;
         TimelineHours.Clear();
         for (var m = 0; m < 24 * 60; m += step)
-            TimelineHours.Add(new TimelineHourVM(Clock(m), slotHeight, isHour: m % 60 == 0));
+            TimelineHours.Add(new TimelineHourVM(m, Clock(m), slotHeight, isHour: m % 60 == 0));
+
+        UpdateTimelineTickOverlap();
     }
 
     public void RebuildTimeline()
@@ -2971,6 +2999,8 @@ public sealed class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(GridBrush));
         OnPropertyChanged(nameof(PxPerHourValue));
         OnPropertyChanged(nameof(NowLineTop));
+        OnPropertyChanged(nameof(NowBadgeTop));
+        OnPropertyChanged(nameof(NowDotTop));
         OnPropertyChanged(nameof(NowTodayLeft));
     }
 
@@ -2991,6 +3021,7 @@ public sealed class MainViewModel : ObservableObject
         {
             var slotHeight = pxPerHour * step / 60.0;
             foreach (var hour in TimelineHours) hour.Height = slotHeight;
+            UpdateTimelineTickOverlap();
         }
 
         foreach (var day in TimelineDays)
@@ -3013,6 +3044,8 @@ public sealed class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(GridBrush));
         OnPropertyChanged(nameof(PxPerHourValue));
         OnPropertyChanged(nameof(NowLineTop));
+        OnPropertyChanged(nameof(NowBadgeTop));
+        OnPropertyChanged(nameof(NowDotTop));
     }
 
     private static DrawingBrush CreateGridBrush(double intervalPx)

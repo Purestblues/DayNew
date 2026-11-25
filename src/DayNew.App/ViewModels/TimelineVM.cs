@@ -157,13 +157,17 @@ public sealed class TimelineBlockVM : ObservableObject
 public sealed class TimelineHourVM : ObservableObject
 {
     private double _height;
+    private bool _isCoveredByNow;
 
-    public TimelineHourVM(string text, double height, bool isHour = true)
+    public TimelineHourVM(int minutes, string text, double height, bool isHour = true)
     {
+        Minutes = minutes;
         Text = text;
         _height = height;
         IsHour = isHour;
     }
+
+    public int Minutes { get; }
 
     public string Text { get; }
 
@@ -173,6 +177,12 @@ public sealed class TimelineHourVM : ObservableObject
     {
         get => _height;
         set => Set(ref _height, value);
+    }
+
+    public bool IsCoveredByNow
+    {
+        get => _isCoveredByNow;
+        set => Set(ref _isCoveredByNow, value);
     }
 
     public override string ToString() => Text;

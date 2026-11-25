@@ -193,6 +193,7 @@ public partial class MainWindow : Window
         Deactivated += OnWindowDeactivated;
         LostMouseCapture += OnWindowLostMouseCapture;
         StateChanged += OnWindowStateChangedEvent;
+        SizeChanged += OnWindowSizeChanged;
         Closing += OnWindowClosing;
         Closed += OnWindowClosed;
 
@@ -226,6 +227,12 @@ public partial class MainWindow : Window
 
     private void OnWindowStateChangedEvent(object? sender, EventArgs e) => OnWindowStateChanged();
 
+    private void OnWindowSizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        if (WindowState == WindowState.Maximized)
+            UpdateMaximizedLayout();
+    }
+
     private void OnWindowLoaded(object sender, RoutedEventArgs e)
     {
         if (_hasCentered) return;
@@ -244,6 +251,8 @@ public partial class MainWindow : Window
         {
             CenterOnScreen();
         }
+
+        UpdateMaximizedLayout();
 
         if (_vm.IsTimeline && !_timelineScrolled)
         {
@@ -413,13 +422,15 @@ public partial class MainWindow : Window
 
     // ==================== 标题栏 ====================
 
-    // 最大化时 Windows 会把无边框窗口往屏幕外多长一圈（这里实测每边 6 DIP），
-    // 结果就是最底下的横向滚动条和状态栏被切掉。自己接管最大化尺寸：正好贴住工作区。
-    private const int WmGetMinMaxInfo = 0x0024;
+    // 最大化时 Windows 会把 SingleBorderWindow 的缩放边框推到屏幕工作区外，
+    // 这里按窗口外接矩形相对显示器工作区的溢出量内缩 RootLayout.Margin，避免底部滚动条和状态栏被切掉。
     private const int WmSysCommand = 0x0112;
     private const int ScKeyMenu = 0xF100;
     private const int WmMouseHWheel = 0x020E;
     private const int MonitorDefaultToNearest = 2;
+    private const int SmCxSizeFrame = 32;
+    private const int SmCySizeFrame = 33;
+    private const int SmCxPaddedBorder = 92;
 
     protected override void OnSourceInitialized(EventArgs e)
     {
@@ -452,24 +463,6 @@ public partial class MainWindow : Window
             }
             return IntPtr.Zero;
         }
-
-        if (msg != WmGetMinMaxInfo) return IntPtr.Zero;
-
-        var monitor = MonitorFromWindow(hwnd, MonitorDefaultToNearest);
-        if (monitor == IntPtr.Zero) return IntPtr.Zero;
-
-        var info = new MonitorInfo { Size = Marshal.SizeOf<MonitorInfo>() };
-        if (!GetMonitorInfo(monitor, ref info)) return IntPtr.Zero;
-
-        var work = info.Work;
-        var screen = info.Monitor;
-
-        var mmi = Marshal.PtrToStructure<MinMaxInfo>(lParam);
-        mmi.MaxPosition.X = work.Left - screen.Left;
-        mmi.MaxPosition.Y = work.Top - screen.Top;
-        mmi.MaxSize.X = work.Right - work.Left;
-        mmi.MaxSize.Y = work.Bottom - work.Top;
-        Marshal.StructureToPtr(mmi, lParam, true);
 
         return IntPtr.Zero;
     }
@@ -611,14 +604,13 @@ public partial class MainWindow : Window
     private static extern bool GetMonitorInfo(IntPtr monitor, ref MonitorInfo info);
 
     [DllImport("user32.dll")]
-    private static extern bool InvalidateRect(IntPtr hWnd, IntPtr lpRect, bool bErase);
+    private static extern bool GetWindowRect(IntPtr hWnd, out WinRect lpRect);
 
-    [StructLayout(LayoutKind.Sequential)]
-    private struct WinPoint
-    {
-        public int X;
-        public int Y;
-    }
+    [DllImport("user32.dll")]
+    private static extern int GetSystemMetrics(int nIndex);
+
+    [DllImport("user32.dll")]
+    private static extern bool InvalidateRect(IntPtr hWnd, IntPtr lpRect, bool bErase);
 
     [StructLayout(LayoutKind.Sequential)]
     private struct WinRect
@@ -627,16 +619,6 @@ public partial class MainWindow : Window
         public int Top;
         public int Right;
         public int Bottom;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct MinMaxInfo
-    {
-        public WinPoint Reserved;
-        public WinPoint MaxSize;
-        public WinPoint MaxPosition;
-        public WinPoint MinTrackSize;
-        public WinPoint MaxTrackSize;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -669,6 +651,7 @@ public partial class MainWindow : Window
     private void OnWindowStateChanged()
     {
         UpdateMaxIcon();
+        UpdateMaximizedLayout();
         InvalidateMeasure();
         InvalidateVisual();
         var hwnd = new WindowInteropHelper(this).Handle;
@@ -680,6 +663,58 @@ public partial class MainWindow : Window
             InvalidateVisual();
             InvalidateRect(hwnd, IntPtr.Zero, false);
         }));
+    }
+
+    private void UpdateMaximizedLayout() => UpdateMaximizedLayout(allowDefer: true);
+
+    private void UpdateMaximizedLayout(bool allowDefer)
+    {
+        if (WindowState != WindowState.Maximized)
+        {
+            if (RootLayout.Margin != default)
+                RootLayout.Margin = new Thickness(0);
+            return;
+        }
+
+        var hwnd = new WindowInteropHelper(this).Handle;
+        var dpi = VisualTreeHelper.GetDpi(this);
+        var scaleX = dpi.DpiScaleX > 0 ? dpi.DpiScaleX : 1.0;
+        var scaleY = dpi.DpiScaleY > 0 ? dpi.DpiScaleY : 1.0;
+        double left = 0, top = 0, right = 0, bottom = 0;
+
+        if (hwnd != IntPtr.Zero && GetWindowRect(hwnd, out var winRect))
+        {
+            var monitor = MonitorFromWindow(hwnd, MonitorDefaultToNearest);
+            if (monitor != IntPtr.Zero)
+            {
+                var info = new MonitorInfo { Size = Marshal.SizeOf<MonitorInfo>() };
+                if (GetMonitorInfo(monitor, ref info))
+                {
+                    left = Math.Max(0, info.Work.Left - winRect.Left) / scaleX;
+                    top = Math.Max(0, info.Work.Top - winRect.Top) / scaleY;
+                    right = Math.Max(0, winRect.Right - info.Work.Right) / scaleX;
+                    bottom = Math.Max(0, winRect.Bottom - info.Work.Bottom) / scaleY;
+                }
+            }
+        }
+
+        if (left == 0 && top == 0 && right == 0 && bottom == 0)
+        {
+            var pad = GetSystemMetrics(SmCxPaddedBorder);
+            var insetX = Math.Max(0, GetSystemMetrics(SmCxSizeFrame) + pad) / scaleX;
+            var insetY = Math.Max(0, GetSystemMetrics(SmCySizeFrame) + pad) / scaleY;
+            var fallback = new Thickness(insetX, insetY, insetX, insetY);
+            if (RootLayout.Margin != fallback)
+                RootLayout.Margin = fallback;
+
+            if (allowDefer)
+                Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() => UpdateMaximizedLayout(allowDefer: false)));
+            return;
+        }
+
+        var target = new Thickness(left, top, right, bottom);
+        if (RootLayout.Margin != target)
+            RootLayout.Margin = target;
     }
 
     private void UpdateMaxIcon()

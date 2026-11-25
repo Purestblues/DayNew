@@ -6,7 +6,7 @@
         Title="日新 DayNew"
         Width="1360" Height="820"
         MinWidth="1080" MinHeight="620"
-        WindowStyle="None"
+        WindowStyle="SingleBorderWindow"
         AllowsTransparency="False"
         Background="{DynamicResource Surface1}"
         Foreground="{DynamicResource TextPrimary}"
@@ -21,7 +21,7 @@
     <WindowChrome.WindowChrome>
         <WindowChrome CaptionHeight="38"
                       ResizeBorderThickness="6"
-                      GlassFrameThickness="1"
+                      GlassFrameThickness="-1"
                       CornerRadius="0"
                       UseAeroCaptionButtons="False"/>
     </WindowChrome.WindowChrome>
@@ -623,6 +623,9 @@
                                                     <Setter TargetName="tickText" Property="FontWeight" Value="SemiBold"/>
                                                     <Setter TargetName="tickText" Property="Foreground" Value="{DynamicResource TextSecondary}"/>
                                                 </DataTrigger>
+                                                <DataTrigger Binding="{Binding IsCoveredByNow}" Value="True">
+                                                    <Setter TargetName="tickText" Property="Visibility" Value="Hidden"/>
+                                                </DataTrigger>
                                             </DataTemplate.Triggers>
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
@@ -630,11 +633,12 @@
 
                                 <!-- 当前分钟徽标（跟随红线高度） -->
                                 <Canvas IsHitTestVisible="False">
-                                    <Border Canvas.Top="{Binding NowLineTop}" Canvas.Right="6"
-                                            Margin="0,-9,0,0" Padding="5,1" CornerRadius="4"
+                                    <Border Canvas.Top="{Binding NowBadgeTop}" Canvas.Right="6"
+                                            Height="18" Padding="5,0" CornerRadius="4"
                                             Background="{DynamicResource Danger}">
                                         <TextBlock Text="{Binding NowTimeText}"
                                                    FontSize="11" FontWeight="SemiBold"
+                                                   VerticalAlignment="Center"
                                                    Foreground="{DynamicResource OnAccent}"
                                                    Typography.NumeralAlignment="Tabular"/>
                                     </Border>
@@ -929,8 +933,8 @@
                                     <Border Canvas.Top="{Binding NowLineTop}" Canvas.Left="{Binding NowTodayLeft}"
                                             Width="160" Height="1.5" Margin="0,-0.25,0,0"
                                             Background="{DynamicResource Danger}"/>
-                                    <Ellipse Canvas.Top="{Binding NowLineTop}" Canvas.Left="{Binding NowTodayLeft}"
-                                             Width="7" Height="7" Margin="-3.5,-3,0,0"
+                                    <Ellipse Canvas.Top="{Binding NowDotTop}" Canvas.Left="{Binding NowTodayLeft}"
+                                             Width="7" Height="7" Margin="-3.5,0,0,0"
                                              Fill="{DynamicResource Danger}"/>
                                 </Canvas>
                             </Grid>
@@ -5102,11 +5106,12 @@
         </ControlTemplate>
     </Window.Resources>
 
-    <Grid>
-        <Grid.RowDefinitions>
-            <RowDefinition Height="38"/>
-            <RowDefinition Height="*"/>
-        </Grid.RowDefinitions>
+    <Grid Background="{DynamicResource Surface1}">
+        <Grid x:Name="RootLayout">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="38"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
 
         <!-- ================= 标题栏 ================= -->
         <Grid Grid.Row="0" Background="{DynamicResource Surface1}">
@@ -6035,7 +6040,9 @@
             </Border>
         </Popup>
 
+        </Grid>
+
         <!-- 拖拽幽灵层 -->
-        <Canvas x:Name="DragLayer" Grid.RowSpan="2" IsHitTestVisible="False"/>
+        <Canvas x:Name="DragLayer" IsHitTestVisible="False"/>
     </Grid>
 </Window>

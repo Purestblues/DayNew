@@ -211,10 +211,12 @@ src/DayNew.App/
     四象限 212），窗口越宽列越多；卡片宽度不跟着窗口拉糊，避免一行字被拉成一整排。
 28. **块下方的标签和目标要有“够高才显示”的判断**：`TimelineBlockVM.HasRoomForMeta`（Height >= 52）。
     否则 30 分钟的块会露出半行字，看起来像渲染错误。
-29. **最大化尺寸自己接管**（`MainWindow.MaximizeHook` 拦 `WM_GETMINMAXINFO`）。
-    `WindowStyle=None` + `WindowChrome` 的窗口最大化时，Windows 会把它往屏幕外每边多长 6 DIP
-    （实测窗口变成 -12,-12 → 2892,1812），最底下的横向滚动条和状态栏就切没了。
-    钩子把 `ptMaxSize/ptMaxPosition` 改成显示器工作区，别删；也别只在外层加 Margin 绕。
+29. **最大化内缩由 `UpdateMaximizedLayout` 接管**（不再使用 `WindowStyle=None` + `WM_GETMINMAXINFO`）：
+    `WindowStyle="SingleBorderWindow"` + `WindowChrome`（`GlassFrameThickness="-1"`）最大化时，
+    Windows 会在屏幕外扩展约 `SM_CXSIZEFRAME + SM_CXPADDEDBORDER` 的缩放边框，若不处理会把最底下的横向滚动条和状态栏切掉；
+    而旧的 `WindowStyle=None` + `WM_GETMINMAXINFO` 会导致双击标题栏最大化时内容区不放大、周围出现黑框。
+    现在在 `MainWindow.UpdateMaximizedLayout()` 里把窗口外接矩形相对显示器工作区的溢出量转成 DIP 设给 `RootLayout.Margin`，
+    并把 `DragLayer` 放在外层根 `Grid` 中保证拖拽坐标系始终与窗口 `(0, 0)` 对齐。
 30. **托盘与自启**：
     - 关闭窗口 = 缩到托盘（`AppSettings.CloseToTray` 默认开启），只有托盘右键菜单里的「退出」（`ExitApplication`）才真正结束进程。
     - `--tray` 静默启动只调用 `WindowInteropHelper.EnsureHandle()` 建出窗口句柄、不调用 `Show()`，这是为了让单实例唤醒（`WmShowMainWindow`）能拉起窗口，不要改成先 `Show` 再 `Hide`。
