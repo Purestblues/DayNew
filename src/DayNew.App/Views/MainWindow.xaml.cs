@@ -231,6 +231,8 @@ public partial class MainWindow : Window
     {
         if (WindowState == WindowState.Maximized)
             UpdateMaximizedLayout();
+        else if (RootLayout.Margin != default)
+            RootLayout.Margin = new Thickness(0);
     }
 
     private void OnWindowLoaded(object sender, RoutedEventArgs e)
@@ -438,10 +440,21 @@ public partial class MainWindow : Window
     private const int WmSysCommand = 0x0112;
     private const int ScKeyMenu = 0xF100;
     private const int WmMouseHWheel = 0x020E;
+    private const int WmNcLButtonDblClk = 0x00A3;
+    private const int HtCaption = 2;
     private const int MonitorDefaultToNearest = 2;
     private const int SmCxSizeFrame = 32;
     private const int SmCySizeFrame = 33;
     private const int SmCxPaddedBorder = 92;
+    private const uint SwpNoSize = 0x0001;
+    private const uint SwpNoMove = 0x0002;
+    private const uint SwpNoZOrder = 0x0004;
+    private const uint SwpNoActivate = 0x0010;
+    private const uint SwpFrameChanged = 0x0020;
+    private const uint RdwInvalidate = 0x0001;
+    private const uint RdwAllChildren = 0x0080;
+    private const uint RdwUpdateNow = 0x0100;
+    private const uint RdwFrame = 0x0400;
 
     protected override void OnSourceInitialized(EventArgs e)
     {
@@ -460,6 +473,13 @@ public partial class MainWindow : Window
 
         if (msg == WmSysCommand && (wParam.ToInt64() & 0xFFF0) == ScKeyMenu)
         {
+            handled = true;
+            return IntPtr.Zero;
+        }
+
+        if (msg == WmNcLButtonDblClk && wParam.ToInt64() == HtCaption && ResizeMode != ResizeMode.NoResize)
+        {
+            ToggleMaximizeRestore();
             handled = true;
             return IntPtr.Zero;
         }
@@ -623,6 +643,23 @@ public partial class MainWindow : Window
     [DllImport("user32.dll")]
     private static extern bool InvalidateRect(IntPtr hWnd, IntPtr lpRect, bool bErase);
 
+    [DllImport("user32.dll")]
+    private static extern bool SetWindowPos(
+        IntPtr hWnd,
+        IntPtr hWndInsertAfter,
+        int x,
+        int y,
+        int cx,
+        int cy,
+        uint uFlags);
+
+    [DllImport("user32.dll")]
+    private static extern bool RedrawWindow(
+        IntPtr hWnd,
+        IntPtr lprcUpdate,
+        IntPtr hrgnUpdate,
+        uint flags);
+
     [StructLayout(LayoutKind.Sequential)]
     private struct WinRect
     {
@@ -663,17 +700,36 @@ public partial class MainWindow : Window
     {
         UpdateMaxIcon();
         UpdateMaximizedLayout();
+        ForceWindowRedraw();
+
+        Dispatcher.BeginInvoke(DispatcherPriority.Render, new Action(() =>
+        {
+            UpdateMaximizedLayout(allowDefer: false);
+            ForceWindowRedraw();
+        }));
+    }
+
+    private void ForceWindowRedraw()
+    {
+        RootLayout.InvalidateMeasure();
+        RootLayout.InvalidateArrange();
+        RootLayout.InvalidateVisual();
         InvalidateMeasure();
         InvalidateVisual();
+
         var hwnd = new WindowInteropHelper(this).Handle;
         if (hwnd == IntPtr.Zero) return;
 
-        InvalidateRect(hwnd, IntPtr.Zero, false);
-        Dispatcher.BeginInvoke(DispatcherPriority.Render, new Action(() =>
-        {
-            InvalidateVisual();
-            InvalidateRect(hwnd, IntPtr.Zero, false);
-        }));
+        SetWindowPos(
+            hwnd,
+            IntPtr.Zero,
+            0, 0, 0, 0,
+            SwpNoMove | SwpNoSize | SwpNoZOrder | SwpNoActivate | SwpFrameChanged);
+        RedrawWindow(
+            hwnd,
+            IntPtr.Zero,
+            IntPtr.Zero,
+            RdwInvalidate | RdwFrame | RdwAllChildren | RdwUpdateNow);
     }
 
     private void UpdateMaximizedLayout() => UpdateMaximizedLayout(allowDefer: true);
@@ -733,13 +789,15 @@ public partial class MainWindow : Window
 
     private void Minimize_Click(object sender, RoutedEventArgs e) => SystemCommands.MinimizeWindow(this);
 
-    private void Maximize_Click(object sender, RoutedEventArgs e)
+    private void ToggleMaximizeRestore()
     {
         if (WindowState == WindowState.Maximized)
             SystemCommands.RestoreWindow(this);
         else
             SystemCommands.MaximizeWindow(this);
     }
+
+    private void Maximize_Click(object sender, RoutedEventArgs e) => ToggleMaximizeRestore();
 
     private void Close_Click(object sender, RoutedEventArgs e) => Close();
 
