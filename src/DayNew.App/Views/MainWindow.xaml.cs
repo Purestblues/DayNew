@@ -720,10 +720,15 @@ public partial class MainWindow : Window
     private void UpdateMaxIcon()
         => MaxButton.Content = WindowState == WindowState.Maximized ? "\uE923" : "\uE922";
 
-    private void Minimize_Click(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
+    private void Minimize_Click(object sender, RoutedEventArgs e) => SystemCommands.MinimizeWindow(this);
 
     private void Maximize_Click(object sender, RoutedEventArgs e)
-        => WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
+    {
+        if (WindowState == WindowState.Maximized)
+            SystemCommands.RestoreWindow(this);
+        else
+            SystemCommands.MaximizeWindow(this);
+    }
 
     private void Close_Click(object sender, RoutedEventArgs e) => Close();
 
