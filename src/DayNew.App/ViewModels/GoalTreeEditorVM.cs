@@ -386,9 +386,10 @@ public sealed class GoalTreeEditorVM : ObservableObject
         }
     }
 
-    public void SetNodeDue(GoalNodeVM node, DateTime? due)
+    public void SetNodeDue(GoalNodeVM node, DateTime? due, TimeSpan? dueTime = null)
     {
-        node.Due = due;
+        node.Due = due?.Date;
+        node.DueTime = due.HasValue ? dueTime : null;
         if (ReferenceEquals(node, SelectedNode))
             RaiseSelectedNodeDueProperties();
         _owner.OnGoalStructureChanged(rebuildTimelineAndCards: false);

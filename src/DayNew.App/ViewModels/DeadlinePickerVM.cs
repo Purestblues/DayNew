@@ -19,9 +19,11 @@ public sealed class DeadlinePickerVM : ObservableObject
     private string _targetTitle = "";
     private DateTime? _currentDate;
     private DateTime _viewMonth = new(DateTime.Today.Year, DateTime.Today.Month, 1);
+    private bool _hasTime;
+    private string _timeText = "18:00";
     private string _manualText = "";
     private string _errorText = "";
-    private Action<DateTime?>? _onApply;
+    private Action<DateTime?, TimeSpan?>? _onApply;
 
     public bool IsOpen
     {
@@ -47,6 +49,28 @@ public sealed class DeadlinePickerVM : ObservableObject
 
     public bool HasCurrentDate => CurrentDate.HasValue;
 
+    public bool HasTime
+    {
+        get => _hasTime;
+        set
+        {
+            if (!Set(ref _hasTime, value)) return;
+            ErrorText = "";
+            SyncManualTextFromSelection();
+        }
+    }
+
+    public string TimeText
+    {
+        get => _timeText;
+        set
+        {
+            if (!Set(ref _timeText, value)) return;
+            ErrorText = "";
+            SyncManualTextFromSelection();
+        }
+    }
+
     public string MonthTitle => $"{_viewMonth:yyyy年M月}";
 
     public string ManualText
@@ -67,16 +91,20 @@ public sealed class DeadlinePickerVM : ObservableObject
 
     public ObservableCollection<CalendarDayVM> Days { get; } = new();
 
-    public void Open(string title, DateTime? current, Action<DateTime?> onApply)
+    public void Open(string title, DateTime? current, TimeSpan? currentTime, Action<DateTime?, TimeSpan?> onApply)
     {
         TargetTitle = title;
         CurrentDate = current?.Date;
         _onApply = onApply;
         var anchor = CurrentDate ?? DateTime.Today;
         _viewMonth = new DateTime(anchor.Year, anchor.Month, 1);
-        ManualText = CurrentDate?.ToString("yyyy-MM-dd") ?? "";
+        _hasTime = CurrentDate.HasValue && currentTime.HasValue;
+        _timeText = currentTime is { } t ? DeadlineRules.FormatClock(t) : "18:00";
+        ManualText = DeadlineRules.FormatDue(CurrentDate, _hasTime ? currentTime : null) ?? "";
         ErrorText = "";
         RebuildDays();
+        OnPropertyChanged(nameof(HasTime));
+        OnPropertyChanged(nameof(TimeText));
         OnPropertyChanged(nameof(MonthTitle));
         IsOpen = true;
     }
@@ -97,10 +125,28 @@ public sealed class DeadlinePickerVM : ObservableObject
 
     public void SelectDate(DateTime? date)
     {
-        var normalized = date?.Date;
-        var callback = _onApply;
-        Close();
-        callback?.Invoke(normalized);
+        if (date is null)
+        {
+            var clearCallback = _onApply;
+            Close();
+            clearCallback?.Invoke(null, null);
+            return;
+        }
+
+        var normalized = date.Value.Date;
+        if (!HasTime)
+        {
+            var callback = _onApply;
+            Close();
+            callback?.Invoke(normalized, null);
+            return;
+        }
+
+        CurrentDate = normalized;
+        _viewMonth = new DateTime(normalized.Year, normalized.Month, 1);
+        OnPropertyChanged(nameof(MonthTitle));
+        SyncManualTextFromSelection();
+        RebuildDays();
     }
 
     public void PickToday() => SelectDate(DateTime.Today);
@@ -123,18 +169,52 @@ public sealed class DeadlinePickerVM : ObservableObject
         var raw = (ManualText ?? "").Trim();
         if (raw.Length == 0)
         {
-            SelectDate(null);
+            var clearCallback = _onApply;
+            Close();
+            clearCallback?.Invoke(null, null);
             return true;
         }
 
-        if (DateTime.TryParse(raw, out var parsed))
+        var (parsedDate, parsedTime) = DeadlineRules.ParseDue(raw);
+        if (parsedDate is not { } d)
         {
-            SelectDate(parsed.Date);
-            return true;
+            ErrorText = "请按 yyyy-MM-dd 或 yyyy-MM-dd HH:mm 格式输入";
+            return false;
         }
 
-        ErrorText = "请按 yyyy-MM-dd 格式输入，如 2026-12-01";
-        return false;
+        TimeSpan? finalTime = null;
+        if (parsedTime is { } pt)
+        {
+            finalTime = pt;
+        }
+        else if (HasTime)
+        {
+            if (!DeadlineRules.TryParseClock(TimeText, out var t))
+            {
+                ErrorText = "时间点格式无效，请写成 18:00 或 9:30";
+                return false;
+            }
+            finalTime = t;
+        }
+
+        var callback = _onApply;
+        Close();
+        callback?.Invoke(d, finalTime);
+        return true;
+    }
+
+    private void SyncManualTextFromSelection()
+    {
+        if (CurrentDate is not { } date) return;
+        if (!HasTime)
+        {
+            ManualText = DeadlineRules.FormatDue(date, null) ?? "";
+            return;
+        }
+
+        ManualText = DeadlineRules.TryParseClock(TimeText, out var t)
+            ? (DeadlineRules.FormatDue(date, t) ?? "")
+            : date.ToString("yyyy-MM-dd");
     }
 
     private void RebuildDays()

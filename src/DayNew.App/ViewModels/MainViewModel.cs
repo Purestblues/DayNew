@@ -32,6 +32,7 @@ public sealed class MainViewModel : ObservableObject
     private string _mcpPortText = "";
     private string _mcpTokenCache = "";
     private bool _isMcpTokenRevealed;
+    private string _lastOverdueSnapshot = "";
 
     public event Action<string, bool>? ToastRequested;
     public event Action<TaskVM>? TaskTouched;
@@ -1537,9 +1538,8 @@ public sealed class MainViewModel : ObservableObject
         foreach (var t in _all)
         {
             if (t.Done || t.Due is not { } d) continue;
-            var date = d.Date;
-            if (date == today) todayPending++;
-            else if (date < today) overdueCount++;
+            if (DeadlineRules.IsOverdue(d, t.DueTime)) overdueCount++;
+            else if (d.Date == today) todayPending++;
         }
 
         return (todayPending, overdueCount);
@@ -1878,7 +1878,12 @@ public sealed class MainViewModel : ObservableObject
 
         // 过去日期已完成的日程留作历史（视图时间轴与完成日志可见），不再混入「今天」
         if (d < today) return t.Done ? null : LaneKind.Overdue;
-        if (d == today) return LaneKind.Today;
+        if (d == today)
+        {
+            if (!t.Done && DeadlineRules.IsOverdue(d, t.DueTime))
+                return LaneKind.Overdue;
+            return LaneKind.Today;
+        }
         if (d == today.AddDays(1)) return LaneKind.Tomorrow;
         if (d <= EndOfWeek()) return LaneKind.ThisWeek;
         return LaneKind.Later;
@@ -1903,7 +1908,8 @@ public sealed class MainViewModel : ObservableObject
     public void EnsureUiReady()
     {
         _hasActiveView = true;
-        if (_uiDirty || _timelineBuiltDate != DateTime.Today)
+        if (_uiDirty || _timelineBuiltDate != DateTime.Today ||
+            !string.Equals(ComputeTodayTimedOverdueSnapshot(DateTime.Now), _lastOverdueSnapshot, StringComparison.Ordinal))
         {
             _uiDirty = false;
             Rebuild();
@@ -2038,6 +2044,7 @@ public sealed class MainViewModel : ObservableObject
 
         var (todayPending, overdueCount) = GetSummaryCounts();
         SummaryChanged?.Invoke(todayPending, overdueCount);
+        _lastOverdueSnapshot = ComputeTodayTimedOverdueSnapshot(DateTime.Now);
     }
 
     private void RebuildQuadrants()
@@ -2072,16 +2079,16 @@ public sealed class MainViewModel : ObservableObject
             if (goal.IsCompleted) continue;
 
             if (goal.Due is { } goalDue)
-                GroupFor(goalDue).Goals.Add(new DeadlineGoalItemVM(goal, node: null, goalDue));
+                GroupFor(goalDue).Goals.Add(new DeadlineGoalItemVM(goal, node: null, goalDue, goal.DueTime));
 
             foreach (var node in goal.Nodes)
             {
                 if (!node.IsCompleted && node.Due is { } nodeDue)
-                    GroupFor(nodeDue).Goals.Add(new DeadlineGoalItemVM(goal, node, nodeDue));
+                    GroupFor(nodeDue).Goals.Add(new DeadlineGoalItemVM(goal, node, nodeDue, node.DueTime));
             }
         }
 
-        foreach (var task in _all.OrderBy(t => t.Order))
+        foreach (var task in _all.OrderBy(t => t.DueTime ?? TimeSpan.MaxValue).ThenBy(t => t.Order))
         {
             if (task.Done || task.Due is not { } due || task.HasTime) continue;
             GroupFor(due).Tasks.Add(task);
@@ -2091,6 +2098,12 @@ public sealed class MainViewModel : ObservableObject
         var total = 0;
         foreach (var group in byDate.Values)
         {
+            if (group.Goals.Count > 1)
+            {
+                var sortedGoals = group.Goals.OrderBy(g => g.DueTime ?? TimeSpan.MaxValue).ToList();
+                group.Goals.Clear();
+                foreach (var g in sortedGoals) group.Goals.Add(g);
+            }
             DeadlineGroups.Add(group);
             total += group.TotalCount;
         }
@@ -2160,7 +2173,12 @@ public sealed class MainViewModel : ObservableObject
         _all.Remove(task);
 
         if (crossLane)
-            task.Due = DueForLane(target.Kind);
+        {
+            var nextDue = DueForLane(target.Kind);
+            task.Due = nextDue;
+            if (target.Kind == LaneKind.Today && task.DueTime is { } dt && DateTime.Now.TimeOfDay >= dt)
+                task.DueTime = null;
+        }
 
         var ordered = _all.Where(t => LaneFor(t) == target.Kind)
                           .OrderBy(t => t.Order)
@@ -2261,6 +2279,8 @@ public sealed class MainViewModel : ObservableObject
         RecordUndo($"移到{label}「{task.Title}」", () =>
         {
             task.Due = date.Date;
+            if (date.Date == DateTime.Today && task.DueTime is { } dt && DateTime.Now.TimeOfDay >= dt)
+                task.DueTime = null;
             Rebuild();
         });
         TaskTouched?.Invoke(task);
@@ -2272,6 +2292,7 @@ public sealed class MainViewModel : ObservableObject
         RecordUndo($"移到未来事项「{task.Title}」", () =>
         {
             task.Due = null;
+            task.DueTime = null;
             task.StartTime = null;
             task.EndTime = null;
             Rebuild();
@@ -2867,6 +2888,41 @@ public sealed class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(NowBadgeTop));
         OnPropertyChanged(nameof(NowDotTop));
         OnPropertyChanged(nameof(NowTimeText));
+        RefreshOverdueIfNeeded();
+    }
+
+    private string ComputeTodayTimedOverdueSnapshot(DateTime now)
+    {
+        var today = now.Date;
+        var parts = new List<string>();
+        foreach (var t in _all)
+        {
+            if (!t.Done && t.Due?.Date == today && t.DueTime is { } dt && now.TimeOfDay >= dt)
+                parts.Add("T:" + t.Id);
+        }
+        foreach (var g in Goals)
+        {
+            if (!g.IsCompleted && g.Due?.Date == today && g.DueTime is { } gt && now.TimeOfDay >= gt)
+                parts.Add("G:" + g.Id);
+            foreach (var n in g.Nodes)
+            {
+                if (!n.IsCompleted && n.Due?.Date == today && n.DueTime is { } nt && now.TimeOfDay >= nt)
+                    parts.Add("N:" + g.Id + ":" + n.Id);
+            }
+        }
+        parts.Sort(StringComparer.Ordinal);
+        return string.Join("|", parts);
+    }
+
+    public void RefreshOverdueIfNeeded()
+    {
+        var now = DateTime.Now;
+        var snapshot = ComputeTodayTimedOverdueSnapshot(now);
+        if (string.Equals(snapshot, _lastOverdueSnapshot, StringComparison.Ordinal))
+            return;
+
+        _lastOverdueSnapshot = snapshot;
+        Rebuild();
     }
 
     /// <summary>时间轴的第一天：本周一往前推两周，保证今天左右都有地方可滚。</summary>
@@ -3320,17 +3376,18 @@ public sealed class MainViewModel : ObservableObject
     public void OpenNodeDeadlinePicker(GoalNodeVM node)
     {
         var label = string.IsNullOrWhiteSpace(node.DisplayTitle) ? "目标" : node.DisplayTitle;
-        DeadlinePicker.Open($"「{label}」截止日期", node.Due, due => GoalTreeEditor.SetNodeDue(node, due));
+        DeadlinePicker.Open($"「{label}」截止日期", node.Due, node.DueTime, (due, dueTime) => GoalTreeEditor.SetNodeDue(node, due, dueTime));
     }
 
     public void OpenGoalDeadlinePicker(GoalVM goal)
     {
         var label = string.IsNullOrWhiteSpace(goal.Title) ? "目标" : goal.Title;
-        DeadlinePicker.Open($"「{label}」截止日期", goal.Due, due =>
+        DeadlinePicker.Open($"「{label}」截止日期", goal.Due, goal.DueTime, (due, dueTime) =>
         {
             RecordUndo($"修改目标截止日「{label}」", () =>
             {
                 goal.Due = due;
+                goal.DueTime = due.HasValue ? dueTime : null;
                 OnGoalStructureChanged(rebuildTimelineAndCards: false);
             });
             Notify(due.HasValue ? $"已设截止日期：{goal.DueBadgeText}" : "已清除截止日期");
@@ -3470,7 +3527,10 @@ public sealed class MainViewModel : ObservableObject
     /// <summary>边打字边说清楚：这段时间跟谁撞了、保存时会挪到几点。</summary>
     public void RefreshEditorHint()
     {
-        Editor.SetError("");
+        if (Editor.HasDue && Editor.HasDueTime && !Editor.TryReadDueTime(out _))
+            Editor.SetError("截止时间点写成 18:00 这样");
+        else
+            Editor.SetError("");
 
         if (!Editor.HasDue || !Editor.HasTime)
         {
@@ -3506,6 +3566,18 @@ public sealed class MainViewModel : ObservableObject
         var start = 0;
         var duration = 0;
         var free = 0;
+        TimeSpan? dueTime = null;
+
+        if (Editor.HasDue && Editor.HasDueTime)
+        {
+            if (!Editor.TryReadDueTime(out var parsedDueTime))
+            {
+                Editor.SetError("截止时间点看不懂，写成 18:00 这样");
+                return;
+            }
+
+            dueTime = parsedDueTime;
+        }
 
         if (Editor.HasDue && Editor.HasTime)
         {
@@ -3539,18 +3611,21 @@ public sealed class MainViewModel : ObservableObject
         if (!Editor.HasDue)
         {
             task.Due = null;
+            task.DueTime = null;
             task.StartTime = null;
             task.EndTime = null;
         }
         else if (!Editor.HasTime)
         {
             task.Due = Editor.Date.Date;
+            task.DueTime = dueTime;
             task.StartTime = null;
             task.EndTime = null;
         }
         else
         {
             task.Due = Editor.Date.Date;
+            task.DueTime = dueTime;
             task.StartTime = TimeSpan.FromMinutes(free);
             task.EndTime = TimeSpan.FromMinutes(free + duration);
         }

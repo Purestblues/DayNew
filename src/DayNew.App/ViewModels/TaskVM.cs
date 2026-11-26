@@ -26,6 +26,7 @@ public sealed class TaskVM : ObservableObject
     private bool _done;
     private bool _isExpanded;
     private DateTime? _due;
+    private TimeSpan? _dueTime;
     private string _remind = "";
     private string _repeat = "";
     private bool _isUrgent;
@@ -70,8 +71,40 @@ public sealed class TaskVM : ObservableObject
     public DateTime? Due
     {
         get => _due;
-        set { if (Set(ref _due, value)) RaiseMeta(); }
+        set
+        {
+            var normalized = value?.Date;
+            var changed = Set(ref _due, normalized);
+            if (normalized is null && _dueTime is not null)
+            {
+                _dueTime = null;
+                OnPropertyChanged(nameof(DueTime));
+                OnPropertyChanged(nameof(HasDueTime));
+                OnPropertyChanged(nameof(DueTimeLabel));
+                changed = true;
+            }
+            if (changed) RaiseMeta();
+        }
     }
+
+    /// <summary>可选截止具体时间点（HH:mm）；清除日期时自动置空。</summary>
+    public TimeSpan? DueTime
+    {
+        get => _dueTime;
+        set
+        {
+            if (!Set(ref _dueTime, value)) return;
+            OnPropertyChanged(nameof(HasDueTime));
+            OnPropertyChanged(nameof(DueTimeLabel));
+            RaiseMeta();
+        }
+    }
+
+    public bool HasDueTime => Due.HasValue && DueTime.HasValue;
+
+    public string DueTimeLabel => HasDueTime ? $"{DeadlineRules.FormatClock(DueTime!.Value)} 截止" : "";
+
+    public bool IsOverdue => !Done && DeadlineRules.IsOverdue(Due, DueTime);
 
     /// <summary>相对起止时刻的提醒节点组合（逗号分隔），空 = 不提醒。</summary>
     public string Remind
@@ -364,7 +397,15 @@ public sealed class TaskVM : ObservableObject
 
     public bool HasRemind => RemindRules.HasAny(_remind);
 
-    public bool ShowRemindBell => HasTime && HasRemind;
+    public bool CanRemind => HasTime || HasDueTime;
+
+    public bool IsDeadlineOnlyRemind => !HasTime && HasDueTime;
+
+    public bool ShowRemindBell => CanRemind && HasRemind;
+
+    public string RemindEndChipText => IsDeadlineOnlyRemind ? "截止时" : "结束时";
+
+    public string RemindEndShortText => IsDeadlineOnlyRemind ? "截止" : "结束";
 
     public bool IsRemindNone => !HasRemind;
 
@@ -376,16 +417,17 @@ public sealed class TaskVM : ObservableObject
 
     public bool IsRemindEnd => RemindRules.HasNode(_remind, RemindRules.End);
 
-    public string RemindLabel => RemindRules.FormatLabel(_remind);
+    public string RemindLabel => RemindRules.FormatLabel(_remind, IsDeadlineOnlyRemind);
 
-    public string RemindTooltip => RemindRules.FormatTooltip(_remind, HasTime);
+    public string RemindTooltip => RemindRules.FormatTooltip(_remind, HasTime, HasDueTime);
 
     public string MetaText
     {
         get
         {
-            var parts = new List<string>(4);
+            var parts = new List<string>(5);
             if (HasTime) parts.Add(TimeLabel);
+            if (HasDueTime) parts.Add(DueTimeLabel);
             var date = DateLabel();
             if (date.Length > 0) parts.Add(date);
             if (!string.IsNullOrEmpty(Repeat)) parts.Add(Repeat);
@@ -471,6 +513,13 @@ public sealed class TaskVM : ObservableObject
     private void RaiseMeta()
     {
         OnPropertyChanged(nameof(MetaText));
+        OnPropertyChanged(nameof(HasDueTime));
+        OnPropertyChanged(nameof(DueTimeLabel));
+        OnPropertyChanged(nameof(IsOverdue));
+        OnPropertyChanged(nameof(CanRemind));
+        OnPropertyChanged(nameof(IsDeadlineOnlyRemind));
+        OnPropertyChanged(nameof(RemindEndChipText));
+        OnPropertyChanged(nameof(RemindEndShortText));
         OnPropertyChanged(nameof(HasPersons));
         OnPropertyChanged(nameof(HasLocations));
         OnPropertyChanged(nameof(HasPeopleOrLocations));

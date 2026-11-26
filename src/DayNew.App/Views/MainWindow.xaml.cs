@@ -290,7 +290,18 @@ public partial class MainWindow : Window
         }
     }
 
-    private void OnNowLineTimerTick(object? sender, EventArgs e) => _vm.RefreshCurrentTime();
+    private int _lastCheckedMinute = -1;
+
+    private void OnNowLineTimerTick(object? sender, EventArgs e)
+    {
+        _vm.RefreshCurrentTime();
+        var minute = DateTime.Now.Hour * 60 + DateTime.Now.Minute;
+        if (minute != _lastCheckedMinute)
+        {
+            _lastCheckedMinute = minute;
+            _vm.RefreshOverdueIfNeeded();
+        }
+    }
 
     private void OnNavHostSelectionChanged(object sender, SelectionChangedEventArgs e)
     {

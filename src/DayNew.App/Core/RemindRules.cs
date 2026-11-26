@@ -71,7 +71,19 @@ public static class RemindRules
         return JoinOrdered(active);
     }
 
-    public static string FormatLabel(string? remind)
+    public static string NormalizeForDeadlineDefault(string? current)
+    {
+        var normalized = Normalize(current);
+        if (normalized.Length == 0) return "";
+
+        var active = ParseValidSet(normalized);
+        if (active.Remove(Start))
+            active.Add(End);
+
+        return JoinOrdered(active);
+    }
+
+    public static string FormatLabel(string? remind, bool isDeadlineOnly = false)
     {
         var normalized = Normalize(remind);
         if (normalized.Length == 0) return "不提醒";
@@ -79,40 +91,43 @@ public static class RemindRules
         var parts = new List<string>(4);
         foreach (var node in normalized.Split(','))
         {
+            if (isDeadlineOnly && node == Start) continue;
             parts.Add(node switch
             {
                 Pre15 => "提前15分",
                 Pre5 => "提前5分",
                 Start => "开始时",
-                End => "结束时",
+                End => isDeadlineOnly ? "截止时" : "结束时",
                 _ => node
             });
         }
 
-        return string.Join(" · ", parts);
+        return parts.Count == 0 ? "不提醒" : string.Join(" · ", parts);
     }
 
-    public static string FormatTooltip(string? remind, bool hasTime = true)
+    public static string FormatTooltip(string? remind, bool hasTime = true, bool hasDueTime = false)
     {
-        if (!hasTime) return "未设具体起止时刻，提醒不触发";
+        if (!hasTime && !hasDueTime) return "未设具体时间，提醒不触发";
 
+        var isDeadlineOnly = !hasTime && hasDueTime;
         var normalized = Normalize(remind);
         if (normalized.Length == 0) return "不提醒";
 
         var parts = new List<string>(4);
         foreach (var node in normalized.Split(','))
         {
+            if (isDeadlineOnly && node == Start) continue;
             parts.Add(node switch
             {
                 Pre15 => "提前 15 分钟",
                 Pre5 => "提前 5 分钟",
                 Start => "开始时",
-                End => "结束时",
+                End => isDeadlineOnly ? "截止时" : "结束时",
                 _ => node
             });
         }
 
-        return "提醒：" + string.Join(" · ", parts);
+        return parts.Count == 0 ? "不提醒" : "提醒：" + string.Join(" · ", parts);
     }
 
     public static IReadOnlyList<RemindTrigger> GetTriggers(
@@ -140,6 +155,34 @@ public static class RemindRules
                     break;
                 case End:
                     result.Add(new RemindTrigger(End, endTime, $"日程已结束 · {taskTitle}", true));
+                    break;
+            }
+        }
+
+        return result;
+    }
+
+    public static IReadOnlyList<RemindTrigger> GetDeadlineTriggers(
+        string? remind,
+        TimeSpan dueTime,
+        string taskTitle)
+    {
+        var normalized = Normalize(remind);
+        if (normalized.Length == 0) return Array.Empty<RemindTrigger>();
+
+        var result = new List<RemindTrigger>(3);
+        foreach (var node in normalized.Split(','))
+        {
+            switch (node)
+            {
+                case Pre15 when dueTime >= TimeSpan.FromMinutes(15):
+                    result.Add(new RemindTrigger(Pre15, dueTime - TimeSpan.FromMinutes(15), $"15 分钟后截止 · {taskTitle}", false));
+                    break;
+                case Pre5 when dueTime >= TimeSpan.FromMinutes(5):
+                    result.Add(new RemindTrigger(Pre5, dueTime - TimeSpan.FromMinutes(5), $"5 分钟后截止 · {taskTitle}", false));
+                    break;
+                case End:
+                    result.Add(new RemindTrigger(End, dueTime, $"已到截止时间 · {taskTitle}", true));
                     break;
             }
         }

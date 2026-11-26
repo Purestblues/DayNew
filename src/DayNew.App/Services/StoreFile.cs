@@ -407,7 +407,7 @@ public sealed class StoreFile
         Title = g.Title,
         Color = BrushToHex(g.Color),
         IsCompleted = g.IsCompleted,
-        Due = g.Due?.ToString("yyyy-MM-dd"),
+        Due = DeadlineRules.FormatDue(g.Due, g.DueTime),
         RootX = g.RootNode.X,
         RootY = g.RootNode.Y,
         Nodes = g.Nodes.Select(n => new GoalNodeDto
@@ -415,7 +415,7 @@ public sealed class StoreFile
             Id = n.Id,
             Title = n.Title,
             IsCompleted = n.IsCompleted,
-            Due = n.Due?.ToString("yyyy-MM-dd"),
+            Due = DeadlineRules.FormatDue(n.Due, n.DueTime),
             X = n.X,
             Y = n.Y
         }).ToList(),
@@ -466,7 +466,7 @@ public sealed class StoreFile
         Id = s.Id,
         Title = s.Title,
         Note = s.Note,
-        Due = s.Due?.ToString("yyyy-MM-dd"),
+        Due = DeadlineRules.FormatDue(s.Due, s.DueTime),
         Start = s.StartTime is { } st ? $"{(int)st.TotalHours:00}:{st.Minutes:00}" : null,
         End = s.EndTime is { } et ? $"{(int)et.TotalHours:00}:{et.Minutes:00}" : null,
         Repeat = s.Repeat,
@@ -543,12 +543,14 @@ public sealed class StoreFile
                 continue;
             }
 
+            var (goalDue, goalDueTime) = DeadlineRules.ParseDue(g.Due);
             var goal = new GoalVM
             {
                 Id = string.IsNullOrEmpty(g.Id) ? "" : g.Id,
                 Title = g.Title,
                 Color = DayStore.BrushFromHex(g.Color),
-                Due = ParseDate(g.Due),
+                Due = goalDue,
+                DueTime = goalDueTime,
                 Hlc = g.Hlc ?? "",
                 FieldHlcs = CopyFieldHlcs(g.FieldHlcs)
             };
@@ -560,11 +562,13 @@ public sealed class StoreFile
                     var nodeId = string.IsNullOrWhiteSpace(n.Id) ? Guid.NewGuid().ToString("N")[..10] : n.Id;
                     if (nodeId == GoalNodeVM.RootId) continue;
 
+                    var (nodeDue, nodeDueTime) = DeadlineRules.ParseDue(n.Due);
                     var node = new GoalNodeVM(goal, nodeId, n.Title)
                     {
                         X = n.X,
                         Y = n.Y,
-                        Due = ParseDate(n.Due)
+                        Due = nodeDue,
+                        DueTime = nodeDueTime
                     };
                     node.SetCompletedRaw(n.IsCompleted);
                     goal.Nodes.Add(node);
@@ -704,12 +708,14 @@ public sealed class StoreFile
                 continue;
             }
 
+            var (schedDue, schedDueTime) = DeadlineRules.ParseDue(d.Due);
             var schedule = new TaskVM
             {
                 Id = string.IsNullOrEmpty(d.Id) ? "" : d.Id,
                 Title = d.Title,
                 Note = d.Note,
-                Due = ParseDate(d.Due),
+                Due = schedDue,
+                DueTime = schedDueTime,
                 StartTime = ParseTime(d.Start),
                 EndTime = ParseTime(d.End),
                 Repeat = d.Repeat,

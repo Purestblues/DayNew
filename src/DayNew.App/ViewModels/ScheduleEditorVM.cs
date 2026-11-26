@@ -325,8 +325,10 @@ public sealed class ScheduleEditorVM : ObservableObject
     private bool _isUrgent;
     private bool _isImportant;
     private bool _hasDue = true;
+    private bool _hasDueTime;
     private bool _hasTime = true;
     private DateTime _date = DateTime.Today;
+    private string _dueTimeText = "18:00";
     private string _startText = "09:00";
     private string _endText = "09:30";
     private string _hintText = "";
@@ -393,12 +395,44 @@ public sealed class ScheduleEditorVM : ObservableObject
         set
         {
             if (!Set(ref _hasDue, value)) return;
-            if (!value && _hasTime)
+            if (!value)
             {
-                _hasTime = false;
-                OnPropertyChanged(nameof(HasTime));
+                if (_hasDueTime)
+                {
+                    _hasDueTime = false;
+                    OnPropertyChanged(nameof(HasDueTime));
+                }
+                if (_hasTime)
+                {
+                    _hasTime = false;
+                    OnPropertyChanged(nameof(HasTime));
+                }
             }
             OnPropertyChanged(nameof(Header));
+            OnPropertyChanged(nameof(CanRemind));
+            OnPropertyChanged(nameof(IsDeadlineOnlyRemind));
+            OnPropertyChanged(nameof(RemindEndChipText));
+            _owner.RefreshEditorHint();
+        }
+    }
+
+    public bool HasDueTime
+    {
+        get => _hasDueTime;
+        set
+        {
+            if (!Set(ref _hasDueTime, value)) return;
+            if (value && !_hasDue)
+            {
+                _hasDue = true;
+                OnPropertyChanged(nameof(HasDue));
+                OnPropertyChanged(nameof(Header));
+            }
+            if (value && !_hasTime)
+                Remind = RemindRules.NormalizeForDeadlineDefault(_remind);
+            OnPropertyChanged(nameof(CanRemind));
+            OnPropertyChanged(nameof(IsDeadlineOnlyRemind));
+            OnPropertyChanged(nameof(RemindEndChipText));
             _owner.RefreshEditorHint();
         }
     }
@@ -415,9 +449,18 @@ public sealed class ScheduleEditorVM : ObservableObject
                 OnPropertyChanged(nameof(HasDue));
             }
             OnPropertyChanged(nameof(Header));
+            OnPropertyChanged(nameof(CanRemind));
+            OnPropertyChanged(nameof(IsDeadlineOnlyRemind));
+            OnPropertyChanged(nameof(RemindEndChipText));
             _owner.RefreshEditorHint();
         }
     }
+
+    public bool CanRemind => HasTime || (HasDue && HasDueTime);
+
+    public bool IsDeadlineOnlyRemind => !HasTime && HasDue && HasDueTime;
+
+    public string RemindEndChipText => IsDeadlineOnlyRemind ? "截止时" : "结束时";
 
     public DateTime Date
     {
@@ -431,6 +474,12 @@ public sealed class ScheduleEditorVM : ObservableObject
     }
 
     public string DateText => $"{_date:M月d日} 周{"日一二三四五六"[(int)_date.DayOfWeek]}";
+
+    public string DueTimeText
+    {
+        get => _dueTimeText;
+        set { if (Set(ref _dueTimeText, value)) _owner.RefreshEditorHint(); }
+    }
 
     public string StartText
     {
@@ -502,6 +551,8 @@ public sealed class ScheduleEditorVM : ObservableObject
     {
         ResetCommonNew();
         _hasDue = true;
+        _hasDueTime = false;
+        _dueTimeText = "18:00";
         _hasTime = true;
         _date = date.Date;
         _startText = Clock(startMinutes);
@@ -516,6 +567,8 @@ public sealed class ScheduleEditorVM : ObservableObject
     {
         ResetCommonNew();
         _hasDue = true;
+        _hasDueTime = false;
+        _dueTimeText = "18:00";
         _hasTime = false;
         _date = date.Date;
         _startText = "09:00";
@@ -530,6 +583,8 @@ public sealed class ScheduleEditorVM : ObservableObject
     {
         ResetCommonNew();
         _hasDue = false;
+        _hasDueTime = false;
+        _dueTimeText = "18:00";
         _hasTime = false;
         _date = DateTime.Today;
         _startText = "09:00";
@@ -547,6 +602,8 @@ public sealed class ScheduleEditorVM : ObservableObject
         _title = (title ?? "").Trim();
         _remind = "";
         _hasDue = true;
+        _hasDueTime = false;
+        _dueTimeText = "18:00";
         _hasTime = true;
         _date = date.Date;
         _startText = Clock(startMinutes);
@@ -591,6 +648,8 @@ public sealed class ScheduleEditorVM : ObservableObject
         _errorText = "";
         _hasDue = task.Due.HasValue;
         _date = task.Due?.Date ?? DateTime.Today;
+        _hasDueTime = task.HasDueTime;
+        _dueTimeText = task.HasDueTime ? DeadlineRules.FormatClock(task.DueTime!.Value) : "18:00";
         _hasTime = task.Due.HasValue && task.HasTime;
 
         if (_hasTime)
@@ -669,6 +728,10 @@ public sealed class ScheduleEditorVM : ObservableObject
 
     public void SetError(string text) => ErrorText = text;
 
+    /// <summary>把「18」「9:30」「18:00」读成截止时间点；读不出来返回 false。</summary>
+    public bool TryReadDueTime(out TimeSpan dueTime)
+        => DeadlineRules.TryParseClock(DueTimeText, out dueTime);
+
     /// <summary>把「9」「9:30」「09:30」读成分钟数；读不出来返回 false。</summary>
     public bool TryReadTime(out int start, out int end)
     {
@@ -727,9 +790,14 @@ public sealed class ScheduleEditorVM : ObservableObject
         OnPropertyChanged(nameof(IsUrgent));
         OnPropertyChanged(nameof(IsImportant));
         OnPropertyChanged(nameof(HasDue));
+        OnPropertyChanged(nameof(HasDueTime));
         OnPropertyChanged(nameof(HasTime));
+        OnPropertyChanged(nameof(CanRemind));
+        OnPropertyChanged(nameof(IsDeadlineOnlyRemind));
+        OnPropertyChanged(nameof(RemindEndChipText));
         OnPropertyChanged(nameof(Date));
         OnPropertyChanged(nameof(DateText));
+        OnPropertyChanged(nameof(DueTimeText));
         OnPropertyChanged(nameof(StartText));
         OnPropertyChanged(nameof(EndText));
         OnPropertyChanged(nameof(HintText));

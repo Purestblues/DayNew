@@ -368,9 +368,10 @@
                                                   Click="TaskRemindChip_Click"/>
                                     <ToggleButton Style="{StaticResource FlagChip}" Content="开始" Tag="start"
                                                   Margin="0,0,4,4"
+                                                  Visibility="{Binding IsDeadlineOnlyRemind, Converter={StaticResource BoolToVisible}, ConverterParameter=invert}"
                                                   IsChecked="{Binding IsRemindStart, Mode=OneWay}"
                                                   Click="TaskRemindChip_Click"/>
-                                    <ToggleButton Style="{StaticResource FlagChip}" Content="结束" Tag="end"
+                                    <ToggleButton Style="{StaticResource FlagChip}" Content="{Binding RemindEndShortText}" Tag="end"
                                                   Margin="0,0,4,4"
                                                   IsChecked="{Binding IsRemindEnd, Mode=OneWay}"
                                                   Click="TaskRemindChip_Click"/>
@@ -1991,8 +1992,16 @@
                                                                             <TextBlock Text="{Binding Title}" FontSize="13" FontWeight="SemiBold"
                                                                                        Foreground="{DynamicResource TextPrimary}"
                                                                                        TextTrimming="CharacterEllipsis"/>
-                                                                            <TextBlock Text="{Binding SubLabel}" Style="{StaticResource Caption}"
-                                                                                       Margin="0,1,0,0" TextTrimming="CharacterEllipsis"/>
+                                                                            <StackPanel Orientation="Horizontal" Margin="0,1,0,0">
+                                                                                <TextBlock Text="{Binding SubLabel}" Style="{StaticResource Caption}"
+                                                                                           TextTrimming="CharacterEllipsis"/>
+                                                                                <TextBlock x:Name="goalDeadlineTimeText" Text="{Binding DueTimeText}"
+                                                                                           FontSize="11.5" FontWeight="Medium"
+                                                                                           Foreground="{DynamicResource TextTertiary}"
+                                                                                           Margin="6,0,0,0" VerticalAlignment="Center"
+                                                                                           Typography.NumeralAlignment="Tabular"
+                                                                                           Visibility="{Binding HasDueTime, Converter={StaticResource BoolToVisible}}"/>
+                                                                            </StackPanel>
                                                                         </StackPanel>
                                                                         <Border Grid.Column="2" Background="{DynamicResource Surface3}"
                                                                                 CornerRadius="4" Padding="6,2" Margin="8,0,0,0"
@@ -2008,6 +2017,11 @@
                                                                                    VerticalAlignment="Center" Margin="8,0,0,0"/>
                                                                     </Grid>
                                                                 </Button>
+                                                                <DataTemplate.Triggers>
+                                                                    <DataTrigger Binding="{Binding IsOverdue}" Value="True">
+                                                                        <Setter TargetName="goalDeadlineTimeText" Property="Foreground" Value="{DynamicResource Danger}"/>
+                                                                    </DataTrigger>
+                                                                </DataTemplate.Triggers>
                                                             </DataTemplate>
                                                         </ItemsControl.ItemTemplate>
                                                     </ItemsControl>
@@ -2775,6 +2789,23 @@
                                                 FontFamily="{StaticResource IconFont}" FontSize="10.5"
                                                 Padding="7,5" ToolTip="后一天" AutomationProperties.Name="后一天"
                                                 Click="EditorNextDay_Click"/>
+                                        <Border Width="1" Height="16" Background="{DynamicResource BorderSubtle}" Margin="10,0"/>
+                                        <ToggleButton x:Name="EditorHasDueTimeToggle" Style="{StaticResource SwitchToggle}"
+                                                      AutomationProperties.Name="指定截止时间点"
+                                                      AutomationProperties.AutomationId="EditorHasDueTimeToggle"
+                                                      IsChecked="{Binding Editor.HasDueTime, Mode=TwoWay}"/>
+                                        <TextBlock Text="时间点" FontSize="12" FontWeight="Medium"
+                                                   Foreground="{DynamicResource TextTertiary}"
+                                                   VerticalAlignment="Center" Margin="8,0,0,0"
+                                                   Visibility="{Binding Editor.HasDueTime, Converter={StaticResource BoolToVisible}, ConverterParameter=invert}"/>
+                                        <TextBox x:Name="EditorDueTimeBox" Style="{StaticResource SubtleInput}"
+                                                 Width="72" Height="30" Margin="8,0,0,0"
+                                                 HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                                                 AutomationProperties.Name="截止时间点"
+                                                 AutomationProperties.AutomationId="EditorDueTimeBox"
+                                                 ToolTip="如 18:00 或 9:30"
+                                                 Text="{Binding Editor.DueTimeText, UpdateSourceTrigger=PropertyChanged}"
+                                                 Visibility="{Binding Editor.HasDueTime, Converter={StaticResource BoolToVisible}}"/>
                                     </StackPanel>
                                 </Grid>
                             </Grid>
@@ -3034,7 +3065,7 @@
 
                             <!-- 提醒 -->
                             <Grid Margin="0,12,0,0"
-                                  Visibility="{Binding Editor.HasTime, Converter={StaticResource BoolToVisible}}">
+                                  Visibility="{Binding Editor.CanRemind, Converter={StaticResource BoolToVisible}}">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="58"/>
                                     <ColumnDefinition Width="*"/>
@@ -3055,10 +3086,11 @@
                                                   Click="EditorRemind_Click"/>
                                     <ToggleButton Style="{StaticResource FlagChip}" Content="开始时" Tag="start" Margin="0,0,6,4"
                                                   AutomationProperties.Name="开始时"
+                                                  Visibility="{Binding Editor.IsDeadlineOnlyRemind, Converter={StaticResource BoolToVisible}, ConverterParameter=invert}"
                                                   IsChecked="{Binding Editor.IsRemindStart, Mode=OneWay}"
                                                   Click="EditorRemind_Click"/>
-                                    <ToggleButton Style="{StaticResource FlagChip}" Content="结束时" Tag="end" Margin="0,0,6,4"
-                                                  AutomationProperties.Name="结束时"
+                                    <ToggleButton Style="{StaticResource FlagChip}" Content="{Binding Editor.RemindEndChipText}" Tag="end" Margin="0,0,6,4"
+                                                  AutomationProperties.Name="{Binding Editor.RemindEndChipText}"
                                                   IsChecked="{Binding Editor.IsRemindEnd, Mode=OneWay}"
                                                   Click="EditorRemind_Click"/>
                                 </WrapPanel>
@@ -4991,7 +5023,33 @@
                         </StackPanel>
                     </Border>
 
-                    <!-- 手动输入 yyyy-MM-dd -->
+                    <!-- 可选具体时间点 -->
+                    <Grid Margin="0,0,0,10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <ToggleButton x:Name="DeadlineHasTimeToggle" Style="{StaticResource SwitchToggle}"
+                                          AutomationProperties.Name="指定截止时间点"
+                                          AutomationProperties.AutomationId="DeadlineHasTimeToggle"
+                                          IsChecked="{Binding DeadlinePicker.HasTime, Mode=TwoWay}"/>
+                            <TextBlock Text="具体时间点" FontSize="12" FontWeight="Medium"
+                                       Foreground="{DynamicResource TextSecondary}"
+                                       VerticalAlignment="Center" Margin="8,0,0,0"/>
+                        </StackPanel>
+                        <TextBox x:Name="DeadlineTimeBox" Grid.Column="1" Style="{StaticResource SubtleInput}"
+                                 Width="78" Height="30" HorizontalAlignment="Right"
+                                 HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                                 AutomationProperties.Name="目标截止时间点"
+                                 AutomationProperties.AutomationId="DeadlineTimeBox"
+                                 ToolTip="如 18:00 或 9:30"
+                                 Text="{Binding DeadlinePicker.TimeText, UpdateSourceTrigger=PropertyChanged}"
+                                 KeyDown="DeadlineManualBox_KeyDown"
+                                 Visibility="{Binding DeadlinePicker.HasTime, Converter={StaticResource BoolToVisible}}"/>
+                    </Grid>
+
+                    <!-- 手动输入 yyyy-MM-dd 或 yyyy-MM-dd HH:mm -->
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
@@ -5002,7 +5060,7 @@
                                      Height="30" VerticalContentAlignment="Center"
                                      Text="{Binding DeadlinePicker.ManualText, UpdateSourceTrigger=PropertyChanged}"
                                      KeyDown="DeadlineManualBox_KeyDown"/>
-                            <TextBlock Text="yyyy-MM-dd（留空清除）" IsHitTestVisible="False"
+                            <TextBlock Text="yyyy-MM-dd 或 yyyy-MM-dd HH:mm" IsHitTestVisible="False"
                                        FontSize="11.5" FontWeight="Medium" Margin="8,0,0,0"
                                        VerticalAlignment="Center" Foreground="{DynamicResource TextDisabled}"
                                        Visibility="{Binding Text, ElementName=DeadlineManualBox, UpdateSourceTrigger=PropertyChanged, Converter={StaticResource EmptyToVisible}}"/>

@@ -104,7 +104,8 @@ public partial class App : Application
                 {
                     if (_vm.CompleteTaskById(id)) _vm.FlushSave();
                 },
-                onExtendFocus: mins => _vm.Focus.ExtendMinutes(mins));
+                onExtendFocus: mins => _vm.Focus.ExtendMinutes(mins),
+                getGoals: () => _vm.Goals);
 
             _vm.TaskTouched += _notifications.ResetTaskFires;
             _vm.SummaryChanged += _tray.UpdateTooltip;

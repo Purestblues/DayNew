@@ -429,7 +429,7 @@ public sealed class McpServerService : IDisposable
                 pending = all.Count(t => !t.Done),
                 done = all.Count(t => t.Done),
                 overdue = lanes["overdue"].Count,
-                todayPending = all.Count(t => !t.Done && t.Due?.Date == DateTime.Today)
+                todayPending = all.Count(t => !t.Done && t.Due?.Date == DateTime.Today && !DeadlineRules.IsOverdue(t.Due, t.DueTime))
             },
             lanes,
             goals = _vm.Store.Goals.Select(g => new
@@ -438,6 +438,7 @@ public sealed class McpServerService : IDisposable
                 title = g.Title,
                 isCompleted = g.IsCompleted,
                 due = g.Due?.ToString("yyyy-MM-dd"),
+                dueTime = g.DueTime is { } gdt ? DeadlineRules.FormatClock(gdt) : null,
                 doneCount = g.DoneCount,
                 total = g.Total,
                 progressText = g.ProgressText
@@ -539,6 +540,7 @@ public sealed class McpServerService : IDisposable
         if (title.Length == 0) throw new ToolInputException("日程标题 title 不能为空");
 
         var dueStr = TryGetString(args, "due");
+        var dueTimeStr = TryGetString(args, "dueTime");
         var startStr = TryGetString(args, "startTime");
         var endStr = TryGetString(args, "endTime");
         var note = TryGetString(args, "note") ?? "";
@@ -552,7 +554,12 @@ public sealed class McpServerService : IDisposable
         var goalId = TryGetString(args, "goalId");
         var nodeId = TryGetString(args, "nodeId");
 
-        DateTime? due = ParseOptionalDate(dueStr);
+        var (due, dueTime) = ParseOptionalDue(dueStr);
+        if (!string.IsNullOrWhiteSpace(dueTimeStr))
+            dueTime = ParseRequiredClock(dueTimeStr, "dueTime");
+        if (dueTime.HasValue && !due.HasValue)
+            due = DateTime.Today;
+
         var (startTime, endTime, adjusted) = ResolveTimeRange(due, startStr, endStr, exclude: null, out var resolvedDue);
         due = resolvedDue;
 
@@ -566,6 +573,7 @@ public sealed class McpServerService : IDisposable
             s.Title = title;
             s.Note = note;
             s.Due = due;
+            s.DueTime = due.HasValue ? dueTime : null;
             s.StartTime = startTime;
             s.EndTime = endTime;
             s.Repeat = repeat;
@@ -600,11 +608,19 @@ public sealed class McpServerService : IDisposable
             ?? throw new ToolInputException($"找不到 id={id} 的日程");
 
         var clearDue = TryGetBool(args, "clearDue") ?? false;
+        var clearDueTime = TryGetBool(args, "clearDueTime") ?? false;
         var clearTime = TryGetBool(args, "clearTime") ?? false;
 
-        var nextDue = clearDue
-            ? (DateTime?)null
-            : (HasProp(args, "due") ? ParseOptionalDate(TryGetString(args, "due")) : task.Due);
+        var hasDueProp = HasProp(args, "due");
+        var hasDueTimeProp = HasProp(args, "dueTime");
+        var (parsedDue, parsedDueTime) = hasDueProp ? ParseOptionalDue(TryGetString(args, "due")) : (task.Due, task.DueTime);
+
+        var nextDue = clearDue ? (DateTime?)null : parsedDue;
+        TimeSpan? nextDueTime = clearDue || clearDueTime
+            ? null
+            : hasDueTimeProp
+                ? (string.IsNullOrWhiteSpace(TryGetString(args, "dueTime")) ? null : ParseRequiredClock(TryGetString(args, "dueTime")!, "dueTime"))
+                : (hasDueProp ? (parsedDueTime ?? (parsedDue.HasValue ? task.DueTime : null)) : task.DueTime);
 
         var hasStartProp = HasProp(args, "startTime");
         var hasEndProp = HasProp(args, "endTime");
@@ -614,8 +630,21 @@ public sealed class McpServerService : IDisposable
         {
             task.StartTime = null;
             task.EndTime = null;
-            if (clearDue) task.Due = null;
-            else if (HasProp(args, "due")) task.Due = nextDue;
+            if (clearDue)
+            {
+                task.Due = null;
+                task.DueTime = null;
+            }
+            else if (hasDueProp)
+            {
+                task.Due = nextDue;
+                task.DueTime = nextDue.HasValue ? nextDueTime : null;
+            }
+            else if (clearDueTime || hasDueTimeProp)
+            {
+                if (nextDueTime.HasValue && !task.Due.HasValue) task.Due = DateTime.Today;
+                task.DueTime = task.Due.HasValue ? nextDueTime : null;
+            }
         }
         else if (hasStartProp || hasEndProp)
         {
@@ -623,25 +652,29 @@ public sealed class McpServerService : IDisposable
             var endText = hasEndProp ? TryGetString(args, "endTime") : FormatTime(task.EndTime);
             var (st, et, adj) = ResolveTimeRange(nextDue, startText, endText, exclude: task, out var resolvedDue);
             task.Due = resolvedDue;
+            task.DueTime = resolvedDue.HasValue ? nextDueTime : null;
             task.StartTime = st;
             task.EndTime = et;
             adjusted = adj;
         }
-        else if (HasProp(args, "due"))
+        else if (hasDueProp || clearDueTime || hasDueTimeProp)
         {
-            if (nextDue.HasValue && task.HasTime)
+            var effectiveDue = nextDue ?? (nextDueTime.HasValue ? DateTime.Today : (DateTime?)null);
+            if (effectiveDue.HasValue && task.HasTime)
             {
                 var duration = MainViewModel.DurationMinutes(task);
                 var origStart = (int)task.StartTime!.Value.TotalMinutes;
-                var free = _vm.FindFreeStart(nextDue.Value, origStart, duration, task);
-                task.Due = nextDue.Value.Date;
+                var free = _vm.FindFreeStart(effectiveDue.Value, origStart, duration, task);
+                task.Due = effectiveDue.Value.Date;
+                task.DueTime = nextDueTime;
                 task.StartTime = TimeSpan.FromMinutes(free);
                 task.EndTime = TimeSpan.FromMinutes(free + duration);
                 adjusted = free != origStart;
             }
             else
             {
-                task.Due = nextDue;
+                task.Due = effectiveDue;
+                task.DueTime = effectiveDue.HasValue ? nextDueTime : null;
             }
         }
 
@@ -837,6 +870,7 @@ public sealed class McpServerService : IDisposable
             color = BrushHex(g.Color),
             isCompleted = g.IsCompleted,
             due = g.Due?.ToString("yyyy-MM-dd"),
+            dueTime = g.DueTime is { } gdt ? DeadlineRules.FormatClock(gdt) : null,
             doneCount = g.DoneCount,
             total = g.Total,
             progressText = g.ProgressText,
@@ -846,6 +880,7 @@ public sealed class McpServerService : IDisposable
                 title = n.Title,
                 isCompleted = n.IsCompleted,
                 due = n.Due?.ToString("yyyy-MM-dd"),
+                dueTime = n.DueTime is { } ndt ? DeadlineRules.FormatClock(ndt) : null,
                 taskCount = n.TaskCount,
                 doneTaskCount = n.DoneTaskCount
             }).ToList(),
@@ -866,7 +901,12 @@ public sealed class McpServerService : IDisposable
         var id = TryGetString(args, "id");
         var title = (TryGetString(args, "title") ?? "").Trim();
         var hasDue = HasProp(args, "due");
-        var due = hasDue ? ParseOptionalDate(TryGetString(args, "due")) : null;
+        var hasDueTime = HasProp(args, "dueTime");
+        var clearDueTime = TryGetBool(args, "clearDueTime") ?? false;
+        var (due, parsedDueTime) = hasDue ? ParseOptionalDue(TryGetString(args, "due")) : (null, null);
+        TimeSpan? explicitDueTime = hasDueTime
+            ? (string.IsNullOrWhiteSpace(TryGetString(args, "dueTime")) ? null : ParseRequiredClock(TryGetString(args, "dueTime")!, "dueTime"))
+            : null;
         var isCompleted = TryGetBool(args, "isCompleted");
 
         GoalVM goal;
@@ -885,7 +925,17 @@ public sealed class McpServerService : IDisposable
             isNew = true;
         }
 
-        if (hasDue) goal.Due = due;
+        if (hasDue)
+        {
+            goal.Due = due;
+            if (!due.HasValue) goal.DueTime = null;
+            else if (parsedDueTime.HasValue) goal.DueTime = parsedDueTime;
+        }
+        if (clearDueTime)
+            goal.DueTime = null;
+        else if (hasDueTime)
+            goal.DueTime = goal.Due.HasValue ? explicitDueTime : null;
+
         if (isCompleted.HasValue && goal.IsCompleted != isCompleted.Value)
             goal.SetGoalCompleted(isCompleted.Value);
 
@@ -900,6 +950,7 @@ public sealed class McpServerService : IDisposable
                 title = goal.Title,
                 isCompleted = goal.IsCompleted,
                 due = goal.Due?.ToString("yyyy-MM-dd"),
+                dueTime = goal.DueTime is { } dt ? DeadlineRules.FormatClock(dt) : null,
                 progressText = goal.ProgressText
             }
         };
@@ -1052,12 +1103,29 @@ public sealed class McpServerService : IDisposable
         }
     }
 
+    private static (DateTime? Date, TimeSpan? DueTime) ParseOptionalDue(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return (null, null);
+        var (date, time) = DeadlineRules.ParseDue(raw);
+        if (!date.HasValue)
+            throw new ToolInputException("due 格式无效，请使用 yyyy-MM-dd 或 yyyy-MM-dd HH:mm");
+        return (date, time);
+    }
+
+    private static TimeSpan ParseRequiredClock(string raw, string fieldName)
+    {
+        if (!DeadlineRules.TryParseClock(raw, out var time))
+            throw new ToolInputException($"{fieldName} 格式无效，请使用 HH:mm（如 18:00）");
+        return time;
+    }
+
     private static object SerializeSchedule(TaskVM t) => new
     {
         id = t.Id,
         title = t.Title,
         note = t.Note,
         due = t.Due?.ToString("yyyy-MM-dd"),
+        dueTime = t.HasDueTime ? DeadlineRules.FormatClock(t.DueTime!.Value) : null,
         lane = LaneKeyFor(t),
         startTime = FormatTime(t.StartTime),
         endTime = FormatTime(t.EndTime),
@@ -1246,7 +1314,8 @@ public sealed class McpServerService : IDisposable
             inputSchema = Schema(new
             {
                 title = new { type = "string", description = "日程标题（必填）" },
-                due = new { type = "string", description = "截止日期 yyyy-MM-dd；留空为未来事项（若给了时间则默认今天）" },
+                due = new { type = "string", description = "截止日期 yyyy-MM-dd 或 yyyy-MM-dd HH:mm；留空为未来事项（若给了时间则默认今天）" },
+                dueTime = new { type = "string", description = "可选截止具体时间点 HH:mm（如 18:00）" },
                 startTime = new { type = "string", description = "开始时刻 HH:mm" },
                 endTime = new { type = "string", description = "结束时刻 HH:mm（省略则默认 +30 分钟）" },
                 note = new { type = "string", description = "备注" },
@@ -1270,7 +1339,9 @@ public sealed class McpServerService : IDisposable
             {
                 id = new { type = "string", description = "日程 ID（必填）" },
                 title = new { type = "string", description = "新标题" },
-                due = new { type = "string", description = "新日期 yyyy-MM-dd" },
+                due = new { type = "string", description = "新日期 yyyy-MM-dd 或 yyyy-MM-dd HH:mm" },
+                dueTime = new { type = "string", description = "可选截止具体时间点 HH:mm（传空字符串可清除）" },
+                clearDueTime = new { type = "boolean", description = "设为 true 可清除截止具体时间点，仅保留日期" },
                 clearDue = new { type = "boolean", description = "设为 true 可清除日期与时段，移入未来事项" },
                 startTime = new { type = "string", description = "新开始时刻 HH:mm" },
                 endTime = new { type = "string", description = "新结束时刻 HH:mm" },
@@ -1354,7 +1425,9 @@ public sealed class McpServerService : IDisposable
             {
                 id = new { type = "string", description = "既有目标 ID（省略则新建）" },
                 title = new { type = "string", description = "目标名称" },
-                due = new { type = "string", description = "可选截止日期 yyyy-MM-dd（传空字符串可清除）" },
+                due = new { type = "string", description = "可选截止日期 yyyy-MM-dd 或 yyyy-MM-dd HH:mm（传空字符串可清除）" },
+                dueTime = new { type = "string", description = "可选截止具体时间点 HH:mm（传空字符串可清除）" },
+                clearDueTime = new { type = "boolean", description = "设为 true 可清除截止具体时间点" },
                 isCompleted = new { type = "boolean", description = "是否标记为已完成" }
             }),
             annotations = Annot(readOnly: false, destructive: false)

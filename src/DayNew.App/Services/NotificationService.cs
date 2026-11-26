@@ -22,6 +22,7 @@ public sealed class NotificationService : IDisposable
 
     private readonly AppSettings _settings;
     private readonly Func<IReadOnlyList<TaskVM>> _getSchedules;
+    private readonly Func<IReadOnlyList<GoalVM>>? _getGoals;
     private readonly Action _onOpenWindow;
     private readonly Action<string> _onCompleteTask;
     private readonly Action<int>? _onExtendFocus;
@@ -39,10 +40,12 @@ public sealed class NotificationService : IDisposable
         Func<IReadOnlyList<TaskVM>> getSchedules,
         Action onOpenWindow,
         Action<string> onCompleteTask,
-        Action<int>? onExtendFocus = null)
+        Action<int>? onExtendFocus = null,
+        Func<IReadOnlyList<GoalVM>>? getGoals = null)
     {
         _settings = settings;
         _getSchedules = getSchedules;
+        _getGoals = getGoals;
         _onOpenWindow = onOpenWindow;
         _onCompleteTask = onCompleteTask;
         _onExtendFocus = onExtendFocus;
@@ -90,12 +93,12 @@ public sealed class NotificationService : IDisposable
 
         var all = _getSchedules();
         var todayTasks = all
-            .Where(t => !t.Done && t.Due?.Date == today)
-            .OrderBy(t => t.StartTime ?? TimeSpan.MaxValue)
+            .Where(t => !t.Done && t.Due?.Date == today && !DeadlineRules.IsOverdue(t.Due, t.DueTime))
+            .OrderBy(t => t.StartTime ?? t.DueTime ?? TimeSpan.MaxValue)
             .ThenBy(t => t.Order)
             .ToList();
 
-        var overdueCount = all.Count(t => !t.Done && t.Due is { } d && d.Date < today);
+        var overdueCount = all.Count(t => !t.Done && DeadlineRules.IsOverdue(t.Due, t.DueTime));
 
         string title;
         string body;
@@ -115,7 +118,9 @@ public sealed class NotificationService : IDisposable
 
             var preview = todayTasks
                 .Take(4)
-                .Select(t => t.StartTime is { } st ? $"{Fmt(st)} {TitleOf(t)}" : TitleOf(t));
+                .Select(t => t.StartTime is { } st
+                    ? $"{Fmt(st)} {TitleOf(t)}"
+                    : (t.DueTime is { } dt ? $"{Fmt(dt)}截止 {TitleOf(t)}" : TitleOf(t)));
             body = string.Join(" · ", preview);
             if (todayTasks.Count > 4) body += $" 等 {todayTasks.Count} 项";
         }
@@ -199,10 +204,18 @@ public sealed class NotificationService : IDisposable
         var prefix = task.Id + "|";
 
         var currentTriggers = new HashSet<(string Node, int TargetMinutes)>();
-        if (task.Due?.Date == today && task.StartTime is { } st && task.EndTime is { } et && task.HasRemind)
+        if (task.Due?.Date == today && task.HasRemind)
         {
-            foreach (var trigger in RemindRules.GetTriggers(task.Remind, st, et, TitleOf(task)))
-                currentTriggers.Add((trigger.Node, (int)trigger.TargetTime.TotalMinutes));
+            if (task.StartTime is { } st && task.EndTime is { } et)
+            {
+                foreach (var trigger in RemindRules.GetTriggers(task.Remind, st, et, TitleOf(task)))
+                    currentTriggers.Add((trigger.Node, (int)trigger.TargetTime.TotalMinutes));
+            }
+            else if (task.DueTime is { } dt)
+            {
+                foreach (var trigger in RemindRules.GetDeadlineTriggers(task.Remind, dt, TitleOf(task)))
+                    currentTriggers.Add(("due-" + trigger.Node, (int)trigger.TargetTime.TotalMinutes));
+            }
         }
 
         _firedKeys.RemoveWhere(key =>
@@ -267,30 +280,111 @@ public sealed class NotificationService : IDisposable
                 includeCompleteAction: true);
         }
 
-        // 2. 扫描今日各日程的相对提醒节点
+        // 2. 扫描今日各日程的相对提醒节点（起止时段或截止时间点）
         var now = nowDateTime.TimeOfDay;
         foreach (var task in all)
         {
-            if (task.Done || task.Due?.Date != today) continue;
-            if (!task.HasTime || !task.HasRemind) continue;
+            if (task.Done || task.Due?.Date != today || !task.HasRemind) continue;
 
-            var st = task.StartTime!.Value;
-            var et = task.EndTime!.Value;
-            var range = $"{Fmt(st)} – {Fmt(et)}";
-
-            foreach (var trigger in RemindRules.GetTriggers(task.Remind, st, et, TitleOf(task)))
+            if (task.HasTime)
             {
-                var primary = trigger.IsEnd ? $"{range} · 记得确认完成" : range;
-                TryFire(
-                    task,
-                    today,
-                    now,
-                    trigger.TargetTime,
-                    trigger.Node,
-                    trigger.ToastTitle,
-                    BuildBody(task, primary));
+                var st = task.StartTime!.Value;
+                var et = task.EndTime!.Value;
+                var range = $"{Fmt(st)} – {Fmt(et)}";
+
+                foreach (var trigger in RemindRules.GetTriggers(task.Remind, st, et, TitleOf(task)))
+                {
+                    var primary = trigger.IsEnd ? $"{range} · 记得确认完成" : range;
+                    TryFire(
+                        task,
+                        today,
+                        now,
+                        trigger.TargetTime,
+                        trigger.Node,
+                        trigger.ToastTitle,
+                        BuildBody(task, primary));
+                }
+            }
+            else if (task.HasDueTime)
+            {
+                var dt = task.DueTime!.Value;
+                var deadlineText = $"截止时间 {Fmt(dt)}";
+
+                foreach (var trigger in RemindRules.GetDeadlineTriggers(task.Remind, dt, TitleOf(task)))
+                {
+                    var primary = trigger.IsEnd ? $"{deadlineText} · 记得确认完成" : deadlineText;
+                    TryFire(
+                        task,
+                        today,
+                        now,
+                        trigger.TargetTime,
+                        "due-" + trigger.Node,
+                        trigger.ToastTitle,
+                        BuildBody(task, primary));
+                }
             }
         }
+
+        // 3. 扫描今日设了具体截止时间点的目标与子目标（提前 15 分钟与截止时）
+        if (_getGoals is not null)
+        {
+            foreach (var goal in _getGoals())
+            {
+                if (goal.IsCompleted) continue;
+
+                var goalTitle = string.IsNullOrWhiteSpace(goal.Title) ? "未命名目标" : goal.Title.Trim();
+                if (goal.Due?.Date == today && goal.DueTime is { } gdt)
+                    TryFireGoalDeadline("goal-" + goal.Id, today, now, gdt, goalTitle, $"目标截止时间 {Fmt(gdt)}");
+
+                foreach (var node in goal.Nodes)
+                {
+                    if (node.IsCompleted || node.Due?.Date != today || node.DueTime is not { } ndt) continue;
+                    TryFireGoalDeadline(
+                        $"goalnode-{goal.Id}-{node.Id}",
+                        today,
+                        now,
+                        ndt,
+                        node.DisplayTitle,
+                        $"子目标截止时间 {Fmt(ndt)} · {goalTitle}");
+                }
+            }
+        }
+    }
+
+    private void TryFireGoalDeadline(
+        string keyPrefix,
+        DateTime today,
+        TimeSpan now,
+        TimeSpan dueTime,
+        string title,
+        string body)
+    {
+        if (dueTime >= TimeSpan.FromMinutes(15))
+            TryFireGoalStage(keyPrefix, today, now, dueTime - TimeSpan.FromMinutes(15), "pre15", $"15 分钟后截止 · {title}", body);
+
+        TryFireGoalStage(keyPrefix, today, now, dueTime, "end", $"已到截止时间 · {title}", body);
+    }
+
+    private void TryFireGoalStage(
+        string keyPrefix,
+        DateTime today,
+        TimeSpan now,
+        TimeSpan target,
+        string stage,
+        string toastTitle,
+        string body)
+    {
+        if (now < target || now >= target + TimeSpan.FromMinutes(2)) return;
+
+        var key = $"{keyPrefix}|{today:yyyy-MM-dd}|{stage}|{(int)target.TotalMinutes}";
+        if (!_firedKeys.Add(key)) return;
+
+        ShowToast(
+            title: toastTitle,
+            body: body,
+            tag: $"{keyPrefix}-{stage}",
+            taskId: null,
+            includeCompleteAction: false);
     }
 
     private void TryFire(

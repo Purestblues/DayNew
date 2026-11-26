@@ -7,11 +7,12 @@ namespace DayNew.ViewModels;
 /// <summary>截止日期页里展示的一条目标或子目标。</summary>
 public sealed class DeadlineGoalItemVM
 {
-    public DeadlineGoalItemVM(GoalVM goal, GoalNodeVM? node, DateTime due)
+    public DeadlineGoalItemVM(GoalVM goal, GoalNodeVM? node, DateTime due, TimeSpan? dueTime = null)
     {
         Goal = goal;
         Node = node;
         Due = due.Date;
+        DueTime = dueTime;
     }
 
     public GoalVM Goal { get; }
@@ -20,6 +21,12 @@ public sealed class DeadlineGoalItemVM
     public GoalNodeVM? Node { get; }
 
     public DateTime Due { get; }
+
+    public TimeSpan? DueTime { get; }
+
+    public bool HasDueTime => DueTime.HasValue;
+
+    public string DueTimeText => DueTime is { } dt ? $"{DeadlineRules.FormatClock(dt)} 截止" : "";
 
     public string Title => Node is null
         ? (string.IsNullOrWhiteSpace(Goal.Title) ? "未命名目标" : Goal.Title)
@@ -31,9 +38,9 @@ public sealed class DeadlineGoalItemVM
 
     public Brush Color => Goal.Color;
 
-    public bool IsOverdue => Due < DateTime.Today;
+    public bool IsOverdue => DeadlineRules.IsOverdue(Due, DueTime);
 
-    public string DueBadgeText => GoalNodeVM.FormatDueBadge(Due, isCompleted: false);
+    public string DueBadgeText => GoalNodeVM.FormatDueBadge(Due, DueTime, isCompleted: false);
 
     public string ProgressText
     {

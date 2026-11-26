@@ -34,6 +34,7 @@ public sealed class GoalNodeVM : ObservableObject
     private string _title;
     private bool _isCompleted;
     private DateTime? _due;
+    private TimeSpan? _dueTime;
     private double _x;
     private double _y;
     private int _taskCount;
@@ -117,7 +118,34 @@ public sealed class GoalNodeVM : ObservableObject
                 return;
             }
 
-            if (!Set(ref _due, normalized)) return;
+            var changed = Set(ref _due, normalized);
+            if (normalized is null && _dueTime is not null)
+            {
+                _dueTime = null;
+                OnPropertyChanged(nameof(DueTime));
+                OnPropertyChanged(nameof(HasDueTime));
+                changed = true;
+            }
+
+            if (!changed) return;
+            RaiseDueDisplay();
+            Owner.UpdateLayoutBoundsAndEdges();
+        }
+    }
+
+    public TimeSpan? DueTime
+    {
+        get => IsRoot ? Owner.DueTime : _dueTime;
+        set
+        {
+            if (IsRoot)
+            {
+                Owner.DueTime = value;
+                return;
+            }
+
+            if (!Set(ref _dueTime, value)) return;
+            OnPropertyChanged(nameof(HasDueTime));
             RaiseDueDisplay();
             Owner.UpdateLayoutBoundsAndEdges();
         }
@@ -125,21 +153,39 @@ public sealed class GoalNodeVM : ObservableObject
 
     public bool HasDue => Due.HasValue;
 
-    public bool IsDueOverdue => !IsCompleted && Due is { } d && d.Date < DateTime.Today;
+    public bool HasDueTime => Due.HasValue && DueTime.HasValue;
 
-    public string DueInputText => Due?.ToString("yyyy-MM-dd") ?? "";
+    public bool IsDueOverdue => !IsCompleted && DeadlineRules.IsOverdue(Due, DueTime);
 
-    public string DueBadgeText => FormatDueBadge(Due, IsCompleted);
+    public string DueInputText => DeadlineRules.FormatDue(Due, DueTime) ?? "";
 
-    internal static string FormatDueBadge(DateTime? due, bool isCompleted)
+    public string DueBadgeText => FormatDueBadge(Due, DueTime, IsCompleted);
+
+    internal static string FormatDueBadge(DateTime? due, TimeSpan? dueTime, bool isCompleted)
     {
         if (due is not { } d) return "";
         var date = d.Date;
         var today = DateTime.Today;
-        if (!isCompleted && date < today) return $"逾期 · {date:M月d日}";
-        if (date == today) return "今天截止";
-        if (date == today.AddDays(1)) return "明天截止";
-        return date.Year == today.Year ? $"{date:M月d日}截止" : $"{date:yyyy-MM-dd}";
+
+        if (dueTime is not { } dt)
+        {
+            if (!isCompleted && date < today) return $"逾期 · {date:M月d日}";
+            if (date == today) return "今天截止";
+            if (date == today.AddDays(1)) return "明天截止";
+            return date.Year == today.Year ? $"{date:M月d日}截止" : $"{date:yyyy-MM-dd}";
+        }
+
+        var clock = DeadlineRules.FormatClock(dt);
+        if (!isCompleted && DeadlineRules.IsOverdue(date, dt))
+        {
+            return date == today
+                ? $"逾期 · 今天 {clock}"
+                : $"逾期 · {date:M月d日} {clock}";
+        }
+
+        if (date == today) return $"今天 {clock} 截止";
+        if (date == today.AddDays(1)) return $"明天 {clock} 截止";
+        return date.Year == today.Year ? $"{date:M月d日} {clock}" : $"{date:yyyy-MM-dd} {clock}";
     }
 
     public double X
@@ -299,7 +345,9 @@ public sealed class GoalNodeVM : ObservableObject
     private void RaiseDueDisplay()
     {
         OnPropertyChanged(nameof(Due));
+        OnPropertyChanged(nameof(DueTime));
         OnPropertyChanged(nameof(HasDue));
+        OnPropertyChanged(nameof(HasDueTime));
         OnPropertyChanged(nameof(IsDueOverdue));
         OnPropertyChanged(nameof(DueInputText));
         OnPropertyChanged(nameof(DueBadgeText));
@@ -720,6 +768,7 @@ public sealed class GoalVM : ObservableObject
     private string _title = "";
     private bool _isCompleted;
     private DateTime? _due;
+    private TimeSpan? _dueTime;
     private bool _isExpanded;
     private bool _isDropTarget;
     private int _maxDepth;
@@ -777,7 +826,16 @@ public sealed class GoalVM : ObservableObject
         set
         {
             var normalized = value?.Date;
-            if (!Set(ref _due, normalized)) return;
+            var changed = Set(ref _due, normalized);
+            if (normalized is null && _dueTime is not null)
+            {
+                _dueTime = null;
+                OnPropertyChanged(nameof(DueTime));
+                OnPropertyChanged(nameof(HasDueTime));
+                changed = true;
+            }
+
+            if (!changed) return;
             RootNode.NotifyRootDueSynced();
             OnPropertyChanged(nameof(HasDue));
             OnPropertyChanged(nameof(IsDueOverdue));
@@ -787,11 +845,28 @@ public sealed class GoalVM : ObservableObject
         }
     }
 
+    public TimeSpan? DueTime
+    {
+        get => _dueTime;
+        set
+        {
+            if (!Set(ref _dueTime, value)) return;
+            RootNode.NotifyRootDueSynced();
+            OnPropertyChanged(nameof(HasDueTime));
+            OnPropertyChanged(nameof(IsDueOverdue));
+            OnPropertyChanged(nameof(DueBadgeText));
+            UpdateLayoutBoundsAndEdges();
+            Refresh();
+        }
+    }
+
     public bool HasDue => Due.HasValue;
 
-    public bool IsDueOverdue => !IsCompleted && Due is { } d && d.Date < DateTime.Today;
+    public bool HasDueTime => Due.HasValue && DueTime.HasValue;
 
-    public string DueBadgeText => GoalNodeVM.FormatDueBadge(Due, IsCompleted);
+    public bool IsDueOverdue => !IsCompleted && DeadlineRules.IsOverdue(Due, DueTime);
+
+    public string DueBadgeText => GoalNodeVM.FormatDueBadge(Due, DueTime, IsCompleted);
 
     /// <summary>每个目标一个固定颜色，任务卡片标题前的小圆点用它 —— 比写字省地方。</summary>
     public Brush Color { get; set; } = Brushes.Transparent;
