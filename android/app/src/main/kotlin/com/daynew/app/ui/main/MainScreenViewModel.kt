@@ -8,6 +8,8 @@ import com.daynew.app.data.DayNewRepository
 import com.daynew.app.data.GoalDraft
 import com.daynew.app.data.LaneKind
 import com.daynew.app.data.LaneRules
+import com.daynew.app.data.LocationDraft
+import com.daynew.app.data.PersonDraft
 import com.daynew.app.data.ScheduleDraft
 import com.daynew.app.data.TagDraft
 import com.daynew.app.data.TimelineBlockInput
@@ -17,6 +19,8 @@ import com.daynew.app.sync.SyncExecutionResult
 import com.daynew.app.sync.SyncStatusUi
 import com.daynew.sync.DeadlineRules
 import com.daynew.sync.GoalDto
+import com.daynew.sync.LocationDto
+import com.daynew.sync.PersonDto
 import com.daynew.sync.RemindRules
 import com.daynew.sync.RepeatRules
 import com.daynew.sync.ScheduleDto
@@ -34,19 +38,28 @@ import java.time.LocalDateTime
 import java.time.format.TextStyle as JavaTextStyle
 import java.util.Locale
 
-enum class BottomTab(val title: String) {
+enum class AppPage(val title: String) {
     OVERVIEW("概览"),
     TIMELINE("视图"),
+    EISENHOWER("艾森豪威尔看板"),
     GOALS("目标"),
-    CATALOG("分类"),
-    MORE("更多"),
-}
-
-enum class CatalogSubTab(val title: String) {
     DEADLINES("截止日期"),
     FUTURE("未来事项"),
-    EISENHOWER("四象限"),
     TAGS("标签"),
+    SETTINGS("设置"),
+}
+
+enum class BottomTab(val title: String, val page: AppPage) {
+    OVERVIEW("概览", AppPage.OVERVIEW),
+    TIMELINE("视图", AppPage.TIMELINE),
+    EISENHOWER("艾森豪威尔看板", AppPage.EISENHOWER),
+    GOALS("目标", AppPage.GOALS),
+}
+
+enum class TagPageSection(val title: String) {
+    TAGS("标签"),
+    PERSONS("人物"),
+    LOCATIONS("地点"),
 }
 
 enum class EisenhowerKind(val title: String, val subtitle: String) {
@@ -69,6 +82,8 @@ data class ScheduleCardUi(
     val goalTitle: String?,
     val goalColorHex: String?,
     val tags: List<TagChipUi>,
+    val personNames: List<String> = emptyList(),
+    val locationNames: List<String> = emptyList(),
     val timeLabel: String?,
     val dueDateLabel: String?,
     val repeatLabel: String?,
@@ -89,6 +104,11 @@ data class TimelineBlockUi(
     val endMinutes: Int,
     val columnIndex: Int,
     val columnCount: Int,
+)
+
+data class DayTimelineUi(
+    val blocks: List<TimelineBlockUi> = emptyList(),
+    val allDaySchedules: List<ScheduleCardUi> = emptyList(),
 )
 
 data class DeadlineGoalItemUi(
@@ -120,31 +140,49 @@ data class TagGroupUi(
     val schedules: List<ScheduleCardUi>,
 )
 
+data class PersonGroupUi(
+    val person: PersonDto,
+    val schedules: List<ScheduleCardUi>,
+)
+
+data class LocationGroupUi(
+    val location: LocationDto,
+    val schedules: List<ScheduleCardUi>,
+)
+
 data class ToastNotice(
     val id: Long,
     val message: String,
 )
 
 data class DayNewUiState(
-    val selectedTab: BottomTab = BottomTab.OVERVIEW,
-    val selectedCatalogTab: CatalogSubTab = CatalogSubTab.DEADLINES,
+    val selectedPage: AppPage = AppPage.OVERVIEW,
+    val selectedTagSection: TagPageSection = TagPageSection.TAGS,
     val selectedLane: LaneKind = LaneKind.TODAY,
     val selectedTimelineDate: LocalDate = LocalDate.now(),
     val lanes: Map<LaneKind, List<ScheduleCardUi>> = LaneKind.entries.associateWith { emptyList() },
     val lanePendingCounts: Map<LaneKind, Int> = LaneKind.entries.associateWith { 0 },
+    val timelineByDate: Map<LocalDate, DayTimelineUi> = emptyMap(),
     val timelineBlocks: List<TimelineBlockUi> = emptyList(),
     val timelineAllDaySchedules: List<ScheduleCardUi> = emptyList(),
     val timelineDatesWithItems: Set<LocalDate> = emptySet(),
     val deadlineGroups: List<DeadlineDayGroupUi> = emptyList(),
     val futureSchedules: List<ScheduleCardUi> = emptyList(),
+    val eisenhowerNextThreeDaysOnly: Boolean = true,
     val eisenhowerBuckets: List<EisenhowerBucketUi> = emptyList(),
     val tagGroups: List<TagGroupUi> = emptyList(),
+    val personGroups: List<PersonGroupUi> = emptyList(),
+    val locationGroups: List<LocationGroupUi> = emptyList(),
     val activeGoals: List<GoalDto> = emptyList(),
     val activeTags: List<TagDto> = emptyList(),
+    val activePersons: List<PersonDto> = emptyList(),
+    val activeLocations: List<LocationDto> = emptyList(),
     val goalProgressList: List<GoalProgressUi> = emptyList(),
     val editingDraft: ScheduleDraft? = null,
     val editingGoalDraft: GoalDraft? = null,
     val editingTagDraft: TagDraft? = null,
+    val editingPersonDraft: PersonDraft? = null,
+    val editingLocationDraft: LocationDraft? = null,
     val toast: ToastNotice? = null,
     val isDarkThemeOverride: Boolean? = null,
     val deviceId: String = "",
@@ -154,7 +192,10 @@ data class DayNewUiState(
     val syncStatus: SyncStatusUi = SyncStatusUi(),
     val exactAlarmAllowed: Boolean = true,
     val batteryOptimizationIgnored: Boolean = true,
-)
+) {
+    val selectedBottomTab: BottomTab?
+        get() = BottomTab.entries.firstOrNull { it.page == selectedPage }
+}
 
 class MainScreenViewModel(
     private val repository: DayNewRepository,
@@ -166,13 +207,16 @@ class MainScreenViewModel(
     private var toastSequence = 0L
 
     private data class UiControls(
-        val tab: BottomTab = BottomTab.OVERVIEW,
-        val catalogTab: CatalogSubTab = CatalogSubTab.DEADLINES,
+        val page: AppPage = AppPage.OVERVIEW,
+        val tagSection: TagPageSection = TagPageSection.TAGS,
         val lane: LaneKind = LaneKind.TODAY,
         val timelineDate: LocalDate,
+        val eisenhowerNextThreeDaysOnly: Boolean = true,
         val draft: ScheduleDraft? = null,
         val goalDraft: GoalDraft? = null,
         val tagDraft: TagDraft? = null,
+        val personDraft: PersonDraft? = null,
+        val locationDraft: LocationDraft? = null,
         val toast: ToastNotice? = null,
         val darkOverride: Boolean? = null,
         val exactAlarmAllowed: Boolean = true,
@@ -209,12 +253,20 @@ class MainScreenViewModel(
         ),
     )
 
-    fun selectTab(tab: BottomTab) {
-        controlsFlow.update { it.copy(tab = tab) }
+    fun selectPage(page: AppPage) {
+        controlsFlow.update { it.copy(page = page) }
     }
 
-    fun selectCatalogTab(subTab: CatalogSubTab) {
-        controlsFlow.update { it.copy(catalogTab = subTab) }
+    fun selectTab(tab: BottomTab) {
+        selectPage(tab.page)
+    }
+
+    fun selectTagSection(section: TagPageSection) {
+        controlsFlow.update { it.copy(tagSection = section) }
+    }
+
+    fun setEisenhowerNextThreeDaysOnly(enabled: Boolean) {
+        controlsFlow.update { it.copy(eisenhowerNextThreeDaysOnly = enabled) }
     }
 
     fun selectLane(lane: LaneKind) {
@@ -343,6 +395,8 @@ class MainScreenViewModel(
                     important = item.important,
                     goalId = goalId,
                     tagIds = item.tagIds,
+                    personIds = item.personIds,
+                    locationIds = item.locationIds,
                 )
             )
         }
@@ -368,8 +422,8 @@ class MainScreenViewModel(
         controlsFlow.update { state ->
             state.copy(
                 draft = null,
-                lane = if (state.tab == BottomTab.OVERVIEW && nextLane != null) nextLane else state.lane,
-                timelineDate = if (state.tab == BottomTab.TIMELINE && savedDate != null) savedDate else state.timelineDate,
+                lane = if (state.page == AppPage.OVERVIEW && nextLane != null) nextLane else state.lane,
+                timelineDate = if (state.page == AppPage.TIMELINE && savedDate != null) savedDate else state.timelineDate,
             )
         }
         showToast(if (draft.id == null) "已新建「${saved.title}」" else "已保存「${saved.title}」")
@@ -482,6 +536,82 @@ class MainScreenViewModel(
         }
     }
 
+    // ==================== 人物管理 ====================
+
+    fun openCreatePersonSheet() {
+        controlsFlow.update { it.copy(personDraft = PersonDraft()) }
+    }
+
+    fun openEditPersonSheet(personId: String) {
+        val person = repository.currentStore().persons.firstOrNull { it.id == personId && !it.del } ?: return
+        controlsFlow.update { it.copy(personDraft = PersonDraft(id = person.id, name = person.name)) }
+    }
+
+    fun updatePersonDraft(transform: (PersonDraft) -> PersonDraft) {
+        controlsFlow.update { state ->
+            val current = state.personDraft ?: return@update state
+            state.copy(personDraft = transform(current))
+        }
+    }
+
+    fun dismissPersonEditor() {
+        controlsFlow.update { it.copy(personDraft = null) }
+    }
+
+    fun savePersonEditor() {
+        val draft = controlsFlow.value.personDraft ?: return
+        val saved = repository.upsertPerson(draft)
+        controlsFlow.update { it.copy(personDraft = null) }
+        showToast(if (draft.id == null) "已新建人物「${saved.name}」" else "已保存人物「${saved.name}」")
+    }
+
+    fun deleteEditingPerson() {
+        val draft = controlsFlow.value.personDraft ?: return
+        val id = draft.id ?: return
+        if (repository.deletePerson(id)) {
+            controlsFlow.update { it.copy(personDraft = null) }
+            showToast("已删除人物「${draft.name.ifBlank { "人物" }}」")
+        }
+    }
+
+    // ==================== 地点管理 ====================
+
+    fun openCreateLocationSheet() {
+        controlsFlow.update { it.copy(locationDraft = LocationDraft()) }
+    }
+
+    fun openEditLocationSheet(locationId: String) {
+        val loc = repository.currentStore().locations.firstOrNull { it.id == locationId && !it.del } ?: return
+        controlsFlow.update { it.copy(locationDraft = LocationDraft(id = loc.id, name = loc.name)) }
+    }
+
+    fun updateLocationDraft(transform: (LocationDraft) -> LocationDraft) {
+        controlsFlow.update { state ->
+            val current = state.locationDraft ?: return@update state
+            state.copy(locationDraft = transform(current))
+        }
+    }
+
+    fun dismissLocationEditor() {
+        controlsFlow.update { it.copy(locationDraft = null) }
+    }
+
+    fun saveLocationEditor() {
+        val draft = controlsFlow.value.locationDraft ?: return
+        val saved = repository.upsertLocation(draft)
+        controlsFlow.update { it.copy(locationDraft = null) }
+        showToast(if (draft.id == null) "已新建地点「${saved.name}」" else "已保存地点「${saved.name}」")
+    }
+
+    fun deleteEditingLocation() {
+        val draft = controlsFlow.value.locationDraft ?: return
+        val id = draft.id ?: return
+        if (repository.deleteLocation(id)) {
+            controlsFlow.update { it.copy(locationDraft = null) }
+            showToast("已删除地点「${draft.name.ifBlank { "地点" }}」")
+        }
+    }
+
     fun toggleTheme(currentlyDark: Boolean) {
         controlsFlow.update { it.copy(darkOverride = !currentlyDark) }
     }
@@ -561,12 +691,18 @@ class MainScreenViewModel(
         val activeTags = store.tags.filter { !it.del }
         val tagsById = activeTags.associateBy { it.id }
 
+        val activePersons = store.persons.filter { !it.del }
+        val personsById = activePersons.associateBy { it.id }
+
+        val activeLocations = store.locations.filter { !it.del }
+        val locationsById = activeLocations.associateBy { it.id }
+
         val activeSchedules = store.schedules.filter { !it.del }
         val laneBuckets = LaneKind.entries.associateWith { mutableListOf<ScheduleCardUi>() }
         val cardById = HashMap<String, ScheduleCardUi>(activeSchedules.size)
 
-        val timelineInputs = mutableListOf<TimelineBlockInput>()
-        val timelineAllDay = mutableListOf<ScheduleCardUi>()
+        val timelineInputsByDate = HashMap<LocalDate, MutableList<TimelineBlockInput>>()
+        val timelineAllDayByDate = HashMap<LocalDate, MutableList<ScheduleCardUi>>()
         val timelineDatesWithItems = HashSet<LocalDate>()
 
         val futureList = mutableListOf<ScheduleCardUi>()
@@ -579,7 +715,7 @@ class MainScreenViewModel(
         for (item in activeSchedules) {
             val lane = LaneRules.laneFor(item, now)
             val parsed = DeadlineRules.parseDue(item.due)
-            val card = toScheduleCardUi(item, now, today, lane, goalsById, tagsById)
+            val card = toScheduleCardUi(item, now, today, lane, goalsById, tagsById, personsById, locationsById)
             cardById[item.id] = card
 
             if (lane != null) {
@@ -588,27 +724,23 @@ class MainScreenViewModel(
 
             val parsedDueDate = parsed.date
             if (parsedDueDate != null) {
-                if (!item.start.isNullOrBlank()) {
+                val startClock = DeadlineRules.tryParseClock(item.start)
+                if (startClock != null) {
                     timelineDatesWithItems.add(parsedDueDate)
-                }
-                if (parsedDueDate == controls.timelineDate) {
-                    val startClock = DeadlineRules.tryParseClock(item.start)
-                    if (startClock != null) {
-                        val endClock = DeadlineRules.tryParseClock(item.end)
-                        val startMinutes = startClock.hour * 60 + startClock.minute
-                        val rawEndMinutes = if (endClock != null && endClock.isAfter(startClock)) {
-                            endClock.hour * 60 + endClock.minute
-                        } else {
-                            (startMinutes + 30).coerceAtMost(24 * 60)
-                        }
-                        timelineInputs += TimelineBlockInput(
-                            id = item.id,
-                            startMinutes = startMinutes,
-                            endMinutes = rawEndMinutes,
-                        )
+                    val endClock = DeadlineRules.tryParseClock(item.end)
+                    val startMinutes = startClock.hour * 60 + startClock.minute
+                    val rawEndMinutes = if (endClock != null && endClock.isAfter(startClock)) {
+                        endClock.hour * 60 + endClock.minute
                     } else {
-                        timelineAllDay += card
+                        (startMinutes + 30).coerceAtMost(24 * 60)
                     }
+                    timelineInputsByDate.getOrPut(parsedDueDate) { mutableListOf() } += TimelineBlockInput(
+                        id = item.id,
+                        startMinutes = startMinutes,
+                        endMinutes = rawEndMinutes,
+                    )
+                } else {
+                    timelineAllDayByDate.getOrPut(parsedDueDate) { mutableListOf() } += card
                 }
             } else {
                 futureList += card
@@ -618,13 +750,20 @@ class MainScreenViewModel(
                 deadlineScheduleGroups.getOrPut(parsedDueDate) { mutableListOf() }.add(card)
             }
 
-            val qKind = when {
-                item.urgent && item.important -> EisenhowerKind.URGENT_IMPORTANT
-                !item.urgent && item.important -> EisenhowerKind.IMPORTANT_ONLY
-                item.urgent && !item.important -> EisenhowerKind.URGENT_ONLY
-                else -> EisenhowerKind.UNMARKED
+            val eisenhowerWindowEnd = today.plusDays(2)
+            val matchesEisenhowerScope = !item.done && (
+                !controls.eisenhowerNextThreeDaysOnly ||
+                    (parsedDueDate != null && !parsedDueDate.isBefore(today) && !parsedDueDate.isAfter(eisenhowerWindowEnd))
+                )
+            if (matchesEisenhowerScope) {
+                val qKind = when {
+                    item.urgent && item.important -> EisenhowerKind.URGENT_IMPORTANT
+                    !item.urgent && item.important -> EisenhowerKind.IMPORTANT_ONLY
+                    item.urgent && !item.important -> EisenhowerKind.URGENT_ONLY
+                    else -> EisenhowerKind.UNMARKED
+                }
+                eisenhowerMap.getValue(qKind).add(card)
             }
-            eisenhowerMap.getValue(qKind).add(card)
         }
 
         // 未完成且有截止日的目标及其子节点也汇入截止日期分组
@@ -658,17 +797,25 @@ class MainScreenViewModel(
             }
         }
 
-        val timelineSlots = computeTimelineOverlapLayout(timelineInputs)
-        val timelineBlocks = timelineSlots.mapNotNull { slot ->
-            val card = cardById[slot.id] ?: return@mapNotNull null
-            TimelineBlockUi(
-                card = card,
-                startMinutes = slot.startMinutes,
-                endMinutes = slot.endMinutes,
-                columnIndex = slot.columnIndex,
-                columnCount = slot.columnCount,
+        val allTimelineDates = (timelineInputsByDate.keys + timelineAllDayByDate.keys)
+        val timelineByDate = allTimelineDates.associateWith { date ->
+            val daySlots = computeTimelineOverlapLayout(timelineInputsByDate[date].orEmpty())
+            val dayBlocks = daySlots.mapNotNull { slot ->
+                val card = cardById[slot.id] ?: return@mapNotNull null
+                TimelineBlockUi(
+                    card = card,
+                    startMinutes = slot.startMinutes,
+                    endMinutes = slot.endMinutes,
+                    columnIndex = slot.columnIndex,
+                    columnCount = slot.columnCount,
+                )
+            }
+            val dayAllDay = timelineAllDayByDate[date].orEmpty().sortedWith(
+                compareBy<ScheduleCardUi> { it.dto.done }.thenBy { it.dto.order }.thenBy { it.id }
             )
+            DayTimelineUi(blocks = dayBlocks, allDaySchedules = dayAllDay)
         }
+        val currentTimelineDay = timelineByDate[controls.timelineDate] ?: DayTimelineUi()
 
         val allDeadlineDates = (deadlineScheduleGroups.keys + deadlineGoalGroups.keys).toSortedSet()
         val deadlineGroups = allDeadlineDates.map { date ->
@@ -719,6 +866,26 @@ class MainScreenViewModel(
             TagGroupUi(tag = tag, schedules = linked)
         }
 
+        val personGroups = activePersons.map { person ->
+            val linked = activeSchedules
+                .asSequence()
+                .filter { person.id in it.personIds }
+                .mapNotNull { cardById[it.id] }
+                .sortedWith(compareBy<ScheduleCardUi> { it.dto.done }.thenBy { it.dto.order }.thenBy { it.id })
+                .toList()
+            PersonGroupUi(person = person, schedules = linked)
+        }
+
+        val locationGroups = activeLocations.map { location ->
+            val linked = activeSchedules
+                .asSequence()
+                .filter { location.id in it.locationIds }
+                .mapNotNull { cardById[it.id] }
+                .sortedWith(compareBy<ScheduleCardUi> { it.dto.done }.thenBy { it.dto.order }.thenBy { it.id })
+                .toList()
+            LocationGroupUi(location = location, schedules = linked)
+        }
+
         val goalProgress = activeGoals.map { goal ->
             val linked = activeSchedules
                 .asSequence()
@@ -739,27 +906,33 @@ class MainScreenViewModel(
         }
 
         return DayNewUiState(
-            selectedTab = controls.tab,
-            selectedCatalogTab = controls.catalogTab,
+            selectedPage = controls.page,
+            selectedTagSection = controls.tagSection,
             selectedLane = controls.lane,
             selectedTimelineDate = controls.timelineDate,
             lanes = sortedLanes,
             lanePendingCounts = pendingCounts,
-            timelineBlocks = timelineBlocks,
-            timelineAllDaySchedules = timelineAllDay.sortedWith(
-                compareBy<ScheduleCardUi> { it.dto.done }.thenBy { it.dto.order }.thenBy { it.id }
-            ),
+            timelineByDate = timelineByDate,
+            timelineBlocks = currentTimelineDay.blocks,
+            timelineAllDaySchedules = currentTimelineDay.allDaySchedules,
             timelineDatesWithItems = timelineDatesWithItems,
             deadlineGroups = deadlineGroups,
             futureSchedules = sortedFuture,
+            eisenhowerNextThreeDaysOnly = controls.eisenhowerNextThreeDaysOnly,
             eisenhowerBuckets = eisenhowerBuckets,
             tagGroups = tagGroups,
+            personGroups = personGroups,
+            locationGroups = locationGroups,
             activeGoals = activeGoals,
             activeTags = activeTags,
+            activePersons = activePersons,
+            activeLocations = activeLocations,
             goalProgressList = goalProgress,
             editingDraft = controls.draft,
             editingGoalDraft = controls.goalDraft,
             editingTagDraft = controls.tagDraft,
+            editingPersonDraft = controls.personDraft,
+            editingLocationDraft = controls.locationDraft,
             toast = controls.toast,
             isDarkThemeOverride = controls.darkOverride,
             deviceId = repository.deviceId,
@@ -779,6 +952,8 @@ class MainScreenViewModel(
         lane: LaneKind?,
         goalsById: Map<String, GoalDto>,
         tagsById: Map<String, TagDto>,
+        personsById: Map<String, PersonDto>,
+        locationsById: Map<String, LocationDto>,
     ): ScheduleCardUi {
         val (dueDate, dueTime) = DeadlineRules.parseDue(item.due)
         val goalId = item.goalRefs.firstOrNull()?.goalId ?: item.goalId
@@ -786,6 +961,8 @@ class MainScreenViewModel(
         val tagChips = item.tagIds.mapNotNull { tid ->
             tagsById[tid]?.let { TagChipUi(it.id, it.name, it.color.ifBlank { "#527CE6" }) }
         }
+        val personNames = item.personIds.mapNotNull { pid -> personsById[pid]?.name }
+        val locationNames = item.locationIds.mapNotNull { lid -> locationsById[lid]?.name }
 
         val timeLabel = when {
             !item.start.isNullOrBlank() && !item.end.isNullOrBlank() -> "${item.start} - ${item.end}"
@@ -816,6 +993,8 @@ class MainScreenViewModel(
             goalTitle = goal?.title,
             goalColorHex = goal?.color,
             tags = tagChips,
+            personNames = personNames,
+            locationNames = locationNames,
             timeLabel = timeLabel,
             dueDateLabel = dueDateLabel,
             repeatLabel = repeatLabel,

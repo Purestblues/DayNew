@@ -44,6 +44,7 @@ import com.daynew.app.ui.components.ScheduleCard
 import com.daynew.app.ui.components.parseHexColor
 import com.daynew.app.ui.main.GoalProgressUi
 import com.daynew.app.ui.theme.LocalNordPalette
+import com.daynew.app.ui.theme.nordClickable
 import com.daynew.sync.DeadlineRules
 import java.time.LocalDate
 
@@ -67,7 +68,7 @@ fun GoalsScreen(
         if (goalProgressList.isEmpty()) {
             item {
                 Surface(
-                    shape = RoundedCornerShape(8.dp),
+                    shape = RoundedCornerShape(14.dp),
                     color = palette.surface2,
                     shadowElevation = 0.dp,
                     border = BorderStroke(1.dp, palette.borderSubtle),
@@ -91,7 +92,17 @@ fun GoalsScreen(
                 val isGoalOverdue = !item.goal.isCompleted && parsedDue != null && parsedDue.isBefore(today)
 
                 Surface(
-                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .nordClickable(pressedScale = 0.985f) {
+                            expandedGoalIds = if (isExpanded) {
+                                expandedGoalIds - item.goal.id
+                            } else {
+                                expandedGoalIds + item.goal.id
+                            }
+                        },
+                    shape = RoundedCornerShape(14.dp),
                     color = palette.surface2,
                     shadowElevation = 0.dp,
                     border = BorderStroke(1.dp, palette.borderSubtle),
@@ -99,13 +110,6 @@ fun GoalsScreen(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable {
-                                expandedGoalIds = if (isExpanded) {
-                                    expandedGoalIds - item.goal.id
-                                } else {
-                                    expandedGoalIds + item.goal.id
-                                }
-                            }
                             .padding(start = 4.dp, end = 6.dp, top = 8.dp, bottom = 12.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
@@ -118,7 +122,7 @@ fun GoalsScreen(
                                 modifier = Modifier
                                     .size(48.dp)
                                     .clip(RoundedCornerShape(6.dp))
-                                    .clickable { onToggleGoalCompleted(item.goal.id) },
+                                    .nordClickable(pressedScale = 0.92f) { onToggleGoalCompleted(item.goal.id) },
                                 contentAlignment = Alignment.Center,
                             ) {
                                 Box(

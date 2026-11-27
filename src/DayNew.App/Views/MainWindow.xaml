@@ -1758,11 +1758,11 @@
                     <ToggleButton Style="{StaticResource FlagChip}"
                                   HorizontalAlignment="Right"
                                   Margin="0"
-                                  Content="显示已完成"
-                                  IsChecked="{Binding ShowCompletedInEisenhower, Mode=TwoWay}"
-                                  AutomationProperties.Name="显示已完成"
-                                  AutomationProperties.AutomationId="EisenhowerShowCompletedToggle"
-                                  ToolTip="切换是否在四象限中显示已完成的任务"/>
+                                  Content="仅未来 3 天"
+                                  IsChecked="{Binding EisenhowerNextThreeDaysOnly, Mode=TwoWay}"
+                                  AutomationProperties.Name="仅未来 3 天"
+                                  AutomationProperties.AutomationId="EisenhowerNextThreeDaysToggle"
+                                  ToolTip="默认只加载未来三天内的未完成日程；取消勾选可查看全部未完成日程"/>
                 </Grid>
                 <ItemsControl x:Name="QuadrantsHost" ItemsSource="{Binding Quadrants}">
                             <ItemsControl.ItemsPanel>

@@ -8,16 +8,24 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -26,43 +34,57 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -70,6 +92,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -79,20 +102,29 @@ import com.daynew.app.alarm.ReminderNotificationHelper
 import com.daynew.app.data.DayNewRepository
 import com.daynew.app.data.GoalDraft
 import com.daynew.app.data.LaneKind
+import com.daynew.app.data.LocationDraft
+import com.daynew.app.data.PersonDraft
 import com.daynew.app.data.ScheduleDraft
 import com.daynew.app.data.TagDraft
 import com.daynew.app.ui.components.DayNewIcons
 import com.daynew.app.ui.components.GoalEditorSheet
 import com.daynew.app.ui.components.OverviewDragBoard
 import com.daynew.app.ui.components.ScheduleEditorSheet
+import com.daynew.app.ui.components.SimpleNameEditorSheet
 import com.daynew.app.ui.components.TagEditorSheet
-import com.daynew.app.ui.screens.CatalogScreen
+import com.daynew.app.ui.screens.DeadlinesScreen
+import com.daynew.app.ui.screens.EisenhowerScreen
+import com.daynew.app.ui.screens.FutureScreen
 import com.daynew.app.ui.screens.GoalsScreen
+import com.daynew.app.ui.screens.TagsHubScreen
 import com.daynew.app.ui.screens.TimelineScreen
 import com.daynew.app.ui.theme.LocalNordPalette
 import com.daynew.app.ui.theme.NordFrostTheme
 import com.daynew.app.ui.theme.NordMotion
+import com.daynew.app.ui.theme.nordClickable
+import com.daynew.app.ui.theme.nordPressScale
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.io.File
 import java.time.LocalDate
 import java.time.LocalTime
@@ -146,8 +178,10 @@ fun DayNewAppScreen(
         MainScreenContent(
             uiState = uiState,
             isDarkTheme = isDark,
+            onSelectPage = viewModel::selectPage,
             onSelectTab = viewModel::selectTab,
-            onSelectCatalogTab = viewModel::selectCatalogTab,
+            onSelectTagSection = viewModel::selectTagSection,
+            onToggleEisenhowerNextThreeDaysOnly = viewModel::setEisenhowerNextThreeDaysOnly,
             onSelectLane = viewModel::selectLane,
             onSelectTimelineDate = viewModel::selectTimelineDate,
             onMoveSchedule = viewModel::moveSchedule,
@@ -175,6 +209,18 @@ fun DayNewAppScreen(
             onDismissTagEditor = viewModel::dismissTagEditor,
             onSaveTagEditor = viewModel::saveTagEditor,
             onDeleteTagEditor = viewModel::deleteEditingTag,
+            onOpenCreatePerson = viewModel::openCreatePersonSheet,
+            onOpenEditPerson = viewModel::openEditPersonSheet,
+            onUpdatePersonDraft = viewModel::updatePersonDraft,
+            onDismissPersonEditor = viewModel::dismissPersonEditor,
+            onSavePersonEditor = viewModel::savePersonEditor,
+            onDeletePersonEditor = viewModel::deleteEditingPerson,
+            onOpenCreateLocation = viewModel::openCreateLocationSheet,
+            onOpenEditLocation = viewModel::openEditLocationSheet,
+            onUpdateLocationDraft = viewModel::updateLocationDraft,
+            onDismissLocationEditor = viewModel::dismissLocationEditor,
+            onSaveLocationEditor = viewModel::saveLocationEditor,
+            onDeleteLocationEditor = viewModel::deleteEditingLocation,
             onToggleTheme = { viewModel.toggleTheme(isDark) },
             onConsumeToast = viewModel::consumeToast,
             onTestWebDav = viewModel::testWebDavConnection,
@@ -192,8 +238,10 @@ fun DayNewAppScreen(
 internal fun MainScreenContent(
     uiState: DayNewUiState,
     isDarkTheme: Boolean,
+    onSelectPage: (AppPage) -> Unit = {},
     onSelectTab: (BottomTab) -> Unit,
-    onSelectCatalogTab: (CatalogSubTab) -> Unit = {},
+    onSelectTagSection: (TagPageSection) -> Unit = {},
+    onToggleEisenhowerNextThreeDaysOnly: (Boolean) -> Unit = {},
     onSelectLane: (LaneKind) -> Unit,
     onSelectTimelineDate: (LocalDate) -> Unit = {},
     onMoveSchedule: (String, LaneKind, Int) -> Unit,
@@ -221,6 +269,18 @@ internal fun MainScreenContent(
     onDismissTagEditor: () -> Unit = {},
     onSaveTagEditor: () -> Unit = {},
     onDeleteTagEditor: () -> Unit = {},
+    onOpenCreatePerson: () -> Unit = {},
+    onOpenEditPerson: (String) -> Unit = {},
+    onUpdatePersonDraft: ((PersonDraft) -> PersonDraft) -> Unit = {},
+    onDismissPersonEditor: () -> Unit = {},
+    onSavePersonEditor: () -> Unit = {},
+    onDeletePersonEditor: () -> Unit = {},
+    onOpenCreateLocation: () -> Unit = {},
+    onOpenEditLocation: (String) -> Unit = {},
+    onUpdateLocationDraft: ((LocationDraft) -> LocationDraft) -> Unit = {},
+    onDismissLocationEditor: () -> Unit = {},
+    onSaveLocationEditor: () -> Unit = {},
+    onDeleteLocationEditor: () -> Unit = {},
     onToggleTheme: () -> Unit,
     onConsumeToast: (Long) -> Unit,
     onTestWebDav: (String, String, String) -> Unit = { _, _, _ -> },
@@ -232,9 +292,62 @@ internal fun MainScreenContent(
     modifier: Modifier = Modifier,
 ) {
     val palette = LocalNordPalette.current
+    val density = LocalDensity.current
     val today = remember { LocalDate.now() }
     val weekdayText = remember(today) {
         today.dayOfWeek.getDisplayName(JavaTextStyle.SHORT, Locale.CHINA)
+    }
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    val coroutineScope = rememberCoroutineScope()
+
+    val scrollThresholdPx = remember(density) { with(density) { 12.dp.toPx() } }
+    var chromeVisible by remember { mutableStateOf(true) }
+    var scrollAccumulatorPx by remember { mutableFloatStateOf(0f) }
+
+    LaunchedEffect(uiState.selectedPage) {
+        chromeVisible = true
+        scrollAccumulatorPx = 0f
+    }
+
+    val isChromeShown = uiState.selectedPage != AppPage.TIMELINE || chromeVisible
+    var topBarHeightPx by remember { mutableFloatStateOf(with(density) { 49.dp.toPx() }) }
+    var bottomBarHeightPx by remember { mutableFloatStateOf(with(density) { 80.dp.toPx() }) }
+    val topBarHeightDp = with(density) { topBarHeightPx.toDp() }
+    val bottomBarHeightDp = with(density) { bottomBarHeightPx.toDp() }
+
+    val chromeProgress by animateFloatAsState(
+        targetValue = if (isChromeShown) 1f else 0f,
+        animationSpec = tween(
+            durationMillis = if (isChromeShown) 140 else 120,
+            easing = if (isChromeShown) NordMotion.Enter else NordMotion.Leave,
+        ),
+        label = "chromeProgress",
+    )
+
+    val handleVerticalScrollDelta: (Float) -> Unit = remember(scrollThresholdPx) {
+        { dy ->
+            if (dy != 0f) {
+                if ((scrollAccumulatorPx > 0f && dy < 0f) || (scrollAccumulatorPx < 0f && dy > 0f)) {
+                    scrollAccumulatorPx = 0f
+                }
+                scrollAccumulatorPx += dy
+                if (scrollAccumulatorPx <= -scrollThresholdPx) {
+                    chromeVisible = false
+                    scrollAccumulatorPx = 0f
+                } else if (scrollAccumulatorPx >= scrollThresholdPx) {
+                    chromeVisible = true
+                    scrollAccumulatorPx = 0f
+                }
+            }
+        }
+    }
+
+    BackHandler(enabled = drawerState.isOpen || uiState.selectedBottomTab == null) {
+        if (drawerState.isOpen) {
+            coroutineScope.launch { drawerState.close() }
+        } else {
+            onSelectPage(AppPage.OVERVIEW)
+        }
     }
 
     LaunchedEffect(uiState.toast?.id) {
@@ -243,163 +356,504 @@ internal fun MainScreenContent(
         onConsumeToast(currentToast.id)
     }
 
-    Scaffold(
-        modifier = modifier.fillMaxSize(),
-        containerColor = palette.surface0,
-        topBar = {
-            Surface(
-                color = palette.surface1,
-                shadowElevation = 0.dp,
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        gesturesEnabled = drawerState.isOpen,
+        drawerContent = {
+            ModalDrawerSheet(
+                modifier = Modifier.width(272.dp),
+                drawerContainerColor = palette.surface1,
+                drawerContentColor = palette.textPrimary,
+                drawerTonalElevation = 0.dp,
+                drawerShape = RoundedCornerShape(topEnd = 16.dp, bottomEnd = 16.dp),
             ) {
-                Column(modifier = Modifier.statusBarsPadding()) {
-                    Row(
+                Column(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .statusBarsPadding()
+                        .padding(horizontal = 14.dp, vertical = 14.dp),
+                ) {
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
+                            .clip(RoundedCornerShape(10.dp))
+                            .nordClickable(pressedScale = 0.985f) {
+                                onSelectPage(AppPage.OVERVIEW)
+                                coroutineScope.launch { drawerState.close() }
+                            }
+                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
-                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text(
-                                text = "日新",
-                                color = palette.textPrimary,
-                                fontSize = 20.sp,
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                            Text(
-                                text = "${today.monthValue}月${today.dayOfMonth}日 $weekdayText · ${uiState.selectedTab.title}",
-                                color = palette.textSecondary,
-                                style = TextStyle(
-                                    fontSize = 12.sp,
-                                    fontFeatureSettings = "tnum",
-                                ),
-                            )
-                        }
-
-                        IconButton(
-                            onClick = onToggleTheme,
-                            modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp),
-                        ) {
-                            Icon(
-                                imageVector = if (isDarkTheme) DayNewIcons.Sun else DayNewIcons.Moon,
-                                contentDescription = if (isDarkTheme) "切换浅色主题" else "切换深色主题",
-                                tint = palette.textSecondary,
-                                modifier = Modifier.size(20.dp),
-                            )
-                        }
+                        Text(
+                            text = "日新",
+                            color = palette.textPrimary,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            text = "${today.monthValue}月${today.dayOfMonth}日 $weekdayText",
+                            color = palette.textSecondary,
+                            style = TextStyle(
+                                fontSize = 12.sp,
+                                fontFeatureSettings = "tnum",
+                            ),
+                        )
                     }
-                    HorizontalDivider(thickness = 1.dp, color = palette.borderSubtle)
+
+                    HorizontalDivider(
+                        modifier = Modifier.padding(vertical = 10.dp),
+                        thickness = 1.dp,
+                        color = palette.borderSubtle,
+                    )
+
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        DockMenuRow(
+                            title = AppPage.DEADLINES.title,
+                            subtitle = null,
+                            icon = DayNewIcons.Deadline,
+                            selected = uiState.selectedPage == AppPage.DEADLINES,
+                            onClick = {
+                                onSelectPage(AppPage.DEADLINES)
+                                coroutineScope.launch { drawerState.close() }
+                            },
+                        )
+                        DockMenuRow(
+                            title = AppPage.FUTURE.title,
+                            subtitle = null,
+                            icon = DayNewIcons.Future,
+                            selected = uiState.selectedPage == AppPage.FUTURE,
+                            onClick = {
+                                onSelectPage(AppPage.FUTURE)
+                                coroutineScope.launch { drawerState.close() }
+                            },
+                        )
+                        DockMenuRow(
+                            title = AppPage.TAGS.title,
+                            subtitle = "标签 · 人物 · 地点",
+                            icon = DayNewIcons.Tag,
+                            selected = uiState.selectedPage == AppPage.TAGS,
+                            onClick = {
+                                onSelectPage(AppPage.TAGS)
+                                coroutineScope.launch { drawerState.close() }
+                            },
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.weight(1f))
+
+                    HorizontalDivider(
+                        modifier = Modifier.padding(vertical = 10.dp),
+                        thickness = 1.dp,
+                        color = palette.borderSubtle,
+                    )
+
+                    DockMenuRow(
+                        title = AppPage.SETTINGS.title,
+                        subtitle = "外观 · 同步 · 权限",
+                        icon = DayNewIcons.Settings,
+                        selected = uiState.selectedPage == AppPage.SETTINGS,
+                        onClick = {
+                            onSelectPage(AppPage.SETTINGS)
+                            coroutineScope.launch { drawerState.close() }
+                        },
+                    )
                 }
             }
         },
-        bottomBar = {
-            Column {
-                HorizontalDivider(thickness = 1.dp, color = palette.borderSubtle)
-                NavigationBar(
-                    containerColor = palette.surface1,
-                    tonalElevation = 0.dp,
+    ) {
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .background(palette.surface0),
+        ) {
+            // 1. 主内容层：视图页保持全屏固定坐标，其余页面固定留出顶底栏安全间距
+            val horizontalSlidePx = remember(density) { with(density) { 16.dp.roundToPx() } }
+            val verticalSlidePx = remember(density) { with(density) { 6.dp.roundToPx() } }
+            AnimatedContent(
+                targetState = uiState.selectedPage,
+                modifier = Modifier.fillMaxSize(),
+                transitionSpec = {
+                    val fromTabIdx = BottomTab.entries.indexOfFirst { it.page == initialState }
+                    val toTabIdx = BottomTab.entries.indexOfFirst { it.page == targetState }
+                    if (fromTabIdx >= 0 && toTabIdx >= 0 && fromTabIdx != toTabIdx) {
+                        val forward = toTabIdx > fromTabIdx
+                        val enterOffset = if (forward) horizontalSlidePx else -horizontalSlidePx
+                        val exitOffset = if (forward) -horizontalSlidePx else horizontalSlidePx
+                        (fadeIn(tween(140, easing = NordMotion.Enter)) +
+                            slideInHorizontally(tween(140, easing = NordMotion.Enter)) { enterOffset }) togetherWith
+                            (fadeOut(tween(90, easing = NordMotion.Leave)) +
+                                slideOutHorizontally(tween(90, easing = NordMotion.Leave)) { exitOffset })
+                    } else {
+                        (fadeIn(tween(140, easing = NordMotion.Enter)) +
+                            slideInVertically(tween(140, easing = NordMotion.Enter)) { verticalSlidePx }) togetherWith
+                            fadeOut(tween(90, easing = NordMotion.Leave))
+                    }
+                },
+                label = "mainPageTransition",
+            ) { page ->
+                val pageModifier = if (page == AppPage.TIMELINE) {
+                    Modifier
+                        .fillMaxSize()
+                        .statusBarsPadding()
+                } else {
+                    Modifier
+                        .fillMaxSize()
+                        .statusBarsPadding()
+                        .padding(
+                            top = topBarHeightDp,
+                            bottom = if (page == AppPage.SETTINGS) 0.dp else bottomBarHeightDp,
+                        )
+                }
+                Box(modifier = pageModifier) {
+                    when (page) {
+                        AppPage.OVERVIEW -> {
+                            OverviewDragBoard(
+                                selectedLane = uiState.selectedLane,
+                                lanes = uiState.lanes,
+                                lanePendingCounts = uiState.lanePendingCounts,
+                                onSelectLane = onSelectLane,
+                                onMoveSchedule = onMoveSchedule,
+                                onToggleDone = onToggleDone,
+                                onCardClick = onOpenEdit,
+                            )
+                        }
+                        AppPage.TIMELINE -> {
+                            TimelineScreen(
+                                selectedDate = uiState.selectedTimelineDate,
+                                timelineByDate = uiState.timelineByDate,
+                                datesWithItems = uiState.timelineDatesWithItems,
+                                onSelectDate = onSelectTimelineDate,
+                                onCreateAtHour = onOpenCreateAtHour,
+                                onToggleDone = onToggleDone,
+                                onCardClick = onOpenEdit,
+                                onVerticalScrollDelta = handleVerticalScrollDelta,
+                                topChromeOffsetPx = { topBarHeightPx * chromeProgress },
+                                topChromeMaxHeightDp = topBarHeightDp,
+                                bottomChromeMaxHeightDp = bottomBarHeightDp,
+                            )
+                        }
+                        AppPage.EISENHOWER -> {
+                            EisenhowerScreen(
+                                buckets = uiState.eisenhowerBuckets,
+                                nextThreeDaysOnly = uiState.eisenhowerNextThreeDaysOnly,
+                                onToggleNextThreeDaysOnly = onToggleEisenhowerNextThreeDaysOnly,
+                                onToggleDone = onToggleDone,
+                                onCardClick = onOpenEdit,
+                            )
+                        }
+                        AppPage.GOALS -> {
+                            GoalsScreen(
+                                goalProgressList = uiState.goalProgressList,
+                                onToggleGoalCompleted = onToggleGoalCompleted,
+                                onEditGoal = onOpenEditGoal,
+                                onToggleScheduleDone = onToggleDone,
+                                onScheduleClick = onOpenEdit,
+                            )
+                        }
+                        AppPage.DEADLINES -> {
+                            DeadlinesScreen(
+                                groups = uiState.deadlineGroups,
+                                onToggleDone = onToggleDone,
+                                onCardClick = onOpenEdit,
+                                onOpenGoal = onOpenEditGoal,
+                            )
+                        }
+                        AppPage.FUTURE -> {
+                            FutureScreen(
+                                schedules = uiState.futureSchedules,
+                                onToggleDone = onToggleDone,
+                                onCardClick = onOpenEdit,
+                                onMoveToDate = onMoveScheduleToDate,
+                            )
+                        }
+                        AppPage.TAGS -> {
+                            TagsHubScreen(
+                                selectedSection = uiState.selectedTagSection,
+                                tagGroups = uiState.tagGroups,
+                                personGroups = uiState.personGroups,
+                                locationGroups = uiState.locationGroups,
+                                onSelectSection = onSelectTagSection,
+                                onToggleDone = onToggleDone,
+                                onCardClick = onOpenEdit,
+                                onOpenEditTag = onOpenEditTag,
+                                onCreateTag = onOpenCreateTag,
+                                onOpenEditPerson = onOpenEditPerson,
+                                onCreatePerson = onOpenCreatePerson,
+                                onOpenEditLocation = onOpenEditLocation,
+                                onCreateLocation = onOpenCreateLocation,
+                            )
+                        }
+                        AppPage.SETTINGS -> {
+                            SettingsPage(
+                                uiState = uiState,
+                                isDarkTheme = isDarkTheme,
+                                onToggleTheme = onToggleTheme,
+                                onTestWebDav = onTestWebDav,
+                                onSaveWebDav = onSaveWebDav,
+                                onToggleAutoSync = onToggleAutoSync,
+                                onSyncNow = onSyncNow,
+                                onRefreshPermissions = onRefreshPermissions,
+                                onShowToast = onShowToast,
+                            )
+                        }
+                    }
+                }
+            }
+
+            // 2. 顶部状态栏纯色遮罩（防止顶栏滑出时穿透系统状态栏）
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.TopCenter)
+                    .zIndex(12f)
+                    .background(palette.surface1)
+                    .statusBarsPadding(),
+            )
+
+            // 3. 浮层顶栏：纯 GPU 平移进出，不引起主内容重排与眼动焦点偏移
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.TopCenter)
+                    .zIndex(10f)
+                    .statusBarsPadding(),
+            ) {
+                Surface(
+                    color = palette.surface1,
+                    shadowElevation = 0.dp,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .onSizeChanged { topBarHeightPx = it.height.toFloat() }
+                        .graphicsLayer {
+                            translationY = -(1f - chromeProgress) * topBarHeightPx
+                            alpha = chromeProgress
+                        },
                 ) {
-                    BottomTab.entries.forEach { tab ->
-                        val icon = when (tab) {
-                            BottomTab.OVERVIEW -> DayNewIcons.Overview
-                            BottomTab.TIMELINE -> DayNewIcons.Timeline
-                            BottomTab.GOALS -> DayNewIcons.Goals
-                            BottomTab.CATALOG -> DayNewIcons.Catalog
-                            BottomTab.MORE -> DayNewIcons.More
+                    Column {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 10.dp, end = 6.dp, top = 2.dp, bottom = 2.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .weight(1f, fill = false)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .nordClickable(enabled = isChromeShown, pressedScale = 0.98f) {
+                                        coroutineScope.launch { drawerState.open() }
+                                    }
+                                    .defaultMinSize(minHeight = 40.dp)
+                                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Icon(
+                                    imageVector = DayNewIcons.Menu,
+                                    contentDescription = "打开侧边收纳栏",
+                                    tint = palette.textSecondary,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                AnimatedContent(
+                                    targetState = uiState.selectedPage.title,
+                                    transitionSpec = {
+                                        (fadeIn(tween(110, easing = NordMotion.Enter)) +
+                                            slideInVertically(tween(110, easing = NordMotion.Enter)) { it / 4 }) togetherWith
+                                            fadeOut(tween(70, easing = NordMotion.Leave))
+                                    },
+                                    modifier = Modifier.weight(1f, fill = false),
+                                    label = "topBarPageTitle",
+                                ) { pageTitle ->
+                                    Text(
+                                        text = pageTitle,
+                                        color = palette.textPrimary,
+                                        fontSize = 17.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                                Text(
+                                    text = "${today.monthValue}月${today.dayOfMonth}日",
+                                    color = palette.textSecondary,
+                                    style = TextStyle(
+                                        fontSize = 12.sp,
+                                        fontFeatureSettings = "tnum",
+                                    ),
+                                    maxLines = 1,
+                                )
+                            }
+
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                            ) {
+                                Text(
+                                    text = "日新",
+                                    color = palette.textSecondary,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.padding(end = 2.dp),
+                                )
+                                val themeInteraction = remember { MutableInteractionSource() }
+                                IconButton(
+                                    onClick = { if (isChromeShown) onToggleTheme() },
+                                    enabled = isChromeShown,
+                                    interactionSource = themeInteraction,
+                                    modifier = Modifier
+                                        .defaultMinSize(minWidth = 42.dp, minHeight = 42.dp)
+                                        .nordPressScale(themeInteraction, pressedScale = 0.94f),
+                                ) {
+                                    Icon(
+                                        imageVector = if (isDarkTheme) DayNewIcons.Sun else DayNewIcons.Moon,
+                                        contentDescription = if (isDarkTheme) "切换浅色主题" else "切换深色主题",
+                                        tint = palette.textSecondary,
+                                        modifier = Modifier.size(19.dp),
+                                    )
+                                }
+                            }
                         }
-                        val overdueCount = if (tab == BottomTab.OVERVIEW) {
-                            uiState.lanePendingCounts[LaneKind.OVERDUE] ?: 0
-                        } else {
-                            0
-                        }
-                        NavigationBarItem(
-                            selected = uiState.selectedTab == tab,
-                            onClick = { onSelectTab(tab) },
-                            icon = {
-                                if (overdueCount > 0) {
-                                    BadgedBox(
-                                        badge = {
-                                            Badge(
-                                                containerColor = palette.danger,
-                                                contentColor = palette.onAccent,
-                                            ) {
-                                                Text(
-                                                    text = if (overdueCount > 99) "99+" else overdueCount.toString(),
-                                                    style = TextStyle(
-                                                        fontSize = 9.5.sp,
-                                                        fontFeatureSettings = "tnum",
-                                                    ),
-                                                )
-                                            }
-                                        },
-                                    ) {
+                        HorizontalDivider(thickness = 1.dp, color = palette.borderSubtle)
+                    }
+                }
+            }
+
+            // 4. 浮层底栏：纯 GPU 平移进出
+            if (uiState.selectedPage != AppPage.SETTINGS) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.BottomCenter)
+                        .zIndex(10f)
+                        .onSizeChanged { bottomBarHeightPx = it.height.toFloat() }
+                        .graphicsLayer {
+                            translationY = (1f - chromeProgress) * bottomBarHeightPx
+                            alpha = chromeProgress
+                        },
+                ) {
+                    HorizontalDivider(thickness = 1.dp, color = palette.borderSubtle)
+                    NavigationBar(
+                        containerColor = palette.surface1,
+                        tonalElevation = 0.dp,
+                    ) {
+                        BottomTab.entries.forEach { tab ->
+                            val icon = when (tab) {
+                                BottomTab.OVERVIEW -> DayNewIcons.Overview
+                                BottomTab.TIMELINE -> DayNewIcons.Timeline
+                                BottomTab.EISENHOWER -> DayNewIcons.Catalog
+                                BottomTab.GOALS -> DayNewIcons.Goals
+                            }
+                            val overdueCount = if (tab == BottomTab.OVERVIEW) {
+                                uiState.lanePendingCounts[LaneKind.OVERDUE] ?: 0
+                            } else {
+                                0
+                            }
+                            val isSelected = uiState.selectedPage == tab.page
+                            NavigationBarItem(
+                                selected = isSelected,
+                                onClick = { if (isChromeShown) onSelectTab(tab) },
+                                icon = {
+                                    if (overdueCount > 0) {
+                                        BadgedBox(
+                                            badge = {
+                                                Badge(
+                                                    containerColor = palette.danger,
+                                                    contentColor = palette.onAccent,
+                                                ) {
+                                                    Text(
+                                                        text = if (overdueCount > 99) "99+" else overdueCount.toString(),
+                                                        style = TextStyle(
+                                                            fontSize = 9.5.sp,
+                                                            fontFeatureSettings = "tnum",
+                                                        ),
+                                                    )
+                                                }
+                                            },
+                                        ) {
+                                            Icon(
+                                                imageVector = icon,
+                                                contentDescription = tab.title,
+                                                modifier = Modifier.size(21.dp),
+                                            )
+                                        }
+                                    } else {
                                         Icon(
                                             imageVector = icon,
                                             contentDescription = tab.title,
                                             modifier = Modifier.size(21.dp),
                                         )
                                     }
-                                } else {
-                                    Icon(
-                                        imageVector = icon,
-                                        contentDescription = tab.title,
-                                        modifier = Modifier.size(21.dp),
+                                },
+                                label = {
+                                    Text(
+                                        text = tab.title,
+                                        fontSize = if (tab == BottomTab.EISENHOWER) 10.sp else 11.sp,
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        overflow = TextOverflow.Ellipsis,
+                                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
                                     )
-                                }
-                            },
-                            label = {
-                                Text(
-                                    text = tab.title,
-                                    fontSize = 11.sp,
-                                    maxLines = 1,
-                                    softWrap = false,
-                                    overflow = TextOverflow.Ellipsis,
-                                    fontWeight = if (uiState.selectedTab == tab) FontWeight.SemiBold else FontWeight.Normal,
-                                )
-                            },
-                            colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = palette.accent,
-                                selectedTextColor = palette.textPrimary,
-                                unselectedIconColor = palette.textSecondary,
-                                unselectedTextColor = palette.textSecondary,
-                                indicatorColor = palette.selectionPill,
-                            ),
-                        )
+                                },
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = palette.accent,
+                                    selectedTextColor = palette.textPrimary,
+                                    unselectedIconColor = palette.textSecondary,
+                                    unselectedTextColor = palette.textSecondary,
+                                    indicatorColor = palette.selectionPill,
+                                ),
+                            )
+                        }
                     }
                 }
             }
-        },
-        floatingActionButton = {
-            if (uiState.selectedTab != BottomTab.MORE) {
-                val fabAction: () -> Unit = when (uiState.selectedTab) {
-                    BottomTab.OVERVIEW -> onOpenCreate
-                    BottomTab.TIMELINE -> {
+
+            // 5. 浮层悬浮新建按钮
+            if (uiState.selectedPage != AppPage.SETTINGS && chromeProgress > 0.01f) {
+                val fabAction: () -> Unit = when (uiState.selectedPage) {
+                    AppPage.OVERVIEW, AppPage.EISENHOWER -> onOpenCreate
+                    AppPage.TIMELINE -> {
                         { onOpenCreateAtHour(uiState.selectedTimelineDate, LocalTime.now().hour.coerceIn(0, 23)) }
                     }
-                    BottomTab.GOALS -> onOpenCreateGoal
-                    BottomTab.CATALOG -> when (uiState.selectedCatalogTab) {
-                        CatalogSubTab.DEADLINES -> onOpenCreateDeadline
-                        CatalogSubTab.FUTURE -> onOpenCreateFuture
-                        CatalogSubTab.EISENHOWER -> onOpenCreate
-                        CatalogSubTab.TAGS -> onOpenCreateTag
+                    AppPage.GOALS -> onOpenCreateGoal
+                    AppPage.DEADLINES -> onOpenCreateDeadline
+                    AppPage.FUTURE -> onOpenCreateFuture
+                    AppPage.TAGS -> when (uiState.selectedTagSection) {
+                        TagPageSection.TAGS -> onOpenCreateTag
+                        TagPageSection.PERSONS -> onOpenCreatePerson
+                        TagPageSection.LOCATIONS -> onOpenCreateLocation
                     }
-                    BottomTab.MORE -> onOpenCreate
+                    AppPage.SETTINGS -> onOpenCreate
                 }
-                val fabDesc = when (uiState.selectedTab) {
-                    BottomTab.GOALS -> "新建目标"
-                    BottomTab.CATALOG -> when (uiState.selectedCatalogTab) {
-                        CatalogSubTab.TAGS -> "新建标签"
-                        CatalogSubTab.FUTURE -> "新建未来事项"
-                        CatalogSubTab.DEADLINES -> "新建截止日程"
-                        CatalogSubTab.EISENHOWER -> "新建日程"
+                val fabDesc = when (uiState.selectedPage) {
+                    AppPage.GOALS -> "新建目标"
+                    AppPage.DEADLINES -> "新建截止日程"
+                    AppPage.FUTURE -> "新建未来事项"
+                    AppPage.TAGS -> when (uiState.selectedTagSection) {
+                        TagPageSection.TAGS -> "新建标签"
+                        TagPageSection.PERSONS -> "新建人物"
+                        TagPageSection.LOCATIONS -> "新建地点"
                     }
                     else -> "新建日程"
                 }
+                val fabInteraction = remember { MutableInteractionSource() }
                 FloatingActionButton(
-                    onClick = fabAction,
-                    shape = RoundedCornerShape(12.dp),
+                    onClick = { if (isChromeShown) fabAction() },
+                    interactionSource = fabInteraction,
+                    shape = CircleShape,
                     containerColor = palette.accent,
                     contentColor = palette.onAccent,
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .zIndex(11f)
+                        .padding(end = 16.dp, bottom = bottomBarHeightDp + 16.dp)
+                        .graphicsLayer {
+                            val s = 0.90f + 0.10f * chromeProgress
+                            scaleX = s
+                            scaleY = s
+                            alpha = chromeProgress
+                        }
+                        .nordPressScale(fabInteraction, pressedScale = 0.94f),
                     elevation = FloatingActionButtonDefaults.elevation(
                         defaultElevation = 0.dp,
                         pressedElevation = 0.dp,
@@ -414,82 +868,17 @@ internal fun MainScreenContent(
                     )
                 }
             }
-        },
-    ) { innerPadding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding),
-        ) {
-            when (uiState.selectedTab) {
-                BottomTab.OVERVIEW -> {
-                    OverviewDragBoard(
-                        selectedLane = uiState.selectedLane,
-                        lanes = uiState.lanes,
-                        lanePendingCounts = uiState.lanePendingCounts,
-                        onSelectLane = onSelectLane,
-                        onMoveSchedule = onMoveSchedule,
-                        onToggleDone = onToggleDone,
-                        onCardClick = onOpenEdit,
-                    )
-                }
-                BottomTab.TIMELINE -> {
-                    TimelineScreen(
-                        selectedDate = uiState.selectedTimelineDate,
-                        blocks = uiState.timelineBlocks,
-                        allDaySchedules = uiState.timelineAllDaySchedules,
-                        datesWithItems = uiState.timelineDatesWithItems,
-                        onSelectDate = onSelectTimelineDate,
-                        onCreateAtHour = onOpenCreateAtHour,
-                        onToggleDone = onToggleDone,
-                        onCardClick = onOpenEdit,
-                    )
-                }
-                BottomTab.GOALS -> {
-                    GoalsScreen(
-                        goalProgressList = uiState.goalProgressList,
-                        onToggleGoalCompleted = onToggleGoalCompleted,
-                        onEditGoal = onOpenEditGoal,
-                        onToggleScheduleDone = onToggleDone,
-                        onScheduleClick = onOpenEdit,
-                    )
-                }
-                BottomTab.CATALOG -> {
-                    CatalogScreen(
-                        selectedSubTab = uiState.selectedCatalogTab,
-                        deadlineGroups = uiState.deadlineGroups,
-                        futureSchedules = uiState.futureSchedules,
-                        eisenhowerBuckets = uiState.eisenhowerBuckets,
-                        tagGroups = uiState.tagGroups,
-                        onSelectSubTab = onSelectCatalogTab,
-                        onToggleDone = onToggleDone,
-                        onCardClick = onOpenEdit,
-                        onMoveToDate = onMoveScheduleToDate,
-                        onOpenGoal = onOpenEditGoal,
-                        onOpenEditTag = onOpenEditTag,
-                        onCreateTag = onOpenCreateTag,
-                    )
-                }
-                BottomTab.MORE -> {
-                    MoreStatusPage(
-                        uiState = uiState,
-                        isDarkTheme = isDarkTheme,
-                        onToggleTheme = onToggleTheme,
-                        onTestWebDav = onTestWebDav,
-                        onSaveWebDav = onSaveWebDav,
-                        onToggleAutoSync = onToggleAutoSync,
-                        onSyncNow = onSyncNow,
-                        onRefreshPermissions = onRefreshPermissions,
-                        onShowToast = onShowToast,
-                    )
-                }
-            }
 
-            // 底部轻量状态胶囊 Toast
+            // 6. 底部轻量状态胶囊 Toast
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(horizontal = 20.dp, vertical = 16.dp),
+                    .zIndex(15f)
+                    .padding(
+                        start = 20.dp,
+                        end = 20.dp,
+                        bottom = if (uiState.selectedPage == AppPage.SETTINGS) 24.dp else bottomBarHeightDp + 16.dp,
+                    ),
             ) {
                 AnimatedVisibility(
                     visible = uiState.toast != null,
@@ -522,6 +911,8 @@ internal fun MainScreenContent(
             draft = draft,
             goals = uiState.activeGoals,
             tags = uiState.activeTags,
+            persons = uiState.activePersons,
+            locations = uiState.activeLocations,
             onUpdateDraft = onUpdateDraft,
             onDismiss = onDismissEditor,
             onSave = onSaveEditor,
@@ -548,10 +939,84 @@ internal fun MainScreenContent(
             onDelete = onDeleteTagEditor,
         )
     }
+
+    uiState.editingPersonDraft?.let { personDraft ->
+        SimpleNameEditorSheet(
+            title = if (personDraft.id == null) "新建人物" else "编辑人物",
+            label = "人物名称",
+            placeholder = "例如：张三 / 导师",
+            value = personDraft.name,
+            isEditing = personDraft.id != null,
+            deleteDescription = "删除人物",
+            onValueChange = { v -> onUpdatePersonDraft { it.copy(name = v) } },
+            onDismiss = onDismissPersonEditor,
+            onSave = onSavePersonEditor,
+            onDelete = onDeletePersonEditor,
+        )
+    }
+
+    uiState.editingLocationDraft?.let { locationDraft ->
+        SimpleNameEditorSheet(
+            title = if (locationDraft.id == null) "新建地点" else "编辑地点",
+            label = "地点名称",
+            placeholder = "例如：图书馆 / 会议室 A",
+            value = locationDraft.name,
+            isEditing = locationDraft.id != null,
+            deleteDescription = "删除地点",
+            onValueChange = { v -> onUpdateLocationDraft { it.copy(name = v) } },
+            onDismiss = onDismissLocationEditor,
+            onSave = onSaveLocationEditor,
+            onDelete = onDeleteLocationEditor,
+        )
+    }
 }
 
 @Composable
-private fun MoreStatusPage(
+private fun DockMenuRow(
+    title: String,
+    subtitle: String?,
+    icon: ImageVector,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val palette = LocalNordPalette.current
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .defaultMinSize(minHeight = 48.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (selected) palette.selectionPill else Color.Transparent)
+            .nordClickable(pressedScale = 0.985f, onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = title,
+            tint = if (selected) palette.accent else palette.textSecondary,
+            modifier = Modifier.size(19.dp),
+        )
+        Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+            Text(
+                text = title,
+                color = if (selected) palette.textPrimary else palette.textSecondary,
+                fontSize = 14.sp,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+            )
+            if (subtitle != null) {
+                Text(
+                    text = subtitle,
+                    color = palette.textSecondary,
+                    fontSize = 11.sp,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsPage(
     uiState: DayNewUiState,
     isDarkTheme: Boolean,
     onToggleTheme: () -> Unit,
@@ -581,13 +1046,15 @@ private fun MoreStatusPage(
     }
 
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .navigationBarsPadding(),
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         item {
             Surface(
-                shape = RoundedCornerShape(8.dp),
+                shape = RoundedCornerShape(14.dp),
                 color = palette.surface2,
                 shadowElevation = 0.dp,
                 border = BorderStroke(1.dp, palette.borderSubtle),
@@ -627,7 +1094,7 @@ private fun MoreStatusPage(
 
         item {
             Surface(
-                shape = RoundedCornerShape(8.dp),
+                shape = RoundedCornerShape(14.dp),
                 color = palette.surface2,
                 shadowElevation = 0.dp,
                 border = BorderStroke(1.dp, palette.borderSubtle),
@@ -755,7 +1222,7 @@ private fun MoreStatusPage(
 
         item {
             Surface(
-                shape = RoundedCornerShape(8.dp),
+                shape = RoundedCornerShape(14.dp),
                 color = palette.surface2,
                 shadowElevation = 0.dp,
                 border = BorderStroke(1.dp, palette.borderSubtle),
@@ -868,7 +1335,7 @@ private fun MoreStatusPage(
 
         item {
             Surface(
-                shape = RoundedCornerShape(8.dp),
+                shape = RoundedCornerShape(14.dp),
                 color = palette.surface2,
                 shadowElevation = 0.dp,
                 border = BorderStroke(1.dp, palette.borderSubtle),

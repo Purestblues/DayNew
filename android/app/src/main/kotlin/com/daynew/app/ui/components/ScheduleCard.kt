@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.daynew.app.ui.main.ScheduleCardUi
 import com.daynew.app.ui.theme.LocalNordPalette
+import com.daynew.app.ui.theme.nordClickable
 
 fun parseHexColor(hex: String?, fallback: Color): Color {
     if (hex.isNullOrBlank()) return fallback
@@ -72,8 +73,9 @@ fun ScheduleCard(
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
-        shape = RoundedCornerShape(8.dp),
+            .clip(RoundedCornerShape(14.dp))
+            .nordClickable(pressedScale = 0.985f, onClick = onClick),
+        shape = RoundedCornerShape(14.dp),
         color = containerColor,
         shadowElevation = elevation,
         border = BorderStroke(1.dp, borderColor),
@@ -89,7 +91,8 @@ fun ScheduleCard(
                 modifier = Modifier
                     .size(48.dp)
                     .clip(RoundedCornerShape(6.dp))
-                    .clickable(
+                    .nordClickable(
+                        pressedScale = 0.92f,
                         role = Role.Checkbox,
                         onClick = onToggleDone,
                     )
@@ -166,7 +169,9 @@ fun ScheduleCard(
                     card.remindLabel != null ||
                     card.dto.urgent ||
                     card.dto.important ||
-                    card.tags.isNotEmpty()
+                    card.tags.isNotEmpty() ||
+                    card.personNames.isNotEmpty() ||
+                    card.locationNames.isNotEmpty()
 
                 if (hasMeta) {
                     FlowRow(
@@ -220,6 +225,20 @@ fun ScheduleCard(
                             TagPill(
                                 name = tag.name,
                                 dotColor = parseHexColor(tag.colorHex, palette.accent),
+                            )
+                        }
+                        card.personNames.forEach { person ->
+                            MetaPill(
+                                text = "@$person",
+                                textColor = palette.textSecondary,
+                                containerColor = palette.surface3,
+                            )
+                        }
+                        card.locationNames.forEach { loc ->
+                            MetaPill(
+                                text = loc,
+                                textColor = palette.textSecondary,
+                                containerColor = palette.surface3,
                             )
                         }
                     }

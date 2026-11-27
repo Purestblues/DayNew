@@ -1,6 +1,13 @@
 package com.daynew.app.ui.screens
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -32,6 +39,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -40,107 +50,21 @@ import androidx.compose.ui.unit.sp
 import com.daynew.app.ui.components.DayNewIcons
 import com.daynew.app.ui.components.ScheduleCard
 import com.daynew.app.ui.components.parseHexColor
-import com.daynew.app.ui.main.CatalogSubTab
 import com.daynew.app.ui.main.DeadlineDayGroupUi
 import com.daynew.app.ui.main.EisenhowerBucketUi
 import com.daynew.app.ui.main.EisenhowerKind
+import com.daynew.app.ui.main.LocationGroupUi
+import com.daynew.app.ui.main.PersonGroupUi
 import com.daynew.app.ui.main.ScheduleCardUi
 import com.daynew.app.ui.main.TagGroupUi
+import com.daynew.app.ui.main.TagPageSection
 import com.daynew.app.ui.theme.LocalNordPalette
+import com.daynew.app.ui.theme.NordMotion
+import com.daynew.app.ui.theme.nordClickable
 import java.time.LocalDate
 
 @Composable
-fun CatalogScreen(
-    selectedSubTab: CatalogSubTab,
-    deadlineGroups: List<DeadlineDayGroupUi>,
-    futureSchedules: List<ScheduleCardUi>,
-    eisenhowerBuckets: List<EisenhowerBucketUi>,
-    tagGroups: List<TagGroupUi>,
-    onSelectSubTab: (CatalogSubTab) -> Unit,
-    onToggleDone: (String) -> Unit,
-    onCardClick: (String) -> Unit,
-    onMoveToDate: (String, LocalDate?) -> Unit,
-    onOpenGoal: (String) -> Unit,
-    onOpenEditTag: (String) -> Unit,
-    onCreateTag: () -> Unit,
-) {
-    val palette = LocalNordPalette.current
-
-    Column(modifier = Modifier.fillMaxSize()) {
-        // 顶部四分栏胶囊切换条
-        Surface(
-            color = palette.surface1,
-            shadowElevation = 0.dp,
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                CatalogSubTab.entries.forEach { tab ->
-                    val selected = selectedSubTab == tab
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .defaultMinSize(minHeight = 36.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(if (selected) palette.selectionPill else palette.surface2)
-                            .border(
-                                width = 1.dp,
-                                color = if (selected) palette.accent else palette.borderSubtle,
-                                shape = RoundedCornerShape(8.dp),
-                            )
-                            .clickable { onSelectSubTab(tab) }
-                            .padding(horizontal = 4.dp, vertical = 8.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = tab.title,
-                            color = if (selected) palette.textPrimary else palette.textSecondary,
-                            fontSize = 12.sp,
-                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                }
-            }
-        }
-
-        HorizontalDivider(thickness = 1.dp, color = palette.borderSubtle)
-
-        when (selectedSubTab) {
-            CatalogSubTab.DEADLINES -> DeadlinesList(
-                groups = deadlineGroups,
-                onToggleDone = onToggleDone,
-                onCardClick = onCardClick,
-                onOpenGoal = onOpenGoal,
-            )
-            CatalogSubTab.FUTURE -> FutureList(
-                schedules = futureSchedules,
-                onToggleDone = onToggleDone,
-                onCardClick = onCardClick,
-                onMoveToDate = onMoveToDate,
-            )
-            CatalogSubTab.EISENHOWER -> EisenhowerList(
-                buckets = eisenhowerBuckets,
-                onToggleDone = onToggleDone,
-                onCardClick = onCardClick,
-            )
-            CatalogSubTab.TAGS -> TagsList(
-                tagGroups = tagGroups,
-                onToggleDone = onToggleDone,
-                onCardClick = onCardClick,
-                onOpenEditTag = onOpenEditTag,
-                onCreateTag = onCreateTag,
-            )
-        }
-    }
-}
-
-@Composable
-private fun DeadlinesList(
+fun DeadlinesScreen(
     groups: List<DeadlineDayGroupUi>,
     onToggleDone: (String) -> Unit,
     onCardClick: (String) -> Unit,
@@ -179,8 +103,9 @@ private fun DeadlinesList(
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { onOpenGoal(goalItem.goalId) },
-                        shape = RoundedCornerShape(8.dp),
+                            .clip(RoundedCornerShape(14.dp))
+                            .nordClickable(pressedScale = 0.985f) { onOpenGoal(goalItem.goalId) },
+                        shape = RoundedCornerShape(14.dp),
                         color = palette.surface2,
                         shadowElevation = 0.dp,
                         border = BorderStroke(1.dp, palette.borderSubtle),
@@ -243,7 +168,7 @@ private fun DeadlinesList(
 }
 
 @Composable
-private fun FutureList(
+fun FutureScreen(
     schedules: List<ScheduleCardUi>,
     onToggleDone: (String) -> Unit,
     onCardClick: (String) -> Unit,
@@ -300,10 +225,10 @@ private fun QuickMoveButton(
     Box(
         modifier = modifier
             .defaultMinSize(minHeight = 36.dp)
-            .clip(RoundedCornerShape(6.dp))
+            .clip(RoundedCornerShape(10.dp))
             .background(palette.surface3)
-            .border(1.dp, palette.borderSubtle, RoundedCornerShape(6.dp))
-            .clickable(onClick = onClick)
+            .border(1.dp, palette.borderSubtle, RoundedCornerShape(10.dp))
+            .nordClickable(pressedScale = 0.97f, onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 7.dp),
         contentAlignment = Alignment.Center,
     ) {
@@ -317,105 +242,167 @@ private fun QuickMoveButton(
 }
 
 @Composable
-private fun EisenhowerList(
+fun EisenhowerScreen(
     buckets: List<EisenhowerBucketUi>,
+    nextThreeDaysOnly: Boolean,
+    onToggleNextThreeDaysOnly: (Boolean) -> Unit,
     onToggleDone: (String) -> Unit,
     onCardClick: (String) -> Unit,
 ) {
     val palette = LocalNordPalette.current
     var collapsedKinds by remember { mutableStateOf(setOf(EisenhowerKind.UNMARKED)) }
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        items(buckets, key = { it.kind.name }) { bucket ->
-            val accent = when (bucket.kind) {
-                EisenhowerKind.URGENT_IMPORTANT -> palette.danger
-                EisenhowerKind.IMPORTANT_ONLY -> palette.accent
-                EisenhowerKind.URGENT_ONLY -> palette.warning
-                EisenhowerKind.UNMARKED -> palette.textSecondary
-            }
-            val isCollapsed = bucket.kind in collapsedKinds
-
-            Surface(
-                shape = RoundedCornerShape(8.dp),
-                color = palette.surface2,
-                shadowElevation = 0.dp,
-                border = BorderStroke(1.dp, palette.borderSubtle),
+    Column(modifier = Modifier.fillMaxSize()) {
+        Surface(
+            color = palette.surface1,
+            shadowElevation = 0.dp,
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
             ) {
-                Column(modifier = Modifier.fillMaxWidth()) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    color = palette.surface3,
+                    shadowElevation = 0.dp,
+                    border = BorderStroke(1.dp, palette.borderSubtle),
+                ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable {
-                                collapsedKinds = if (isCollapsed) {
-                                    collapsedKinds - bucket.kind
-                                } else {
-                                    collapsedKinds + bucket.kind
-                                }
-                            }
-                            .padding(horizontal = 14.dp, vertical = 12.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
+                            .padding(3.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
+                        listOf(true to "未来 3 天", false to "全部未完成").forEach { (onlyThreeDays, title) ->
+                            val selected = nextThreeDaysOnly == onlyThreeDays
                             Box(
                                 modifier = Modifier
-                                    .size(8.dp)
-                                    .clip(CircleShape)
-                                    .background(accent),
-                            )
-                            Column {
+                                    .weight(1f)
+                                    .defaultMinSize(minHeight = 36.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(if (selected) palette.surface2 else Color.Transparent)
+                                    .border(
+                                        width = 1.dp,
+                                        color = if (selected) palette.borderStrong else Color.Transparent,
+                                        shape = RoundedCornerShape(10.dp),
+                                    )
+                                    .clickable { onToggleNextThreeDaysOnly(onlyThreeDays) }
+                                    .padding(horizontal = 8.dp, vertical = 7.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
                                 Text(
-                                    text = bucket.title,
-                                    color = palette.textPrimary,
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                )
-                                Text(
-                                    text = bucket.subtitle,
-                                    color = palette.textSecondary,
-                                    fontSize = 11.5.sp,
+                                    text = title,
+                                    color = if (selected) palette.textPrimary else palette.textSecondary,
+                                    fontSize = 12.5.sp,
+                                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
                                 )
                             }
                         }
-                        Text(
-                            text = "${bucket.schedules.count { !it.dto.done }}/${bucket.schedules.size}",
-                            color = accent,
-                            style = TextStyle(
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                fontFeatureSettings = "tnum",
-                            ),
-                        )
                     }
+                }
+            }
+        }
 
-                    AnimatedVisibility(visible = !isCollapsed) {
-                        Column(
+        HorizontalDivider(thickness = 1.dp, color = palette.borderSubtle)
+
+        LazyColumn(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth(),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            items(buckets, key = { it.kind.name }) { bucket ->
+                val accent = when (bucket.kind) {
+                    EisenhowerKind.URGENT_IMPORTANT -> palette.danger
+                    EisenhowerKind.IMPORTANT_ONLY -> palette.accent
+                    EisenhowerKind.URGENT_ONLY -> palette.warning
+                    EisenhowerKind.UNMARKED -> palette.textSecondary
+                }
+                val isCollapsed = bucket.kind in collapsedKinds
+
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = palette.surface2,
+                    shadowElevation = 0.dp,
+                    border = BorderStroke(1.dp, palette.borderSubtle),
+                ) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(start = 10.dp, end = 10.dp, bottom = 10.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                                .clickable {
+                                    collapsedKinds = if (isCollapsed) {
+                                        collapsedKinds - bucket.kind
+                                    } else {
+                                        collapsedKinds + bucket.kind
+                                    }
+                                }
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            if (bucket.schedules.isEmpty()) {
-                                Text(
-                                    text = "该象限暂无日程",
-                                    color = palette.textSecondary,
-                                    fontSize = 12.sp,
-                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .clip(CircleShape)
+                                        .background(accent),
                                 )
-                            } else {
-                                bucket.schedules.forEach { card ->
-                                    ScheduleCard(
-                                        card = card,
-                                        onToggleDone = { onToggleDone(card.id) },
-                                        onClick = { onCardClick(card.id) },
+                                Column {
+                                    Text(
+                                        text = bucket.title,
+                                        color = palette.textPrimary,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.SemiBold,
                                     )
+                                    Text(
+                                        text = bucket.subtitle,
+                                        color = palette.textSecondary,
+                                        fontSize = 11.5.sp,
+                                    )
+                                }
+                            }
+                            Text(
+                                text = bucket.schedules.size.toString(),
+                                color = accent,
+                                style = TextStyle(
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontFeatureSettings = "tnum",
+                                ),
+                            )
+                        }
+
+                        AnimatedVisibility(visible = !isCollapsed) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(start = 10.dp, end = 10.dp, bottom = 10.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                if (bucket.schedules.isEmpty()) {
+                                    Text(
+                                        text = if (nextThreeDaysOnly) "未来 3 天内暂无未完成日程" else "该象限暂无未完成日程",
+                                        color = palette.textSecondary,
+                                        fontSize = 12.sp,
+                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
+                                    )
+                                } else {
+                                    bucket.schedules.forEach { card ->
+                                        ScheduleCard(
+                                            card = card,
+                                            onToggleDone = { onToggleDone(card.id) },
+                                            onClick = { onCardClick(card.id) },
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -425,6 +412,151 @@ private fun EisenhowerList(
         }
     }
 }
+
+@Composable
+fun TagsHubScreen(
+    selectedSection: TagPageSection,
+    tagGroups: List<TagGroupUi>,
+    personGroups: List<PersonGroupUi>,
+    locationGroups: List<LocationGroupUi>,
+    onSelectSection: (TagPageSection) -> Unit,
+    onToggleDone: (String) -> Unit,
+    onCardClick: (String) -> Unit,
+    onOpenEditTag: (String) -> Unit,
+    onCreateTag: () -> Unit,
+    onOpenEditPerson: (String) -> Unit,
+    onCreatePerson: () -> Unit,
+    onOpenEditLocation: (String) -> Unit,
+    onCreateLocation: () -> Unit,
+) {
+    val palette = LocalNordPalette.current
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        // 顶部三段圆润胶囊切换条：标签 | 人物 | 地点
+        Surface(
+            color = palette.surface1,
+            shadowElevation = 0.dp,
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+            ) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    color = palette.surface3,
+                    shadowElevation = 0.dp,
+                    border = BorderStroke(1.dp, palette.borderSubtle),
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(3.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        TagPageSection.entries.forEach { section ->
+                            val selected = selectedSection == section
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .defaultMinSize(minHeight = 36.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(if (selected) palette.surface2 else Color.Transparent)
+                                    .border(
+                                        width = 1.dp,
+                                        color = if (selected) palette.borderStrong else Color.Transparent,
+                                        shape = RoundedCornerShape(10.dp),
+                                    )
+                                    .clickable { onSelectSection(section) }
+                                    .padding(horizontal = 6.dp, vertical = 7.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    text = section.title,
+                                    color = if (selected) palette.textPrimary else palette.textSecondary,
+                                    fontSize = 12.5.sp,
+                                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        HorizontalDivider(thickness = 1.dp, color = palette.borderSubtle)
+
+        val sectionSlidePx = with(LocalDensity.current) { 16.dp.roundToPx() }
+        AnimatedContent(
+            targetState = selectedSection,
+            transitionSpec = {
+                val forward = targetState.ordinal >= initialState.ordinal
+                val enterOffset = if (forward) sectionSlidePx else -sectionSlidePx
+                val exitOffset = if (forward) -sectionSlidePx else sectionSlidePx
+                (fadeIn(tween(140, easing = NordMotion.Enter)) +
+                    slideInHorizontally(tween(140, easing = NordMotion.Enter)) { enterOffset }) togetherWith
+                    (fadeOut(tween(90, easing = NordMotion.Leave)) +
+                        slideOutHorizontally(tween(90, easing = NordMotion.Leave)) { exitOffset })
+            },
+            label = "tagSectionTransition",
+        ) { section ->
+            when (section) {
+                TagPageSection.TAGS -> TagsList(
+                    tagGroups = tagGroups,
+                    onToggleDone = onToggleDone,
+                    onCardClick = onCardClick,
+                    onOpenEditTag = onOpenEditTag,
+                    onCreateTag = onCreateTag,
+                )
+                TagPageSection.PERSONS -> SimpleTaxonomyList(
+                    createLabel = "新建人物",
+                    emptyMessage = "暂无人物，点上方「新建人物」或右下角「+」创建后即可在日程上关联。",
+                    emptyItemMessage = "暂无关联日程",
+                    editDescription = "编辑人物",
+                    icon = DayNewIcons.Person,
+                    entries = personGroups.map {
+                        TaxonomyGroupItem(
+                            id = it.person.id,
+                            name = it.person.name,
+                            schedules = it.schedules,
+                        )
+                    },
+                    onCreate = onCreatePerson,
+                    onEdit = onOpenEditPerson,
+                    onToggleDone = onToggleDone,
+                    onCardClick = onCardClick,
+                )
+                TagPageSection.LOCATIONS -> SimpleTaxonomyList(
+                    createLabel = "新建地点",
+                    emptyMessage = "暂无地点，点上方「新建地点」或右下角「+」创建后即可在日程上关联。",
+                    emptyItemMessage = "暂无关联日程",
+                    editDescription = "编辑地点",
+                    icon = DayNewIcons.Location,
+                    entries = locationGroups.map {
+                        TaxonomyGroupItem(
+                            id = it.location.id,
+                            name = it.location.name,
+                            schedules = it.schedules,
+                        )
+                    },
+                    onCreate = onCreateLocation,
+                    onEdit = onOpenEditLocation,
+                    onToggleDone = onToggleDone,
+                    onCardClick = onCardClick,
+                )
+            }
+        }
+    }
+}
+
+private data class TaxonomyGroupItem(
+    val id: String,
+    val name: String,
+    val schedules: List<ScheduleCardUi>,
+)
 
 @Composable
 private fun TagsList(
@@ -443,48 +575,11 @@ private fun TagsList(
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         item {
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable(onClick = onCreateTag),
-                shape = RoundedCornerShape(8.dp),
-                color = palette.surface2,
-                shadowElevation = 0.dp,
-                border = BorderStroke(1.dp, palette.borderSubtle),
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .defaultMinSize(minHeight = 48.dp)
-                        .padding(horizontal = 14.dp, vertical = 10.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        Icon(
-                            imageVector = DayNewIcons.Tag,
-                            contentDescription = null,
-                            tint = palette.accent,
-                            modifier = Modifier.size(18.dp),
-                        )
-                        Text(
-                            text = "新建标签",
-                            color = palette.accent,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                    }
-                    Icon(
-                        imageVector = DayNewIcons.Add,
-                        contentDescription = null,
-                        tint = palette.accent,
-                        modifier = Modifier.size(18.dp),
-                    )
-                }
-            }
+            CreateRowCard(
+                label = "新建标签",
+                icon = DayNewIcons.Tag,
+                onClick = onCreateTag,
+            )
         }
 
         if (tagGroups.isEmpty()) {
@@ -495,7 +590,7 @@ private fun TagsList(
                 val isExpanded = group.tag.id in expandedTagIds
 
                 Surface(
-                    shape = RoundedCornerShape(8.dp),
+                    shape = RoundedCornerShape(14.dp),
                     color = palette.surface2,
                     shadowElevation = 0.dp,
                     border = BorderStroke(1.dp, palette.borderSubtle),
@@ -585,10 +680,186 @@ private fun TagsList(
 }
 
 @Composable
+private fun SimpleTaxonomyList(
+    createLabel: String,
+    emptyMessage: String,
+    emptyItemMessage: String,
+    editDescription: String,
+    icon: ImageVector,
+    entries: List<TaxonomyGroupItem>,
+    onCreate: () -> Unit,
+    onEdit: (String) -> Unit,
+    onToggleDone: (String) -> Unit,
+    onCardClick: (String) -> Unit,
+) {
+    val palette = LocalNordPalette.current
+    var expandedIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        item {
+            CreateRowCard(
+                label = createLabel,
+                icon = icon,
+                onClick = onCreate,
+            )
+        }
+
+        if (entries.isEmpty()) {
+            item { EmptyPlaceholder(emptyMessage) }
+        } else {
+            items(entries, key = { it.id }) { item ->
+                val isExpanded = item.id in expandedIds
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = palette.surface2,
+                    shadowElevation = 0.dp,
+                    border = BorderStroke(1.dp, palette.borderSubtle),
+                ) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    expandedIds = if (isExpanded) {
+                                        expandedIds - item.id
+                                    } else {
+                                        expandedIds + item.id
+                                    }
+                                }
+                                .padding(start = 14.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                imageVector = icon,
+                                contentDescription = null,
+                                tint = palette.accent,
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Text(
+                                text = item.name,
+                                color = palette.textPrimary,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(horizontal = 10.dp),
+                            )
+                            Text(
+                                text = "${item.schedules.count { !it.dto.done }}/${item.schedules.size}",
+                                color = palette.textSecondary,
+                                style = TextStyle(
+                                    fontSize = 12.sp,
+                                    fontFeatureSettings = "tnum",
+                                ),
+                            )
+                            IconButton(
+                                onClick = { onEdit(item.id) },
+                                modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp),
+                            ) {
+                                Icon(
+                                    imageVector = DayNewIcons.Edit,
+                                    contentDescription = editDescription,
+                                    tint = palette.textSecondary,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
+                        }
+
+                        AnimatedVisibility(visible = isExpanded) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(start = 10.dp, end = 10.dp, bottom = 10.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                if (item.schedules.isEmpty()) {
+                                    Text(
+                                        text = emptyItemMessage,
+                                        color = palette.textSecondary,
+                                        fontSize = 12.sp,
+                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
+                                    )
+                                } else {
+                                    item.schedules.forEach { card ->
+                                        ScheduleCard(
+                                            card = card,
+                                            onToggleDone = { onToggleDone(card.id) },
+                                            onClick = { onCardClick(card.id) },
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CreateRowCard(
+    label: String,
+    icon: ImageVector,
+    onClick: () -> Unit,
+) {
+    val palette = LocalNordPalette.current
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .nordClickable(pressedScale = 0.985f, onClick = onClick),
+        shape = RoundedCornerShape(14.dp),
+        color = palette.surface2,
+        shadowElevation = 0.dp,
+        border = BorderStroke(1.dp, palette.borderSubtle),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .defaultMinSize(minHeight = 48.dp)
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = palette.accent,
+                    modifier = Modifier.size(18.dp),
+                )
+                Text(
+                    text = label,
+                    color = palette.accent,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+            Icon(
+                imageVector = DayNewIcons.Add,
+                contentDescription = null,
+                tint = palette.accent,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+    }
+}
+
+@Composable
 private fun EmptyPlaceholder(message: String) {
     val palette = LocalNordPalette.current
     Surface(
-        shape = RoundedCornerShape(8.dp),
+        shape = RoundedCornerShape(14.dp),
         color = palette.surface2,
         shadowElevation = 0.dp,
         border = BorderStroke(1.dp, palette.borderSubtle),

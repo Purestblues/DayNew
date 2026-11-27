@@ -152,6 +152,7 @@ fun OverviewDragBoard(
                 onLaneBoundsChanged = { lane, rect ->
                     dragState.laneRects[lane] = rect
                 },
+                pagerPositionProvider = { pagerState.currentPage + pagerState.currentPageOffsetFraction },
             )
             HorizontalDivider(thickness = 1.dp, color = palette.borderSubtle)
 

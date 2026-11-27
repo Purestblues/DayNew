@@ -5,7 +5,9 @@ import com.daynew.sync.DeadlineRules
 import com.daynew.sync.GoalDto
 import com.daynew.sync.GoalRefDto
 import com.daynew.sync.HlcClock
+import com.daynew.sync.LocationDto
 import com.daynew.sync.MergeReport
+import com.daynew.sync.PersonDto
 import com.daynew.sync.RemindRules
 import com.daynew.sync.RepeatRules
 import com.daynew.sync.ScheduleDto
@@ -48,6 +50,8 @@ data class ScheduleDraft(
     val important: Boolean = false,
     val goalId: String? = null,
     val tagIds: List<String> = emptyList(),
+    val personIds: List<String> = emptyList(),
+    val locationIds: List<String> = emptyList(),
 )
 
 data class GoalDraft(
@@ -62,6 +66,16 @@ data class TagDraft(
     val id: String? = null,
     val name: String = "",
     val color: String = "#527CE6",
+)
+
+data class PersonDraft(
+    val id: String? = null,
+    val name: String = "",
+)
+
+data class LocationDraft(
+    val id: String? = null,
+    val name: String = "",
 )
 
 /**
@@ -312,6 +326,8 @@ class DayNewRepository(
                 goalId = draft.goalId,
                 goalRefs = goalRefs,
                 tagIds = draft.tagIds.distinct(),
+                personIds = draft.personIds.distinct(),
+                locationIds = draft.locationIds.distinct(),
                 order = maxOrder + 1024,
                 hlc = tick,
                 del = false,
@@ -330,6 +346,10 @@ class DayNewRepository(
             latestHlc = t
         }
 
+        val cleanTagIds = draft.tagIds.distinct()
+        val cleanPersonIds = draft.personIds.distinct()
+        val cleanLocationIds = draft.locationIds.distinct()
+
         if (existing.title != cleanTitle) stamp("title")
         if (existing.note != cleanNote) stamp("note")
         if (existing.due != resolvedDue) stamp("due")
@@ -338,7 +358,9 @@ class DayNewRepository(
         if (existing.remind != normalizedRemind) stamp("remind")
         if (existing.urgent != draft.urgent || existing.important != draft.important) stamp("flags")
         if (existing.goalId != draft.goalId || existing.goalRefs != goalRefs) stamp("goals")
-        if (existing.tagIds != draft.tagIds.distinct()) stamp("tags")
+        if (existing.tagIds != cleanTagIds) stamp("tags")
+        if (existing.personIds != cleanPersonIds) stamp("persons")
+        if (existing.locationIds != cleanLocationIds) stamp("locations")
 
         val updated = existing.copy(
             title = cleanTitle,
@@ -352,7 +374,9 @@ class DayNewRepository(
             important = draft.important,
             goalId = draft.goalId,
             goalRefs = goalRefs,
-            tagIds = draft.tagIds.distinct(),
+            tagIds = cleanTagIds,
+            personIds = cleanPersonIds,
+            locationIds = cleanLocationIds,
             del = false,
             hlc = latestHlc,
             fieldHlcs = fieldMap,
@@ -573,6 +597,118 @@ class DayNewRepository(
             }
         }
         commitStore(store.copy(tags = nextTags, schedules = nextSchedules))
+        true
+    }
+
+    fun upsertPerson(draft: PersonDraft): PersonDto = synchronized(stateLock) {
+        val store = _storeFlow.value
+        val cleanName = draft.name.trim().ifEmpty { "未命名人物" }
+        val existing = draft.id?.let { id -> store.persons.firstOrNull { it.id == id } }
+        if (existing == null) {
+            val tick = clock.tick()
+            val created = PersonDto(
+                id = generateShortId(),
+                name = cleanName,
+                hlc = tick,
+                del = false,
+                fieldHlcs = SyncMergeEngine.PERSON_FIELDS.associateWith { tick },
+            )
+            commitStore(store.copy(persons = store.persons + created))
+            return created
+        }
+
+        val fieldMap = existing.fieldHlcs.orEmpty().toMutableMap()
+        var latestHlc = existing.hlc
+        if (existing.name != cleanName) {
+            val t = clock.tick()
+            fieldMap["name"] = t
+            latestHlc = t
+        }
+        val updated = existing.copy(
+            name = cleanName,
+            del = false,
+            hlc = latestHlc,
+            fieldHlcs = fieldMap,
+        )
+        commitStore(store.copy(persons = store.persons.map { if (it.id == existing.id) updated else it }))
+        return updated
+    }
+
+    fun deletePerson(personId: String): Boolean = synchronized(stateLock) {
+        val store = _storeFlow.value
+        val existing = store.persons.firstOrNull { it.id == personId && !it.del } ?: return false
+        val tick = clock.tick()
+        val tombstone = existing.copy(del = true, hlc = tick)
+        val nextPersons = store.persons.map { if (it.id == personId) tombstone else it }
+        val nextSchedules = store.schedules.map { s ->
+            if (personId in s.personIds) {
+                val sTick = clock.tick()
+                s.copy(
+                    personIds = s.personIds.filterNot { it == personId },
+                    hlc = sTick,
+                    fieldHlcs = s.fieldHlcs.orEmpty() + ("persons" to sTick),
+                )
+            } else {
+                s
+            }
+        }
+        commitStore(store.copy(persons = nextPersons, schedules = nextSchedules))
+        true
+    }
+
+    fun upsertLocation(draft: LocationDraft): LocationDto = synchronized(stateLock) {
+        val store = _storeFlow.value
+        val cleanName = draft.name.trim().ifEmpty { "未命名地点" }
+        val existing = draft.id?.let { id -> store.locations.firstOrNull { it.id == id } }
+        if (existing == null) {
+            val tick = clock.tick()
+            val created = LocationDto(
+                id = generateShortId(),
+                name = cleanName,
+                hlc = tick,
+                del = false,
+                fieldHlcs = SyncMergeEngine.LOCATION_FIELDS.associateWith { tick },
+            )
+            commitStore(store.copy(locations = store.locations + created))
+            return created
+        }
+
+        val fieldMap = existing.fieldHlcs.orEmpty().toMutableMap()
+        var latestHlc = existing.hlc
+        if (existing.name != cleanName) {
+            val t = clock.tick()
+            fieldMap["name"] = t
+            latestHlc = t
+        }
+        val updated = existing.copy(
+            name = cleanName,
+            del = false,
+            hlc = latestHlc,
+            fieldHlcs = fieldMap,
+        )
+        commitStore(store.copy(locations = store.locations.map { if (it.id == existing.id) updated else it }))
+        return updated
+    }
+
+    fun deleteLocation(locationId: String): Boolean = synchronized(stateLock) {
+        val store = _storeFlow.value
+        val existing = store.locations.firstOrNull { it.id == locationId && !it.del } ?: return false
+        val tick = clock.tick()
+        val tombstone = existing.copy(del = true, hlc = tick)
+        val nextLocations = store.locations.map { if (it.id == locationId) tombstone else it }
+        val nextSchedules = store.schedules.map { s ->
+            if (locationId in s.locationIds) {
+                val sTick = clock.tick()
+                s.copy(
+                    locationIds = s.locationIds.filterNot { it == locationId },
+                    hlc = sTick,
+                    fieldHlcs = s.fieldHlcs.orEmpty() + ("locations" to sTick),
+                )
+            } else {
+                s
+            }
+        }
+        commitStore(store.copy(locations = nextLocations, schedules = nextSchedules))
         true
     }
 

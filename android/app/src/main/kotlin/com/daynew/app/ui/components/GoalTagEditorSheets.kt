@@ -274,6 +274,85 @@ fun TagEditorSheet(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SimpleNameEditorSheet(
+    title: String,
+    label: String,
+    placeholder: String,
+    value: String,
+    isEditing: Boolean,
+    deleteDescription: String,
+    onValueChange: (String) -> Unit,
+    onDismiss: () -> Unit,
+    onSave: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    val palette = LocalNordPalette.current
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = palette.surface4,
+        contentColor = palette.textPrimary,
+        tonalElevation = 0.dp,
+        shape = RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .imePadding()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = title,
+                    color = palette.textPrimary,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                if (isEditing) {
+                    IconButton(
+                        onClick = onDelete,
+                        modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp),
+                    ) {
+                        Icon(
+                            imageVector = DayNewIcons.Delete,
+                            contentDescription = deleteDescription,
+                            tint = palette.danger,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                }
+            }
+
+            OutlinedTextField(
+                value = value,
+                onValueChange = onValueChange,
+                label = { Text(label) },
+                placeholder = { Text(placeholder) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                colors = editorFieldColors(),
+            )
+
+            SheetActionBar(
+                confirmLabel = if (isEditing) "保存" else "创建",
+                onDismiss = onDismiss,
+                onSave = onSave,
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+        }
+    }
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun SwatchRow(

@@ -139,4 +139,117 @@ class MainScreenViewModelTest {
         assertTrue(deleted.del)
         assertNotEquals(created.hlc, deleted.hlc)
     }
+
+    @Test
+    fun navigationPagesAndTagSections_updateUiStateCorrectly() {
+        val dir = tempFolder.newFolder("vm-nav")
+        val repo = DayNewRepository(dir, nowProvider = { fixedNow }, debounceMs = 10L)
+        val vm = MainScreenViewModel(repo, nowProvider = { fixedNow })
+
+        assertEquals(AppPage.OVERVIEW, vm.uiState.value.selectedPage)
+        assertEquals(BottomTab.OVERVIEW, vm.uiState.value.selectedBottomTab)
+
+        vm.selectTab(BottomTab.EISENHOWER)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(AppPage.EISENHOWER, vm.uiState.value.selectedPage)
+        assertEquals(BottomTab.EISENHOWER, vm.uiState.value.selectedBottomTab)
+
+        vm.selectPage(AppPage.TAGS)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(AppPage.TAGS, vm.uiState.value.selectedPage)
+        assertEquals(null, vm.uiState.value.selectedBottomTab)
+
+        vm.selectTagSection(TagPageSection.PERSONS)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(TagPageSection.PERSONS, vm.uiState.value.selectedTagSection)
+
+        vm.openCreatePersonSheet()
+        vm.updatePersonDraft { it.copy(name = "测试联系人") }
+        vm.savePersonEditor()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertTrue(vm.uiState.value.personGroups.any { it.person.name == "测试联系人" })
+
+        vm.selectTagSection(TagPageSection.LOCATIONS)
+        vm.openCreateLocationSheet()
+        vm.updateLocationDraft { it.copy(name = "测试地点") }
+        vm.saveLocationEditor()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertTrue(vm.uiState.value.locationGroups.any { it.location.name == "测试地点" })
+    }
+
+    @Test
+    fun eisenhowerBoard_hidesCompletedAndDefaultsToNextThreeDays() {
+        val dir = tempFolder.newFolder("vm-eisenhower")
+        val repo = DayNewRepository(dir, nowProvider = { fixedNow }, debounceMs = 10L)
+        val today = fixedNow.toLocalDate()
+
+        repo.upsertSchedule(
+            com.daynew.app.data.ScheduleDraft(
+                title = "今天未完成",
+                hasDueDate = true,
+                useExactDate = true,
+                dueDate = today,
+                urgent = true,
+                important = true,
+            ),
+            now = fixedNow,
+        )
+        repo.upsertSchedule(
+            com.daynew.app.data.ScheduleDraft(
+                title = "后天未完成",
+                hasDueDate = true,
+                useExactDate = true,
+                dueDate = today.plusDays(2),
+                urgent = false,
+                important = true,
+            ),
+            now = fixedNow,
+        )
+        repo.upsertSchedule(
+            com.daynew.app.data.ScheduleDraft(
+                title = "四天后未完成",
+                hasDueDate = true,
+                useExactDate = true,
+                dueDate = today.plusDays(3),
+                urgent = true,
+                important = false,
+            ),
+            now = fixedNow,
+        )
+        val completed = repo.upsertSchedule(
+            com.daynew.app.data.ScheduleDraft(
+                title = "今天已完成",
+                hasDueDate = true,
+                useExactDate = true,
+                dueDate = today,
+                urgent = true,
+                important = true,
+            ),
+            now = fixedNow,
+        )
+        repo.toggleDone(completed.id, fixedNow)
+
+        val vm = MainScreenViewModel(repo, nowProvider = { fixedNow })
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        val defaultTitles = vm.uiState.value.eisenhowerBuckets.flatMap { it.schedules }.map { it.dto.title }
+        assertTrue(vm.uiState.value.eisenhowerNextThreeDaysOnly)
+        assertTrue("今天未完成" in defaultTitles)
+        assertTrue("后天未完成" in defaultTitles)
+        assertFalse("四天后未完成" in defaultTitles)
+        assertFalse("今天已完成" in defaultTitles)
+        // 超过 3 天或逾期的默认也不出现
+        assertTrue(
+            vm.uiState.value.eisenhowerBuckets.flatMap { it.schedules }.all { card ->
+                val d = com.daynew.sync.DeadlineRules.parseDue(card.dto.due).date
+                !card.dto.done && d != null && !d.isBefore(today) && !d.isAfter(today.plusDays(2))
+            }
+        )
+
+        vm.setEisenhowerNextThreeDaysOnly(false)
+        testDispatcher.scheduler.advanceUntilIdle()
+        val allPendingTitles = vm.uiState.value.eisenhowerBuckets.flatMap { it.schedules }.map { it.dto.title }
+        assertTrue("四天后未完成" in allPendingTitles)
+        assertFalse("今天已完成" in allPendingTitles)
+    }
 }

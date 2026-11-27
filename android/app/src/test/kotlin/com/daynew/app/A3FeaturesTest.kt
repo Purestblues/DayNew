@@ -2,6 +2,8 @@ package com.daynew.app
 
 import com.daynew.app.data.DayNewRepository
 import com.daynew.app.data.GoalDraft
+import com.daynew.app.data.LocationDraft
+import com.daynew.app.data.PersonDraft
 import com.daynew.app.data.ScheduleDraft
 import com.daynew.app.data.TagDraft
 import com.daynew.app.data.TimelineBlockInput
@@ -124,5 +126,33 @@ class A3FeaturesTest {
         val afterSched = repo.getScheduleById(sched.id)!!
         assertFalse(tag.id in afterSched.tagIds)
         assertTrue(afterSched.fieldHlcs?.containsKey("tags") == true)
+    }
+
+    @Test
+    fun `person and location CRUD and deletion cascade clean schedule refs`() {
+        val repo = newRepo()
+        val person = repo.upsertPerson(PersonDraft(name = "林老师"))
+        val location = repo.upsertLocation(LocationDraft(name = "一号会议室"))
+        val sched = repo.upsertSchedule(
+            ScheduleDraft(
+                title = "项目评审",
+                personIds = listOf(person.id),
+                locationIds = listOf(location.id),
+            ),
+            now = fixedNow,
+        )
+        assertEquals(listOf(person.id), sched.personIds)
+        assertEquals(listOf(location.id), sched.locationIds)
+
+        assertTrue(repo.deletePerson(person.id))
+        assertTrue(repo.deleteLocation(location.id))
+        assertTrue(repo.currentStore().persons.first { it.id == person.id }.del)
+        assertTrue(repo.currentStore().locations.first { it.id == location.id }.del)
+
+        val afterSched = repo.getScheduleById(sched.id)!!
+        assertTrue(afterSched.personIds.isEmpty())
+        assertTrue(afterSched.locationIds.isEmpty())
+        assertTrue(afterSched.fieldHlcs?.containsKey("persons") == true)
+        assertTrue(afterSched.fieldHlcs?.containsKey("locations") == true)
     }
 }

@@ -1737,13 +1737,13 @@ public sealed class MainViewModel : ObservableObject
 
     public ObservableCollection<QuadrantVM> Quadrants { get; } = new();
 
-    private bool _showCompletedInEisenhower;
-    public bool ShowCompletedInEisenhower
+    private bool _eisenhowerNextThreeDaysOnly = true;
+    public bool EisenhowerNextThreeDaysOnly
     {
-        get => _showCompletedInEisenhower;
+        get => _eisenhowerNextThreeDaysOnly;
         set
         {
-            if (Set(ref _showCompletedInEisenhower, value))
+            if (Set(ref _eisenhowerNextThreeDaysOnly, value))
                 RebuildQuadrants();
         }
     }
@@ -2050,9 +2050,17 @@ public sealed class MainViewModel : ObservableObject
     private void RebuildQuadrants()
     {
         foreach (var quadrant in Quadrants) quadrant.Items.Clear();
-        foreach (var task in _all.OrderBy(t => t.Done).ThenBy(t => t.Order))
+        var today = DateTime.Today;
+        var windowEnd = today.AddDays(2);
+        foreach (var task in _all.OrderBy(t => t.Order))
         {
-            if (task.Done && !_showCompletedInEisenhower) continue;
+            if (task.Done) continue;
+            if (_eisenhowerNextThreeDaysOnly)
+            {
+                if (!task.Due.HasValue) continue;
+                var d = task.Due.Value.Date;
+                if (d < today || d > windowEnd) continue;
+            }
             var quadrant = Quadrants.First(q => q.IsUrgent == task.IsUrgent && q.IsImportant == task.IsImportant);
             quadrant.Items.Add(task);
         }

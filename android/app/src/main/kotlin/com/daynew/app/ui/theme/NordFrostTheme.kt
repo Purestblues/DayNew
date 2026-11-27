@@ -1,15 +1,33 @@
 package com.daynew.app.ui.theme
 
 import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Indication
+import androidx.compose.foundation.LocalIndication
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.InteractionSource
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material.ripple.RippleAlpha
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.LocalRippleConfiguration
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RippleConfiguration
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.semantics.Role
 
 @Immutable
 data class NordFrostPalette(
@@ -86,12 +104,33 @@ object NordMotion {
 
 val LocalNordPalette = staticCompositionLocalOf { LightNordPalette }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NordFrostTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit,
 ) {
     val palette = if (darkTheme) DarkNordPalette else LightNordPalette
+    val rippleConfiguration = remember(darkTheme, palette) {
+        RippleConfiguration(
+            color = palette.textPrimary,
+            rippleAlpha = if (darkTheme) {
+                RippleAlpha(
+                    draggedAlpha = 0.10f,
+                    focusedAlpha = 0.09f,
+                    hoveredAlpha = 0.07f,
+                    pressedAlpha = 0.12f,
+                )
+            } else {
+                RippleAlpha(
+                    draggedAlpha = 0.08f,
+                    focusedAlpha = 0.07f,
+                    hoveredAlpha = 0.05f,
+                    pressedAlpha = 0.09f,
+                )
+            },
+        )
+    }
     val colorScheme = if (darkTheme) {
         darkColorScheme(
             background = palette.surface0,
@@ -124,11 +163,56 @@ fun NordFrostTheme(
         )
     }
 
-    CompositionLocalProvider(LocalNordPalette provides palette) {
+    CompositionLocalProvider(
+        LocalNordPalette provides palette,
+        LocalRippleConfiguration provides rippleConfiguration,
+    ) {
         MaterialTheme(
             colorScheme = colorScheme,
             typography = Typography,
             content = content,
         )
     }
+}
+
+@Composable
+fun Modifier.nordPressScale(
+    interactionSource: InteractionSource,
+    pressedScale: Float = 0.98f,
+): Modifier {
+    val pressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) pressedScale else 1f,
+        animationSpec = tween(
+            durationMillis = if (pressed) NordMotion.Xs else NordMotion.S,
+            easing = NordMotion.Standard,
+        ),
+        label = "nordPressScale",
+    )
+    return this.graphicsLayer {
+        scaleX = scale
+        scaleY = scale
+    }
+}
+
+fun Modifier.nordClickable(
+    enabled: Boolean = true,
+    pressedScale: Float = 0.98f,
+    role: Role? = null,
+    onClick: () -> Unit,
+): Modifier = composed {
+    val interactionSource = remember { MutableInteractionSource() }
+    val indication: Indication = LocalIndication.current
+    this
+        .nordPressScale(
+            interactionSource = interactionSource,
+            pressedScale = pressedScale,
+        )
+        .clickable(
+            interactionSource = interactionSource,
+            indication = indication,
+            enabled = enabled,
+            role = role,
+            onClick = onClick,
+        )
 }

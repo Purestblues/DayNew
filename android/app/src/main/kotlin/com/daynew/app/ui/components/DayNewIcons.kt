@@ -281,6 +281,138 @@ object DayNewIcons {
         }
     }
 
+    val Menu: ImageVector by lazy {
+        vector("Menu") {
+            path(
+                stroke = StrokeBrush,
+                strokeLineWidth = 1.9f,
+                strokeLineCap = StrokeCap.Round,
+            ) {
+                moveTo(4f, 6.5f)
+                lineTo(20f, 6.5f)
+                moveTo(4f, 12f)
+                lineTo(20f, 12f)
+                moveTo(4f, 17.5f)
+                lineTo(20f, 17.5f)
+            }
+        }
+    }
+
+    val Deadline: ImageVector by lazy {
+        vector("Deadline") {
+            roundRect(3.5f, 5f, 17f, 15.5f)
+            path(
+                stroke = StrokeBrush,
+                strokeLineWidth = 1.8f,
+                strokeLineCap = StrokeCap.Round,
+            ) {
+                moveTo(8f, 3f)
+                lineTo(8f, 6.5f)
+                moveTo(16f, 3f)
+                lineTo(16f, 6.5f)
+                moveTo(3.5f, 9.5f)
+                lineTo(20.5f, 9.5f)
+            }
+        }
+    }
+
+    val Future: ImageVector by lazy {
+        vector("Future") {
+            path(
+                stroke = StrokeBrush,
+                strokeLineWidth = 1.8f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            ) {
+                moveTo(4f, 13f)
+                lineTo(6.5f, 5f)
+                lineTo(17.5f, 5f)
+                lineTo(20f, 13f)
+                lineTo(20f, 19f)
+                lineTo(4f, 19f)
+                close()
+                moveTo(4f, 13f)
+                lineTo(9f, 13f)
+                lineTo(10.5f, 15.5f)
+                lineTo(13.5f, 15.5f)
+                lineTo(15f, 13f)
+                lineTo(20f, 13f)
+            }
+        }
+    }
+
+    val Settings: ImageVector by lazy {
+        vector("Settings") {
+            path(
+                stroke = StrokeBrush,
+                strokeLineWidth = 1.8f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            ) {
+                moveTo(12f, 15.2f)
+                arcTo(3.2f, 3.2f, 0f, true, true, 12f, 8.8f)
+                arcTo(3.2f, 3.2f, 0f, true, true, 12f, 15.2f)
+                close()
+                moveTo(12f, 3f)
+                lineTo(12f, 5f)
+                moveTo(12f, 19f)
+                lineTo(12f, 21f)
+                moveTo(3f, 12f)
+                lineTo(5f, 12f)
+                moveTo(19f, 12f)
+                lineTo(21f, 12f)
+                moveTo(5.6f, 5.6f)
+                lineTo(7.1f, 7.1f)
+                moveTo(16.9f, 16.9f)
+                lineTo(18.4f, 18.4f)
+                moveTo(18.4f, 5.6f)
+                lineTo(16.9f, 7.1f)
+                moveTo(7.1f, 16.9f)
+                lineTo(5.6f, 18.4f)
+            }
+        }
+    }
+
+    val Person: ImageVector by lazy {
+        vector("Person") {
+            path(
+                stroke = StrokeBrush,
+                strokeLineWidth = 1.8f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            ) {
+                moveTo(12f, 11.2f)
+                arcTo(3.6f, 3.6f, 0f, true, true, 12f, 4f)
+                arcTo(3.6f, 3.6f, 0f, true, true, 12f, 11.2f)
+                close()
+                moveTo(5f, 20f)
+                curveTo(5f, 16.4f, 8.1f, 14f, 12f, 14f)
+                curveTo(15.9f, 14f, 19f, 16.4f, 19f, 20f)
+            }
+        }
+    }
+
+    val Location: ImageVector by lazy {
+        vector("Location") {
+            path(
+                stroke = StrokeBrush,
+                strokeLineWidth = 1.8f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            ) {
+                moveTo(12f, 21f)
+                curveTo(12f, 21f, 18f, 14.8f, 18f, 10f)
+                arcTo(6f, 6f, 0f, true, false, 6f, 10f)
+                curveTo(6f, 14.8f, 12f, 21f, 12f, 21f)
+                close()
+                moveTo(12f, 12f)
+                arcTo(2f, 2f, 0f, true, true, 12f, 8f)
+                arcTo(2f, 2f, 0f, true, true, 12f, 12f)
+                close()
+            }
+        }
+    }
+
     private inline fun vector(
         name: String,
         block: ImageVector.Builder.() -> Unit,
