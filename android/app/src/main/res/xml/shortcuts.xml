@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="quick_create"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_quick_create_short"
+        android:shortcutLongLabel="@string/shortcut_quick_create_long">
+        <intent
+            android:action="com.daynew.app.action.QUICK_CAPTURE"
+            android:targetPackage="com.daynew.app"
+            android:targetClass="com.daynew.app.share.ShareToDayNewActivity" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="view_today"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_today_short"
+        android:shortcutLongLabel="@string/shortcut_today_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.daynew.app"
+            android:targetClass="com.daynew.app.MainActivity">
+            <extra
+                android:name="extra_open_lane"
+                android:value="TODAY" />
+        </intent>
+    </shortcut>
+</shortcuts>

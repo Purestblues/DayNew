@@ -86,6 +86,15 @@ public static class WebDavService
             throw new ArgumentException("WebDAV 地址格式无效，需以 http:// 或 https:// 开头", nameof(rawUrl));
         }
 
+        var cleanPath = uri.AbsolutePath.Trim('/');
+        if (uri.Host.Equals("dav.jianguoyun.com", StringComparison.OrdinalIgnoreCase) &&
+            (string.IsNullOrEmpty(cleanPath) || cleanPath.Equals("dav", StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new ArgumentException(
+                "坚果云根目录 /dav/ 不支持直接存放文件，请在末尾补充子目录，例如 https://dav.jianguoyun.com/dav/DayNewSync/",
+                nameof(rawUrl));
+        }
+
         return trimmed.EndsWith('/') ? trimmed : trimmed + "/";
     }
 

@@ -1,0 +1,11 @@
+<resources>
+    <string name="app_name">日新</string>
+    <string name="shortcut_quick_create_short">新建日程</string>
+    <string name="shortcut_quick_create_long">快速新建今日日程</string>
+    <string name="shortcut_today_short">今日待办</string>
+    <string name="shortcut_today_long">查看今日待办</string>
+    <string name="widget_today_label">日新 · 今日待办</string>
+    <string name="widget_today_desc">展示逾期与今日待办，支持桌面直接勾选完成与快速新建</string>
+    <string name="widget_quick_label">日新 · 快速新建</string>
+    <string name="widget_quick_desc">一键打开快速新建弹窗并显示今日待办数量</string>
+</resources>

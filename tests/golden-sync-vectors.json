@@ -1,0 +1,483 @@
+{
+  "hlcCompareCases": [
+    { "name": "bothEmpty", "a": "", "b": "", "expectedSign": 0 },
+    { "name": "emptyBeforeNonEmpty", "a": "", "b": "019a0b1c2d3e-0000-win-a1b2c3", "expectedSign": -1 },
+    { "name": "crossDevicePhysOrder", "a": "019a0b1c2d3e-0000-win-a1b2c3", "b": "019a0b1c2d3f-0000-android-9f8e7d", "expectedSign": -1 },
+    { "name": "samePhysCounterOrder", "a": "019a0b1c2d3e-0002-android-9f8e7d", "b": "019a0b1c2d3e-0001-win-a1b2c3", "expectedSign": 1 },
+    { "name": "samePhysAndCounterDeviceTieBreak", "a": "019a0b1c2d3e-0001-android-9f8e7d", "b": "019a0b1c2d3e-0001-win-a1b2c3", "expectedSign": -1 }
+  ],
+  "mergeCases": [
+    {
+      "name": "nonConflictingFieldLevelMerge",
+      "lastSyncedRemoteHlc": "019a0b1c0000-0000-win-a1b2c3",
+      "conflictId": "c000000001",
+      "conflictHlc": "019a0b1c9999-0000-android-9f8e7d",
+      "local": {
+        "version": 1,
+        "goals": [
+          {
+            "id": "g1",
+            "title": "安卓端上线",
+            "color": "#527CE6",
+            "isCompleted": false,
+            "due": "2026-12-31 18:00",
+            "rootX": 20.0,
+            "rootY": 18.0,
+            "nodes": [
+              { "id": "n1", "title": "A0同步核", "isCompleted": true, "due": "2026-11-30", "x": 180.0, "y": 40.0 }
+            ],
+            "edges": [
+              { "fromId": "__root__", "toId": "n1", "kind": "belong", "label": null, "fromSide": "right", "toSide": "left" }
+            ],
+            "hlc": "019a0b1c0010-0000-android-9f8e7d",
+            "del": false,
+            "fieldHlcs": {
+              "title": "019a0b1c0010-0000-android-9f8e7d",
+              "color": "019a0b1c0000-0000-win-a1b2c3",
+              "isCompleted": "019a0b1c0000-0000-win-a1b2c3",
+              "due": "019a0b1c0000-0000-win-a1b2c3",
+              "tree": "019a0b1c0000-0000-win-a1b2c3"
+            }
+          }
+        ],
+        "tags": [
+          { "id": "t1", "name": "开发", "color": "#527CE6", "hlc": "019a0b1c0000-0000-win-a1b2c3", "del": false, "fieldHlcs": { "name": "019a0b1c0000-0000-win-a1b2c3", "color": "019a0b1c0000-0000-win-a1b2c3" } }
+        ],
+        "persons": [
+          { "id": "p1", "name": "张三", "hlc": "019a0b1c0001-0000-android-9f8e7d", "del": false, "fieldHlcs": { "name": "019a0b1c0001-0000-android-9f8e7d" } }
+        ],
+        "locations": [],
+        "schedules": [
+          {
+            "id": "s1",
+            "title": "对齐同步契约（已改标题）",
+            "note": "初始备注",
+            "due": "2026-11-28",
+            "start": "09:00",
+            "end": "10:00",
+            "repeat": "",
+            "remind": "pre5,start",
+            "done": false,
+            "urgent": false,
+            "important": true,
+            "goalId": "g1",
+            "goalRefs": [{ "goalId": "g1", "nodeId": "n1" }],
+            "tagIds": ["t1"],
+            "personIds": [],
+            "locationIds": [],
+            "order": 1,
+            "hlc": "019a0b1c0020-0000-android-9f8e7d",
+            "del": false,
+            "fieldHlcs": {
+              "title": "019a0b1c0020-0000-android-9f8e7d",
+              "tags": "019a0b1c0020-0000-android-9f8e7d",
+              "remind": "019a0b1c0000-0000-win-a1b2c3",
+              "persons": "019a0b1c0000-0000-win-a1b2c3",
+              "locations": "019a0b1c0000-0000-win-a1b2c3"
+            }
+          }
+        ],
+        "presets": null
+      },
+      "remote": {
+        "version": 1,
+        "goals": [
+          {
+            "id": "g1",
+            "title": "安卓端开发",
+            "color": "#527CE6",
+            "isCompleted": false,
+            "due": "2026-12-31 18:00",
+            "rootX": 20.0,
+            "rootY": 18.0,
+            "nodes": [
+              { "id": "n1", "title": "A0同步核", "isCompleted": true, "due": "2026-11-30", "x": 180.0, "y": 40.0 }
+            ],
+            "edges": [
+              { "fromId": "__root__", "toId": "n1", "kind": "belong", "label": null, "fromSide": "right", "toSide": "left" }
+            ],
+            "hlc": "019a0b1c0000-0000-win-a1b2c3",
+            "del": false,
+            "fieldHlcs": {
+              "title": "019a0b1c0000-0000-win-a1b2c3",
+              "color": "019a0b1c0000-0000-win-a1b2c3",
+              "isCompleted": "019a0b1c0000-0000-win-a1b2c3",
+              "due": "019a0b1c0000-0000-win-a1b2c3",
+              "tree": "019a0b1c0000-0000-win-a1b2c3"
+            }
+          }
+        ],
+        "tags": [
+          { "id": "t1", "name": "开发", "color": "#527CE6", "hlc": "019a0b1c0000-0000-win-a1b2c3", "del": false, "fieldHlcs": { "name": "019a0b1c0000-0000-win-a1b2c3", "color": "019a0b1c0000-0000-win-a1b2c3" } }
+        ],
+        "persons": [],
+        "locations": [
+          { "id": "l1", "name": "工位", "hlc": "019a0b1c0015-0000-win-a1b2c3", "del": false, "fieldHlcs": { "name": "019a0b1c0015-0000-win-a1b2c3" } }
+        ],
+        "schedules": [
+          {
+            "id": "s1",
+            "title": "对齐同步契约",
+            "note": "初始备注",
+            "due": "2026-11-28",
+            "start": "09:00",
+            "end": "10:00",
+            "repeat": "",
+            "remind": "pre15,pre5,start,end",
+            "done": false,
+            "urgent": false,
+            "important": true,
+            "goalId": "g1",
+            "goalRefs": [{ "goalId": "g1", "nodeId": "n1" }],
+            "tagIds": [],
+            "personIds": ["p1"],
+            "locationIds": ["l1"],
+            "order": 1,
+            "hlc": "019a0b1c0030-0000-win-a1b2c3",
+            "del": false,
+            "fieldHlcs": {
+              "title": "019a0b1c0000-0000-win-a1b2c3",
+              "tags": "019a0b1c0000-0000-win-a1b2c3",
+              "remind": "019a0b1c0030-0000-win-a1b2c3",
+              "persons": "019a0b1c0030-0000-win-a1b2c3",
+              "locations": "019a0b1c0030-0000-win-a1b2c3"
+            }
+          }
+        ],
+        "presets": null
+      },
+      "expected": {
+        "updatedCount": 2,
+        "conflictCopiesCount": 0,
+        "maxRemoteHlc": "019a0b1c0030-0000-win-a1b2c3",
+        "presetsIsNull": true,
+        "goalTitle": "安卓端上线",
+        "scheduleCount": 1,
+        "scheduleTitle": "对齐同步契约（已改标题）",
+        "scheduleRemind": "pre15,pre5,start,end",
+        "scheduleTagIds": ["t1"],
+        "schedulePersonIds": ["p1"],
+        "scheduleLocationIds": ["l1"],
+        "scheduleDel": false
+      }
+    },
+    {
+      "name": "coreFieldConcurrentConflict",
+      "lastSyncedRemoteHlc": "019a0b1c0000-0000-win-a1b2c3",
+      "conflictId": "conflict01",
+      "conflictHlc": "019a0b1c9999-0000-android-9f8e7d",
+      "local": {
+        "version": 1,
+        "goals": [],
+        "tags": [],
+        "persons": [],
+        "locations": [],
+        "schedules": [
+          {
+            "id": "s2",
+            "title": "安卓端标题",
+            "note": "安卓备注",
+            "due": "2026-11-29",
+            "start": "10:00",
+            "end": "11:00",
+            "repeat": "",
+            "remind": "pre5,start",
+            "done": false,
+            "urgent": false,
+            "important": false,
+            "goalId": null,
+            "goalRefs": [],
+            "tagIds": [],
+            "personIds": [],
+            "locationIds": [],
+            "order": 0,
+            "hlc": "019a0b1c0050-0000-android-9f8e7d",
+            "del": false,
+            "fieldHlcs": {
+              "title": "019a0b1c0050-0000-android-9f8e7d",
+              "time": "019a0b1c0050-0000-android-9f8e7d"
+            }
+          }
+        ],
+        "presets": []
+      },
+      "remote": {
+        "version": 1,
+        "goals": [],
+        "tags": [],
+        "persons": [],
+        "locations": [],
+        "schedules": [
+          {
+            "id": "s2",
+            "title": "桌面端标题",
+            "note": "安卓备注",
+            "due": "2026-11-29",
+            "start": "14:00",
+            "end": "15:00",
+            "repeat": "",
+            "remind": "pre5,start",
+            "done": false,
+            "urgent": false,
+            "important": false,
+            "goalId": null,
+            "goalRefs": [],
+            "tagIds": [],
+            "personIds": [],
+            "locationIds": [],
+            "order": 0,
+            "hlc": "019a0b1c0080-0000-win-a1b2c3",
+            "del": false,
+            "fieldHlcs": {
+              "title": "019a0b1c0080-0000-win-a1b2c3",
+              "time": "019a0b1c0080-0000-win-a1b2c3"
+            }
+          }
+        ],
+        "presets": []
+      },
+      "expected": {
+        "updatedCount": 2,
+        "conflictCopiesCount": 1,
+        "maxRemoteHlc": "019a0b1c0080-0000-win-a1b2c3",
+        "presetsIsNull": false,
+        "scheduleCount": 2,
+        "scheduleTitle": "桌面端标题",
+        "conflictCopyTitle": "[冲突] 安卓端标题",
+        "conflictCopyStart": "10:00",
+        "scheduleDel": false
+      }
+    },
+    {
+      "name": "tombstoneRemoteDeleteWins",
+      "lastSyncedRemoteHlc": "019a0b1c0000-0000-win-a1b2c3",
+      "conflictId": "unused0001",
+      "conflictHlc": "019a0b1c9999-0000-android-9f8e7d",
+      "local": {
+        "version": 1,
+        "goals": [],
+        "tags": [],
+        "persons": [],
+        "locations": [],
+        "schedules": [
+          {
+            "id": "s3",
+            "title": "待删除日程",
+            "hlc": "019a0b1c0010-0000-android-9f8e7d",
+            "del": false,
+            "fieldHlcs": { "title": "019a0b1c0010-0000-android-9f8e7d" }
+          }
+        ],
+        "presets": []
+      },
+      "remote": {
+        "version": 1,
+        "goals": [],
+        "tags": [],
+        "persons": [],
+        "locations": [],
+        "schedules": [
+          {
+            "id": "s3",
+            "title": "待删除日程",
+            "hlc": "019a0b1c0020-0000-win-a1b2c3",
+            "del": true,
+            "fieldHlcs": {}
+          }
+        ],
+        "presets": []
+      },
+      "expected": {
+        "updatedCount": 1,
+        "conflictCopiesCount": 0,
+        "maxRemoteHlc": "019a0b1c0020-0000-win-a1b2c3",
+        "presetsIsNull": false,
+        "scheduleCount": 1,
+        "scheduleTitle": "待删除日程",
+        "scheduleDel": true
+      }
+    },
+    {
+      "name": "tombstoneResurrectedByNewerRemote",
+      "lastSyncedRemoteHlc": "019a0b1c0000-0000-win-a1b2c3",
+      "conflictId": "unused0002",
+      "conflictHlc": "019a0b1c9999-0000-android-9f8e7d",
+      "local": {
+        "version": 1,
+        "goals": [],
+        "tags": [],
+        "persons": [],
+        "locations": [],
+        "schedules": [
+          {
+            "id": "s4",
+            "title": "本地先删",
+            "hlc": "019a0b1c0020-0000-android-9f8e7d",
+            "del": true,
+            "fieldHlcs": {}
+          }
+        ],
+        "presets": []
+      },
+      "remote": {
+        "version": 1,
+        "goals": [],
+        "tags": [],
+        "persons": [],
+        "locations": [],
+        "schedules": [
+          {
+            "id": "s4",
+            "title": "远端更晚复活编辑",
+            "hlc": "019a0b1c0040-0000-win-a1b2c3",
+            "del": false,
+            "fieldHlcs": { "title": "019a0b1c0040-0000-win-a1b2c3" }
+          }
+        ],
+        "presets": []
+      },
+      "expected": {
+        "updatedCount": 1,
+        "conflictCopiesCount": 0,
+        "maxRemoteHlc": "019a0b1c0040-0000-win-a1b2c3",
+        "presetsIsNull": false,
+        "scheduleCount": 1,
+        "scheduleTitle": "远端更晚复活编辑",
+        "scheduleDel": false
+      }
+    },
+    {
+      "name": "tombstoneEqualHlcDeleteWins",
+      "lastSyncedRemoteHlc": "019a0b1c0000-0000-win-a1b2c3",
+      "conflictId": "unused0003",
+      "conflictHlc": "019a0b1c9999-0000-android-9f8e7d",
+      "local": {
+        "version": 1,
+        "goals": [],
+        "tags": [],
+        "persons": [],
+        "locations": [],
+        "schedules": [
+          {
+            "id": "s5",
+            "title": "同HLC碰撞",
+            "hlc": "019a0b1c0030-0000-shared",
+            "del": false,
+            "fieldHlcs": {}
+          }
+        ],
+        "presets": []
+      },
+      "remote": {
+        "version": 1,
+        "goals": [],
+        "tags": [],
+        "persons": [],
+        "locations": [],
+        "schedules": [
+          {
+            "id": "s5",
+            "title": "同HLC碰撞",
+            "hlc": "019a0b1c0030-0000-shared",
+            "del": true,
+            "fieldHlcs": {}
+          }
+        ],
+        "presets": []
+      },
+      "expected": {
+        "updatedCount": 1,
+        "conflictCopiesCount": 0,
+        "maxRemoteHlc": "019a0b1c0030-0000-shared",
+        "presetsIsNull": false,
+        "scheduleCount": 1,
+        "scheduleTitle": "同HLC碰撞",
+        "scheduleDel": true
+      }
+    }
+  ],
+  "remindNormalizeCases": [
+    { "raw": "end, pre5", "legacyFallback": "pre5,start", "expected": "pre5,end" },
+    { "raw": "none", "legacyFallback": "pre5,start", "expected": "" },
+    { "raw": "09:30", "legacyFallback": "pre5,start", "expected": "pre5,start" },
+    { "raw": "start,pre15,end,pre5", "legacyFallback": "pre5,start", "expected": "pre15,pre5,start,end" },
+    { "raw": "", "legacyFallback": "pre5,start", "expected": "" }
+  ],
+  "remindDeadlineDefaultCases": [
+    { "raw": "pre5,start", "expected": "pre5,end" },
+    { "raw": "pre15,start,end", "expected": "pre15,end" },
+    { "raw": "", "expected": "" }
+  ],
+  "remindTriggerCases": [
+    {
+      "remind": "pre15,pre5,start,end",
+      "start": "09:00",
+      "end": "10:30",
+      "title": "晨会",
+      "expected": [
+        { "node": "pre15", "targetTime": "08:45", "toastTitle": "15 分钟后开始 · 晨会", "isEnd": false },
+        { "node": "pre5", "targetTime": "08:55", "toastTitle": "5 分钟后开始 · 晨会", "isEnd": false },
+        { "node": "start", "targetTime": "09:00", "toastTitle": "现在开始 · 晨会", "isEnd": false },
+        { "node": "end", "targetTime": "10:30", "toastTitle": "日程已结束 · 晨会", "isEnd": true }
+      ]
+    },
+    {
+      "remind": "pre15,pre5,start",
+      "start": "00:10",
+      "end": "00:40",
+      "title": "跨夜检查",
+      "expected": [
+        { "node": "pre5", "targetTime": "00:05", "toastTitle": "5 分钟后开始 · 跨夜检查", "isEnd": false },
+        { "node": "start", "targetTime": "00:10", "toastTitle": "现在开始 · 跨夜检查", "isEnd": false }
+      ]
+    }
+  ],
+  "deadlineTriggerCases": [
+    {
+      "remind": "pre15,pre5,start,end",
+      "dueTime": "18:00",
+      "title": "交周报",
+      "expected": [
+        { "node": "pre15", "targetTime": "17:45", "toastTitle": "15 分钟后截止 · 交周报", "isEnd": false },
+        { "node": "pre5", "targetTime": "17:55", "toastTitle": "5 分钟后截止 · 交周报", "isEnd": false },
+        { "node": "end", "targetTime": "18:00", "toastTitle": "已到截止时间 · 交周报", "isEnd": true }
+      ]
+    }
+  ],
+  "deadlineParseCases": [
+    { "raw": "2026-11-28", "expectedDate": "2026-11-28", "expectedTime": null },
+    { "raw": "2026-11-28 18：30", "expectedDate": "2026-11-28", "expectedTime": "18:30" },
+    { "raw": "2026-11-28T9", "expectedDate": "2026-11-28", "expectedTime": "09:00" },
+    { "raw": null, "expectedDate": null, "expectedTime": null }
+  ],
+  "deadlineOverdueCases": [
+    { "due": "2026-11-27 14:30", "now": "2026-11-27 14:29", "expectedOverdue": false },
+    { "due": "2026-11-27 14:30", "now": "2026-11-27 14:30", "expectedOverdue": true },
+    { "due": "2026-11-27", "now": "2026-11-27 23:59", "expectedOverdue": false },
+    { "due": "2026-11-26", "now": "2026-11-27 00:01", "expectedOverdue": true }
+  ],
+  "repeatCases": [
+    { "currentDue": "2026-11-27", "repeat": "每天", "today": "2026-11-27", "expectedNext": "2026-11-28" },
+    { "currentDue": "2026-11-20", "repeat": "weekly", "today": "2026-11-27", "expectedNext": "2026-12-04" },
+    { "currentDue": "2026-01-31", "repeat": "每月", "today": "2026-01-31", "expectedNext": "2026-02-28" }
+  ],
+  "completionMergeCases": [
+    {
+      "name": "dedupAndSortByTimestamp",
+      "current": [
+        { "id": "s1", "for": "2026-11-26", "at": "2026-11-26 20:00:00", "done": true }
+      ],
+      "incoming": [
+        { "id": "s1", "for": "2026-11-26", "at": "2026-11-26 20:00:00", "done": true },
+        { "id": "s2", "for": null, "at": "2026-11-26 18:30:00", "done": true },
+        { "id": "s1", "for": "2026-11-26", "at": "2026-11-26 21:00:00", "done": false }
+      ],
+      "expectedAdded": 2,
+      "expectedEntries": [
+        { "id": "s2", "for": null, "at": "2026-11-26 18:30:00", "done": true },
+        { "id": "s1", "for": "2026-11-26", "at": "2026-11-26 20:00:00", "done": true },
+        { "id": "s1", "for": "2026-11-26", "at": "2026-11-26 21:00:00", "done": false }
+      ]
+    }
+  ]
+}
