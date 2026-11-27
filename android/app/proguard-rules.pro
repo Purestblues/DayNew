@@ -15,6 +15,28 @@
 -keep public class * extends androidx.work.CoroutineWorker
 -keep public class * extends androidx.glance.appwidget.GlanceAppWidgetReceiver
 
+# Room & WorkManager (R8 fullMode strips generated *_Impl & Worker constructors)
+-keep class * extends androidx.room.RoomDatabase {
+    public <init>();
+}
+-keep class androidx.work.impl.WorkDatabase_Impl { *; }
+-keep class * extends androidx.work.ListenableWorker {
+    public <init>(android.content.Context, androidx.work.WorkerParameters);
+}
+-keep class * extends androidx.work.InputMerger {
+    public <init>();
+}
+-keep class * implements androidx.startup.Initializer {
+    public <init>();
+}
+
+# Glance AppWidget & ActionCallback
+-keep class * extends androidx.glance.appwidget.GlanceAppWidget { *; }
+-keep class * extends androidx.glance.appwidget.GlanceAppWidgetReceiver { *; }
+-keep class * implements androidx.glance.appwidget.action.ActionCallback {
+    public <init>();
+}
+
 # OkHttp / Coroutines / XML parser optional desktop JDK classes
 -dontwarn okhttp3.**
 -dontwarn okio.**
