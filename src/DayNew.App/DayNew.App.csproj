@@ -31,6 +31,7 @@
 
   <ItemGroup>
     <Resource Include="Assets\Fonts\*.ttf" />
+    <Resource Include="Assets\DayNew.ico" />
   </ItemGroup>
 
 </Project>
