@@ -7,13 +7,19 @@ import android.content.ContextWrapper
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.provider.OpenableColumns
 import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -46,6 +52,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
@@ -66,6 +73,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -123,9 +131,12 @@ import com.daynew.app.ui.theme.NordFrostTheme
 import com.daynew.app.ui.theme.NordMotion
 import com.daynew.app.ui.theme.nordClickable
 import com.daynew.app.ui.theme.nordPressScale
+import com.daynew.app.ui.theme.rememberDayNewHaptics
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.File
+import java.io.InputStream
+import java.io.OutputStream
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.format.TextStyle as JavaTextStyle
@@ -144,6 +155,7 @@ fun MainScreen(
                 repository = app.repository,
                 syncCoordinator = app.syncCoordinator,
                 alarmScheduler = app.alarmScheduler,
+                uiPreferences = app.uiPreferences,
             ),
         )
     } else {
@@ -186,6 +198,8 @@ fun DayNewAppScreen(
             onSelectTimelineDate = viewModel::selectTimelineDate,
             onMoveSchedule = viewModel::moveSchedule,
             onMoveScheduleToDate = viewModel::moveScheduleToDate,
+            onReorderFutureSchedule = viewModel::reorderFutureSchedule,
+            onRescheduleTimelineBlock = viewModel::rescheduleTimelineBlock,
             onToggleDone = viewModel::toggleDone,
             onOpenCreate = { viewModel.openCreateSheet() },
             onOpenCreateAtHour = viewModel::openCreateTimelineSheet,
@@ -228,6 +242,10 @@ fun DayNewAppScreen(
             onToggleAutoSync = viewModel::setAutoSyncEnabled,
             onSyncNow = viewModel::triggerManualSync,
             onRefreshPermissions = viewModel::refreshPermissionsState,
+            onExportData = viewModel::exportDataToStream,
+            onInspectImport = viewModel::inspectImportFromStream,
+            onConfirmImport = viewModel::confirmImport,
+            onDismissImportPreview = viewModel::dismissImportPreview,
             onShowToast = viewModel::showToastMessage,
             modifier = modifier,
         )
@@ -246,6 +264,8 @@ internal fun MainScreenContent(
     onSelectTimelineDate: (LocalDate) -> Unit = {},
     onMoveSchedule: (String, LaneKind, Int) -> Unit,
     onMoveScheduleToDate: (String, LocalDate?) -> Unit = { _, _ -> },
+    onReorderFutureSchedule: (String, Int) -> Unit = { _, _ -> },
+    onRescheduleTimelineBlock: (String, LocalDate, Int) -> Unit = { _, _, _ -> },
     onToggleDone: (String) -> Unit,
     onOpenCreate: () -> Unit,
     onOpenCreateAtHour: (LocalDate, Int) -> Unit = { _, _ -> },
@@ -288,10 +308,15 @@ internal fun MainScreenContent(
     onToggleAutoSync: (Boolean) -> Unit = {},
     onSyncNow: () -> Unit = {},
     onRefreshPermissions: () -> Unit = {},
+    onExportData: ((() -> OutputStream?) -> Unit) = {},
+    onInspectImport: ((String, () -> InputStream?) -> Unit) = { _, _ -> },
+    onConfirmImport: (Boolean) -> Unit = {},
+    onDismissImportPreview: () -> Unit = {},
     onShowToast: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val palette = LocalNordPalette.current
+    val haptics = rememberDayNewHaptics()
     val density = LocalDensity.current
     val today = remember { LocalDate.now() }
     val weekdayText = remember(today) {
@@ -467,8 +492,8 @@ internal fun MainScreenContent(
                 .background(palette.surface0),
         ) {
             // 1. 主内容层：视图页保持全屏固定坐标，其余页面固定留出顶底栏安全间距
-            val horizontalSlidePx = remember(density) { with(density) { 16.dp.roundToPx() } }
-            val verticalSlidePx = remember(density) { with(density) { 6.dp.roundToPx() } }
+            val horizontalSlidePx = remember(density) { with(density) { 8.dp.roundToPx() } }
+            val verticalSlidePx = remember(density) { with(density) { 4.dp.roundToPx() } }
             AnimatedContent(
                 targetState = uiState.selectedPage,
                 modifier = Modifier.fillMaxSize(),
@@ -479,14 +504,14 @@ internal fun MainScreenContent(
                         val forward = toTabIdx > fromTabIdx
                         val enterOffset = if (forward) horizontalSlidePx else -horizontalSlidePx
                         val exitOffset = if (forward) -horizontalSlidePx else horizontalSlidePx
-                        (fadeIn(tween(140, easing = NordMotion.Enter)) +
-                            slideInHorizontally(tween(140, easing = NordMotion.Enter)) { enterOffset }) togetherWith
-                            (fadeOut(tween(90, easing = NordMotion.Leave)) +
-                                slideOutHorizontally(tween(90, easing = NordMotion.Leave)) { exitOffset })
+                        (fadeIn(tween(90, easing = NordMotion.Enter)) +
+                            slideInHorizontally(tween(90, easing = NordMotion.Enter)) { enterOffset }) togetherWith
+                            (fadeOut(tween(60, easing = NordMotion.Leave)) +
+                                slideOutHorizontally(tween(60, easing = NordMotion.Leave)) { exitOffset })
                     } else {
-                        (fadeIn(tween(140, easing = NordMotion.Enter)) +
-                            slideInVertically(tween(140, easing = NordMotion.Enter)) { verticalSlidePx }) togetherWith
-                            fadeOut(tween(90, easing = NordMotion.Leave))
+                        (fadeIn(tween(90, easing = NordMotion.Enter)) +
+                            slideInVertically(tween(90, easing = NordMotion.Enter)) { verticalSlidePx }) togetherWith
+                            fadeOut(tween(60, easing = NordMotion.Leave))
                     }
                 },
                 label = "mainPageTransition",
@@ -524,6 +549,7 @@ internal fun MainScreenContent(
                                 datesWithItems = uiState.timelineDatesWithItems,
                                 onSelectDate = onSelectTimelineDate,
                                 onCreateAtHour = onOpenCreateAtHour,
+                                onRescheduleBlock = onRescheduleTimelineBlock,
                                 onToggleDone = onToggleDone,
                                 onCardClick = onOpenEdit,
                                 onVerticalScrollDelta = handleVerticalScrollDelta,
@@ -564,6 +590,7 @@ internal fun MainScreenContent(
                                 onToggleDone = onToggleDone,
                                 onCardClick = onOpenEdit,
                                 onMoveToDate = onMoveScheduleToDate,
+                                onReorderSchedule = onReorderFutureSchedule,
                             )
                         }
                         AppPage.TAGS -> {
@@ -593,6 +620,8 @@ internal fun MainScreenContent(
                                 onToggleAutoSync = onToggleAutoSync,
                                 onSyncNow = onSyncNow,
                                 onRefreshPermissions = onRefreshPermissions,
+                                onExportData = onExportData,
+                                onInspectImport = onInspectImport,
                                 onShowToast = onShowToast,
                             )
                         }
@@ -658,9 +687,9 @@ internal fun MainScreenContent(
                                 AnimatedContent(
                                     targetState = uiState.selectedPage.title,
                                     transitionSpec = {
-                                        (fadeIn(tween(110, easing = NordMotion.Enter)) +
-                                            slideInVertically(tween(110, easing = NordMotion.Enter)) { it / 4 }) togetherWith
-                                            fadeOut(tween(70, easing = NordMotion.Leave))
+                                        (fadeIn(tween(75, easing = NordMotion.Enter)) +
+                                            slideInVertically(tween(75, easing = NordMotion.Enter)) { it / 4 }) togetherWith
+                                            fadeOut(tween(50, easing = NordMotion.Leave))
                                     },
                                     modifier = Modifier.weight(1f, fill = false),
                                     label = "topBarPageTitle",
@@ -696,13 +725,55 @@ internal fun MainScreenContent(
                                     fontWeight = FontWeight.SemiBold,
                                     modifier = Modifier.padding(end = 2.dp),
                                 )
+                                val syncRotation = if (uiState.syncStatus.isSyncing) {
+                                    val infiniteTransition = rememberInfiniteTransition(label = "topBarSyncSpin")
+                                    infiniteTransition.animateFloat(
+                                        initialValue = 0f,
+                                        targetValue = 360f,
+                                        animationSpec = infiniteRepeatable(
+                                            animation = tween(durationMillis = 900, easing = LinearEasing),
+                                            repeatMode = RepeatMode.Restart,
+                                        ),
+                                        label = "syncAngle",
+                                    ).value
+                                } else {
+                                    0f
+                                }
+                                val syncInteraction = remember { MutableInteractionSource() }
+                                IconButton(
+                                    onClick = {
+                                        if (isChromeShown) {
+                                            haptics.tap()
+                                            onSyncNow()
+                                        }
+                                    },
+                                    enabled = isChromeShown && !uiState.syncStatus.isSyncing,
+                                    interactionSource = syncInteraction,
+                                    modifier = Modifier
+                                        .defaultMinSize(minWidth = 40.dp, minHeight = 40.dp)
+                                        .nordPressScale(syncInteraction, pressedScale = 0.94f),
+                                ) {
+                                    Icon(
+                                        imageVector = DayNewIcons.Sync,
+                                        contentDescription = if (uiState.syncStatus.isSyncing) "正在同步" else "手动同步",
+                                        tint = if (uiState.syncStatus.isSyncing) palette.accent else palette.textSecondary,
+                                        modifier = Modifier
+                                            .size(18.dp)
+                                            .graphicsLayer { rotationZ = syncRotation },
+                                    )
+                                }
                                 val themeInteraction = remember { MutableInteractionSource() }
                                 IconButton(
-                                    onClick = { if (isChromeShown) onToggleTheme() },
+                                    onClick = {
+                                        if (isChromeShown) {
+                                            haptics.tap()
+                                            onToggleTheme()
+                                        }
+                                    },
                                     enabled = isChromeShown,
                                     interactionSource = themeInteraction,
                                     modifier = Modifier
-                                        .defaultMinSize(minWidth = 42.dp, minHeight = 42.dp)
+                                        .defaultMinSize(minWidth = 40.dp, minHeight = 40.dp)
                                         .nordPressScale(themeInteraction, pressedScale = 0.94f),
                                 ) {
                                     Icon(
@@ -752,7 +823,12 @@ internal fun MainScreenContent(
                             val isSelected = uiState.selectedPage == tab.page
                             NavigationBarItem(
                                 selected = isSelected,
-                                onClick = { if (isChromeShown) onSelectTab(tab) },
+                                onClick = {
+                                    if (isChromeShown) {
+                                        haptics.tap()
+                                        onSelectTab(tab)
+                                    }
+                                },
                                 icon = {
                                     if (overdueCount > 0) {
                                         BadgedBox(
@@ -808,8 +884,18 @@ internal fun MainScreenContent(
                 }
             }
 
-            // 5. 浮层悬浮新建按钮
-            if (uiState.selectedPage != AppPage.SETTINGS && chromeProgress > 0.01f) {
+            // 5. 浮层悬浮新建按钮（带微扩轻旋展开衔接动效）
+            val isCreateSheetOpen = (uiState.editingDraft != null && uiState.editingDraft.id == null) ||
+                (uiState.editingGoalDraft != null && uiState.editingGoalDraft.id == null) ||
+                (uiState.editingTagDraft != null && uiState.editingTagDraft.id == null) ||
+                (uiState.editingPersonDraft != null && uiState.editingPersonDraft.id == null) ||
+                (uiState.editingLocationDraft != null && uiState.editingLocationDraft.id == null)
+            val fabExpandProgress by animateFloatAsState(
+                targetValue = if (isCreateSheetOpen) 1f else 0f,
+                animationSpec = tween(durationMillis = 150, easing = NordMotion.Enter),
+                label = "fabExpandProgress",
+            )
+            if (uiState.selectedPage != AppPage.SETTINGS && chromeProgress > 0.01f && fabExpandProgress < 0.99f) {
                 val fabAction: () -> Unit = when (uiState.selectedPage) {
                     AppPage.OVERVIEW, AppPage.EISENHOWER -> onOpenCreate
                     AppPage.TIMELINE -> {
@@ -838,7 +924,12 @@ internal fun MainScreenContent(
                 }
                 val fabInteraction = remember { MutableInteractionSource() }
                 FloatingActionButton(
-                    onClick = { if (isChromeShown) fabAction() },
+                    onClick = {
+                        if (isChromeShown && !isCreateSheetOpen) {
+                            haptics.tap()
+                            fabAction()
+                        }
+                    },
                     interactionSource = fabInteraction,
                     shape = CircleShape,
                     containerColor = palette.accent,
@@ -848,10 +939,10 @@ internal fun MainScreenContent(
                         .zIndex(11f)
                         .padding(end = 16.dp, bottom = bottomBarHeightDp + 16.dp)
                         .graphicsLayer {
-                            val s = 0.90f + 0.10f * chromeProgress
+                            val s = (0.90f + 0.10f * chromeProgress) * (1f + 0.08f * fabExpandProgress)
                             scaleX = s
                             scaleY = s
-                            alpha = chromeProgress
+                            alpha = chromeProgress * (1f - fabExpandProgress)
                         }
                         .nordPressScale(fabInteraction, pressedScale = 0.94f),
                     elevation = FloatingActionButtonDefaults.elevation(
@@ -864,7 +955,9 @@ internal fun MainScreenContent(
                     Icon(
                         imageVector = DayNewIcons.Add,
                         contentDescription = fabDesc,
-                        modifier = Modifier.size(22.dp),
+                        modifier = Modifier
+                            .size(22.dp)
+                            .graphicsLayer { rotationZ = 45f * fabExpandProgress },
                     )
                 }
             }
@@ -969,6 +1062,71 @@ internal fun MainScreenContent(
             onDelete = onDeleteLocationEditor,
         )
     }
+
+    uiState.pendingImportPreview?.let { preview ->
+        AlertDialog(
+            onDismissRequest = onDismissImportPreview,
+            containerColor = palette.surface4,
+            titleContentColor = palette.textPrimary,
+            textContentColor = palette.textSecondary,
+            shape = RoundedCornerShape(12.dp),
+            title = {
+                Text(
+                    text = "确认导入数据",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        text = "文件：${preview.fileName}",
+                        color = palette.textPrimary,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                    )
+                    Text(
+                        text = "包含 ${preview.scheduleCount} 条日程 · ${preview.goalCount} 个目标 · ${preview.tagCount} 个标签 · ${preview.completionCount} 条完成记录",
+                        style = TextStyle(fontSize = 12.5.sp, fontFeatureSettings = "tnum"),
+                    )
+                    Text(
+                        text = "导入前会自动在本地 backups/ 备份现有全部数据。推荐「按 ID 合并」，可与多端改动平滑融合。",
+                        fontSize = 12.sp,
+                    )
+                }
+            },
+            dismissButton = {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TextButton(onClick = onDismissImportPreview) {
+                        Text("取消", color = palette.textSecondary)
+                    }
+                    TextButton(
+                        onClick = {
+                            haptics.reject()
+                            onConfirmImport(false)
+                        },
+                    ) {
+                        Text("覆盖", color = palette.danger, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        haptics.confirm()
+                        onConfirmImport(true)
+                    },
+                    shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = palette.accent,
+                        contentColor = palette.onAccent,
+                    ),
+                ) {
+                    Text("按 ID 合并", fontWeight = FontWeight.SemiBold)
+                }
+            },
+        )
+    }
 }
 
 @Composable
@@ -980,13 +1138,17 @@ private fun DockMenuRow(
     onClick: () -> Unit,
 ) {
     val palette = LocalNordPalette.current
+    val haptics = rememberDayNewHaptics()
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .defaultMinSize(minHeight = 48.dp)
             .clip(RoundedCornerShape(12.dp))
             .background(if (selected) palette.selectionPill else Color.Transparent)
-            .nordClickable(pressedScale = 0.985f, onClick = onClick)
+            .nordClickable(pressedScale = 0.985f) {
+                haptics.tap()
+                onClick()
+            }
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -1025,9 +1187,12 @@ private fun SettingsPage(
     onToggleAutoSync: (Boolean) -> Unit,
     onSyncNow: () -> Unit,
     onRefreshPermissions: () -> Unit,
+    onExportData: ((() -> OutputStream?) -> Unit),
+    onInspectImport: ((String, () -> InputStream?) -> Unit),
     onShowToast: (String) -> Unit,
 ) {
     val palette = LocalNordPalette.current
+    val haptics = rememberDayNewHaptics()
     val context = LocalContext.current
     val syncStatus = uiState.syncStatus
 
@@ -1043,6 +1208,23 @@ private fun SettingsPage(
     ) { granted ->
         hasNotificationPerm = granted || ReminderNotificationHelper.hasNotificationPermission(context)
         onShowToast(if (hasNotificationPerm) "已授予通知权限" else "未授予通知权限，可在系统设置开启")
+    }
+
+    val exportDocLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/zip"),
+    ) { uri ->
+        if (uri != null) {
+            onExportData { context.contentResolver.openOutputStream(uri) }
+        }
+    }
+
+    val importDocLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) {
+            val fileName = resolveDisplayName(context, uri)
+            onInspectImport(fileName) { context.contentResolver.openInputStream(uri) }
+        }
     }
 
     LazyColumn(
@@ -1308,26 +1490,50 @@ private fun SettingsPage(
                             }
                         }
                     }
-                    Button(
-                        onClick = {
-                            if (!ReminderNotificationHelper.hasNotificationPermission(context) &&
-                                Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
-                            ) {
-                                notificationPermLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                            } else {
-                                ReminderNotificationHelper.showTestNotification(context)
-                                onShowToast("已发送测试提醒通知")
-                            }
-                        },
-                        shape = RoundedCornerShape(8.dp),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = palette.accent,
-                            contentColor = palette.onAccent,
-                        ),
+                    Row(
                         modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        Text("发送测试提醒通知", fontSize = 12.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Button(
+                            onClick = {
+                                if (!ReminderNotificationHelper.hasNotificationPermission(context) &&
+                                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                                ) {
+                                    notificationPermLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                } else {
+                                    ReminderNotificationHelper.showTestNotification(context)
+                                    onShowToast("已发送测试提醒通知")
+                                }
+                            },
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = palette.accent,
+                                contentColor = palette.onAccent,
+                            ),
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text("立即测试通知", fontSize = 12.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                if (!ReminderNotificationHelper.hasNotificationPermission(context) &&
+                                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                                ) {
+                                    notificationPermLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                } else {
+                                    (context.applicationContext as? DayNewApplication)
+                                        ?.alarmScheduler
+                                        ?.scheduleTestBackgroundAlarm(10L)
+                                    onShowToast("已预约 10 秒后提醒，请切回桌面或锁屏测试")
+                                }
+                            },
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text("10 秒后台测试", fontSize = 12.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
                     }
                 }
             }
@@ -1369,10 +1575,58 @@ private fun SettingsPage(
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                haptics.tap()
+                                val stamp = LocalDate.now()
+                                exportDocLauncher.launch("daynew-$stamp.daynew.zip")
+                            },
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text("导出备份包", fontSize = 12.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                haptics.tap()
+                                importDocLauncher.launch(
+                                    arrayOf(
+                                        "application/zip",
+                                        "application/octet-stream",
+                                        "application/json",
+                                        "*/*",
+                                    )
+                                )
+                            },
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text("导入备份包", fontSize = 12.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
                 }
             }
         }
     }
+}
+
+private fun resolveDisplayName(context: Context, uri: Uri): String {
+    context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+        if (c.moveToFirst()) {
+            val idx = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            if (idx >= 0) {
+                val name = c.getString(idx)
+                if (!name.isNullOrBlank()) return name
+            }
+        }
+    }
+    return uri.lastPathSegment ?: "backup.daynew.zip"
 }
 
 @Composable

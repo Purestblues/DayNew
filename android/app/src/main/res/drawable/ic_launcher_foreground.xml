@@ -1,30 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <path android:pathData="M31,63.928c0,0 6.4,-11 12.1,-13.1c7.2,-2.6 26,-1.4 26,-1.4l38.1,38.1L107,108.928l-32,-1L31,63.928z">
-        <aapt:attr name="android:fillColor">
-            <gradient
-                android:endX="85.84757"
-                android:endY="92.4963"
-                android:startX="42.9492"
-                android:startY="49.59793"
-                android:type="linear">
-                <item
-                    android:color="#44000000"
-                    android:offset="0.0" />
-                <item
-                    android:color="#00000000"
-                    android:offset="1.0" />
-            </gradient>
-        </aapt:attr>
-    </path>
+
+    <!-- Top Cornflower Frost pill (within 66dp safe zone x: 24..84, y: 27..81) -->
     <path
-        android:fillColor="#FFFFFF"
-        android:fillType="nonZero"
-        android:pathData="M65.3,45.828l3.8,-6.6c0.2,-0.4 0.1,-0.9 -0.3,-1.1c-0.4,-0.2 -0.9,-0.1 -1.1,0.3l-3.9,6.7c-6.3,-2.8 -13.4,-2.8 -19.7,0l-3.9,-6.7c-0.2,-0.4 -0.7,-0.5 -1.1,-0.3C38.8,38.328 38.7,38.828 38.9,39.228l3.8,6.6C36.2,49.428 31.7,56.028 31,63.928h46C76.3,56.028 71.8,49.428 65.3,45.828zM43.4,57.328c-0.8,0 -1.5,-0.5 -1.8,-1.2c-0.3,-0.7 -0.1,-1.5 0.4,-2.1c0.5,-0.5 1.4,-0.7 2.1,-0.4c0.7,0.3 1.2,1 1.2,1.8C45.3,56.528 44.5,57.328 43.4,57.328L43.4,57.328zM64.6,57.328c-0.8,0 -1.5,-0.5 -1.8,-1.2s-0.1,-1.5 0.4,-2.1c0.5,-0.5 1.4,-0.7 2.1,-0.4c0.7,0.3 1.2,1 1.2,1.8C66.5,56.528 65.6,57.328 64.6,57.328L64.6,57.328z"
-        android:strokeWidth="1"
-        android:strokeColor="#00000000" />
+        android:fillColor="#78A0F0"
+        android:pathData="M31,28 L77,28 A5,5 0 0 1 82,33 L82,35 A5,5 0 0 1 77,40 L31,40 A5,5 0 0 1 26,35 L26,33 A5,5 0 0 1 31,28 Z" />
+
+    <!-- Middle task card -->
+    <path
+        android:fillColor="#2B303C"
+        android:pathData="M31,46 L77,46 A5,5 0 0 1 82,51 L82,56 A5,5 0 0 1 77,61 L31,61 A5,5 0 0 1 26,56 L26,51 A5,5 0 0 1 31,46 Z" />
+    <path
+        android:fillColor="#A3BE8C"
+        android:pathData="M34,49.7 A3.8,3.8 0 1 1 33.99,49.7 Z" />
+    <path
+        android:fillColor="#ECEFF4"
+        android:pathData="M44.7,51.8 L73.3,51.8 A1.7,1.7 0 0 1 75,53.5 A1.7,1.7 0 0 1 73.3,55.2 L44.7,55.2 A1.7,1.7 0 0 1 43,53.5 A1.7,1.7 0 0 1 44.7,51.8 Z" />
+
+    <!-- Bottom task card -->
+    <path
+        android:fillColor="#2B303C"
+        android:pathData="M31,67 L67,67 A5,5 0 0 1 72,72 L72,77 A5,5 0 0 1 67,82 L31,82 A5,5 0 0 1 26,77 L26,72 A5,5 0 0 1 31,67 Z" />
+    <path
+        android:fillColor="#78A0F0"
+        android:pathData="M34,70.7 A3.8,3.8 0 1 1 33.99,70.7 Z" />
+    <path
+        android:fillColor="#A5B0C2"
+        android:pathData="M44.7,72.8 L63.3,72.8 A1.7,1.7 0 0 1 65,74.5 A1.7,1.7 0 0 1 63.3,76.2 L44.7,76.2 A1.7,1.7 0 0 1 43,74.5 A1.7,1.7 0 0 1 44.7,72.8 Z" />
 </vector>

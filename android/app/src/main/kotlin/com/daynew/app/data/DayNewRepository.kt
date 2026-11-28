@@ -20,6 +20,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import java.io.File
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -34,6 +35,7 @@ data class MoveOutcome(
 
 data class ScheduleDraft(
     val id: String? = null,
+    val createTitle: String = "新建日程",
     val title: String = "",
     val note: String = "",
     val lane: LaneKind = LaneKind.TODAY,
@@ -123,8 +125,11 @@ class DayNewRepository(
         }
         _storeFlow = MutableStateFlow(initialStore)
         storeFlow = _storeFlow.asStateFlow()
-        _completionsCountFlow = MutableStateFlow(completionLog.readAll().size)
+        _completionsCountFlow = MutableStateFlow(0)
         completionsCountFlow = _completionsCountFlow.asStateFlow()
+        scope.launch {
+            _completionsCountFlow.value = completionLog.readAll().size
+        }
     }
 
     fun currentStore(): StoreDto = _storeFlow.value
@@ -156,6 +161,39 @@ class DayNewRepository(
             commitStore(report.mergedDto, fromLocalMutation = false)
             writer.flushNow(report.mergedDto)
         }
+        report
+    }
+
+    fun replaceAllFromImport(
+        importedStore: StoreDto,
+        importedCompletions: List<CompletionEntry>,
+    ) = synchronized(stateLock) {
+        observeStoreHlcs(importedStore)
+        completionLog.replaceAll(importedCompletions)
+        _completionsCountFlow.value = importedCompletions.size
+        commitStore(importedStore, fromLocalMutation = true)
+        writer.flushNow(importedStore)
+    }
+
+    fun mergeFromImport(
+        importedStore: StoreDto,
+        importedCompletions: List<CompletionEntry>,
+    ): MergeReport = synchronized(stateLock) {
+        val current = _storeFlow.value
+        val report = SyncMergeEngine.mergeStore(
+            local = current,
+            remote = importedStore,
+            lastSyncedRemoteHlc = null,
+            conflictIdGenerator = ::generateShortId,
+            conflictHlcGenerator = { clock.tick() },
+        )
+        val addedCompletions = completionLog.mergeEntries(importedCompletions)
+        if (addedCompletions > 0) {
+            _completionsCountFlow.value = completionLog.readAll().size
+        }
+        observeStoreHlcs(report.mergedDto)
+        commitStore(report.mergedDto, fromLocalMutation = true)
+        writer.flushNow(report.mergedDto)
         report
     }
 
@@ -197,7 +235,15 @@ class DayNewRepository(
         val targetSiblings = store.schedules
             .asSequence()
             .filter { it.id != scheduleId && !it.del && LaneRules.laneFor(it, now) == targetLane }
-            .sortedWith(compareBy<ScheduleDto> { it.done }.thenBy { it.order }.thenBy { it.id })
+            .sortedWith(
+                compareBy<ScheduleDto> { it.done }
+                    .thenBy { item ->
+                        DeadlineRules.tryParseClock(item.start)?.let { it.hour * 60 + it.minute }
+                            ?: Int.MAX_VALUE
+                    }
+                    .thenBy { it.order }
+                    .thenBy { it.id }
+            )
             .toMutableList()
 
         val clampedIndex = targetIndex.coerceIn(0, targetSiblings.size)
@@ -223,6 +269,146 @@ class DayNewRepository(
 
         val toast = if (crossLane) "已移到「${targetLane.title}」" else null
         MoveOutcome(crossLane = crossLane, targetLane = targetLane, toastMessage = toast)
+    }
+
+    fun reorderFutureSchedule(
+        scheduleId: String,
+        targetIndex: Int,
+    ): Boolean = synchronized(stateLock) {
+        val store = _storeFlow.value
+        val source = store.schedules.firstOrNull { it.id == scheduleId && !it.del } ?: return false
+        if (DeadlineRules.parseDue(source.due).date != null) return false
+
+        val siblings = store.schedules
+            .asSequence()
+            .filter { it.id != scheduleId && !it.del && DeadlineRules.parseDue(it.due).date == null }
+            .sortedWith(compareBy<ScheduleDto> { it.done }.thenBy { it.order }.thenBy { it.id })
+            .toMutableList()
+
+        val clampedIndex = targetIndex.coerceIn(0, siblings.size)
+        siblings.add(clampedIndex, source)
+
+        val updatedById = HashMap<String, ScheduleDto>(siblings.size)
+        siblings.forEachIndexed { idx, item ->
+            val targetOrder = (idx + 1) * 1024
+            if (item.order != targetOrder) {
+                val orderTick = clock.tick()
+                updatedById[item.id] = item.copy(
+                    order = targetOrder,
+                    hlc = orderTick,
+                    fieldHlcs = item.fieldHlcs.orEmpty() + ("order" to orderTick),
+                )
+            }
+        }
+        if (updatedById.isEmpty()) return false
+
+        val newSchedules = store.schedules.map { updatedById[it.id] ?: it }
+        commitStore(store.copy(schedules = newSchedules))
+        true
+    }
+
+    fun rescheduleTimelineBlock(
+        scheduleId: String,
+        targetDate: LocalDate,
+        desiredStartMinutes: Int,
+        snapMinutes: Int = 15,
+    ): String? = synchronized(stateLock) {
+        val store = _storeFlow.value
+        val source = store.schedules.firstOrNull { it.id == scheduleId && !it.del } ?: return null
+
+        val parsedStart = DeadlineRules.tryParseClock(source.start)
+        val parsedEnd = DeadlineRules.tryParseClock(source.end)
+        val durationMinutes = if (parsedStart != null && parsedEnd != null && parsedEnd.isAfter(parsedStart)) {
+            ((parsedEnd.hour * 60 + parsedEnd.minute) - (parsedStart.hour * 60 + parsedStart.minute))
+                .coerceAtLeast(15)
+        } else {
+            60
+        }
+
+        val step = snapMinutes.coerceAtLeast(1)
+        val maxStart = (24 * 60 - durationMinutes).coerceAtLeast(0)
+        val snapped = (((desiredStartMinutes + step / 2) / step) * step).coerceIn(0, maxStart)
+
+        val busyIntervals = store.schedules
+            .asSequence()
+            .filter { it.id != scheduleId && !it.del }
+            .mapNotNull { item ->
+                val date = DeadlineRules.parseDue(item.due).date ?: return@mapNotNull null
+                if (date != targetDate) return@mapNotNull null
+                val s = DeadlineRules.tryParseClock(item.start) ?: return@mapNotNull null
+                val sMin = s.hour * 60 + s.minute
+                val e = DeadlineRules.tryParseClock(item.end)
+                val eMin = if (e != null && e.isAfter(s)) {
+                    (e.hour * 60 + e.minute).coerceAtMost(24 * 60)
+                } else {
+                    (sMin + 30).coerceAtMost(24 * 60)
+                }
+                sMin to eMin
+            }
+            .toList()
+
+        val finalStart = findFreeStartMinutes(
+            desired = snapped,
+            durationMinutes = durationMinutes,
+            step = step,
+            maxStart = maxStart,
+            busyIntervals = busyIntervals,
+        )
+        val finalEnd = (finalStart + durationMinutes).coerceAtMost(24 * 60 - 1)
+        val newStartStr = "%02d:%02d".format(java.util.Locale.ROOT, finalStart / 60, finalStart % 60)
+        val newEndStr = "%02d:%02d".format(java.util.Locale.ROOT, finalEnd / 60, finalEnd % 60)
+
+        val oldDueTime = DeadlineRules.parseDue(source.due).dueTime
+        val newDue = DeadlineRules.formatDue(targetDate, oldDueTime)
+
+        val dueChanged = source.due != newDue
+        val timeChanged = source.start != newStartStr || source.end != newEndStr
+        if (!dueChanged && !timeChanged) return null
+
+        val fieldMap = source.fieldHlcs.orEmpty().toMutableMap()
+        var latestHlc = source.hlc
+        if (dueChanged) {
+            val t = clock.tick()
+            fieldMap["due"] = t
+            latestHlc = t
+        }
+        if (timeChanged) {
+            val t = clock.tick()
+            fieldMap["time"] = t
+            latestHlc = t
+        }
+
+        val updated = source.copy(
+            due = newDue,
+            start = newStartStr,
+            end = newEndStr,
+            hlc = latestHlc,
+            fieldHlcs = fieldMap,
+        )
+        commitStore(store.copy(schedules = store.schedules.map { if (it.id == scheduleId) updated else it }))
+        "${targetDate.monthValue}月${targetDate.dayOfMonth}日 $newStartStr - $newEndStr"
+    }
+
+    private fun findFreeStartMinutes(
+        desired: Int,
+        durationMinutes: Int,
+        step: Int,
+        maxStart: Int,
+        busyIntervals: List<Pair<Int, Int>>,
+    ): Int {
+        fun isFree(startMin: Int): Boolean {
+            val endMin = startMin + durationMinutes
+            return busyIntervals.none { (bStart, bEnd) -> startMin < bEnd && endMin > bStart }
+        }
+        if (isFree(desired)) return desired
+        val maxOffsetSteps = (24 * 60) / step + 1
+        for (offset in 1..maxOffsetSteps) {
+            val plus = desired + offset * step
+            if (plus in 0..maxStart && isFree(plus)) return plus
+            val minus = desired - offset * step
+            if (minus in 0..maxStart && isFree(minus)) return minus
+        }
+        return desired
     }
 
     fun toggleDone(
@@ -304,7 +490,13 @@ class DayNewRepository(
             val newId = generateShortId()
             val maxOrder = store.schedules
                 .asSequence()
-                .filter { !it.del && LaneRules.laneFor(it, now) == draft.lane }
+                .filter {
+                    !it.del && if (!draft.hasDueDate) {
+                        DeadlineRules.parseDue(it.due).date == null
+                    } else {
+                        LaneRules.laneFor(it, now) == draft.lane
+                    }
+                }
                 .maxOfOrNull { it.order } ?: 0
             val tick = clock.tick()
             val allFields = listOf(

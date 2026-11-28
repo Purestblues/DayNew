@@ -155,4 +155,59 @@ class A3FeaturesTest {
         assertTrue(afterSched.fieldHlcs?.containsKey("persons") == true)
         assertTrue(afterSched.fieldHlcs?.containsKey("locations") == true)
     }
+
+    @Test
+    fun `reorderFutureSchedule updates order and fieldHlc`() {
+        val repo = newRepo()
+        val a = repo.upsertSchedule(ScheduleDraft(title = "未来A", hasDueDate = false), now = fixedNow)
+        val b = repo.upsertSchedule(ScheduleDraft(title = "未来B", hasDueDate = false), now = fixedNow)
+        val c = repo.upsertSchedule(ScheduleDraft(title = "未来C", hasDueDate = false), now = fixedNow)
+
+        assertTrue(repo.reorderFutureSchedule(c.id, 0))
+        val reordered = repo.currentStore().schedules
+            .filter { it.id in setOf(a.id, b.id, c.id) }
+            .sortedBy { it.order }
+        assertEquals(listOf(c.id, a.id, b.id), reordered.map { it.id })
+        assertTrue(reordered.first().fieldHlcs?.containsKey("order") == true)
+    }
+
+    @Test
+    fun `rescheduleTimelineBlock snaps to 15min avoids overlap and supports cross day`() {
+        val repo = newRepo()
+        val day1 = LocalDate.of(2026, 11, 27)
+        val day2 = LocalDate.of(2026, 11, 28)
+
+        repo.upsertSchedule(
+            ScheduleDraft(
+                title = "固定占位",
+                hasDueDate = true,
+                useExactDate = true,
+                dueDate = day2,
+                startText = "10:00",
+                endText = "11:00",
+            ),
+            now = fixedNow,
+        )
+        val target = repo.upsertSchedule(
+            ScheduleDraft(
+                title = "可拖动块",
+                hasDueDate = true,
+                useExactDate = true,
+                dueDate = day1,
+                startText = "09:00",
+                endText = "10:00",
+            ),
+            now = fixedNow,
+        )
+
+        // 拖到 day2 的 09:45（时长 60m 会与 10:00-11:00 重叠），应自动往 09:00（-45m）或 11:00（+75m）最近空档避让，且跨天更新 due
+        val resultLabel = repo.rescheduleTimelineBlock(target.id, day2, 9 * 60 + 44)
+        assertNotNull(resultLabel)
+
+        val updated = repo.getScheduleById(target.id)!!
+        assertEquals("2026-11-28", updated.due)
+        assertTrue(updated.fieldHlcs?.containsKey("due") == true)
+        assertTrue(updated.fieldHlcs?.containsKey("time") == true)
+        assertTrue(updated.start != "10:00")
+    }
 }

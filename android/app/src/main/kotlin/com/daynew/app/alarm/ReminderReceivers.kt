@@ -4,32 +4,56 @@ import android.app.AlarmManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.os.PowerManager
+import android.util.Log
 import com.daynew.app.DayNewApplication
 import com.daynew.app.sync.SyncWorkScheduler
 
 class ReminderAlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        val scheduleId = intent.getStringExtra(ReminderNotificationHelper.EXTRA_SCHEDULE_ID).orEmpty()
-        val title = intent.getStringExtra(ReminderNotificationHelper.EXTRA_TITLE) ?: "日程提醒"
-        val content = intent.getStringExtra(ReminderNotificationHelper.EXTRA_CONTENT) ?: "点击查看详情"
-        val notificationId = intent.getIntExtra(
-            ReminderNotificationHelper.EXTRA_NOTIFICATION_ID,
-            scheduleId.hashCode() and 0x7FFFFFFF,
-        )
+        val pendingResult = goAsync()
+        val pm = context.getSystemService(PowerManager::class.java)
+        val wakeLock = runCatching {
+            pm?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "DayNew:ReminderAlarm")?.apply {
+                setReferenceCounted(false)
+                acquire(3_000L)
+            }
+        }.getOrNull()
 
-        val app = context.applicationContext as? DayNewApplication
-        if (app != null && scheduleId.isNotBlank()) {
-            val item = app.repository.getScheduleById(scheduleId) ?: return
-            if (item.done) return
+        try {
+            val scheduleId = intent.getStringExtra(ReminderNotificationHelper.EXTRA_SCHEDULE_ID).orEmpty()
+            val title = intent.getStringExtra(ReminderNotificationHelper.EXTRA_TITLE) ?: "日程提醒"
+            val content = intent.getStringExtra(ReminderNotificationHelper.EXTRA_CONTENT) ?: "点击查看详情"
+            val notificationId = intent.getIntExtra(
+                ReminderNotificationHelper.EXTRA_NOTIFICATION_ID,
+                scheduleId.hashCode() and 0x7FFFFFFF,
+            )
+            val isBgTest = scheduleId == ReminderAlarmScheduler.TEST_ALARM_SCHEDULE_ID
+
+            val app = context.applicationContext as? DayNewApplication
+            if (!isBgTest && app != null && scheduleId.isNotBlank()) {
+                val item = app.repository.getScheduleById(scheduleId) ?: return
+                if (item.done) return
+            }
+
+            ReminderNotificationHelper.showReminderNotification(
+                context = context,
+                scheduleId = scheduleId,
+                title = title,
+                content = content,
+                notificationId = notificationId,
+                isTest = isBgTest,
+            )
+        } catch (t: Throwable) {
+            Log.e("DayNewAlarm", "Failed to deliver reminder notification", t)
+        } finally {
+            runCatching {
+                if (wakeLock?.isHeld == true) {
+                    wakeLock.release()
+                }
+            }
+            pendingResult.finish()
         }
-
-        ReminderNotificationHelper.showReminderNotification(
-            context = context,
-            scheduleId = scheduleId,
-            title = title,
-            content = content,
-            notificationId = notificationId,
-        )
     }
 }
 

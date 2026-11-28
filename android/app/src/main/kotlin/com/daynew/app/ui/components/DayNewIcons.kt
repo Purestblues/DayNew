@@ -413,6 +413,30 @@ object DayNewIcons {
         }
     }
 
+    val Sync: ImageVector by lazy {
+        vector("Sync") {
+            path(
+                stroke = StrokeBrush,
+                strokeLineWidth = 1.8f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            ) {
+                moveTo(20f, 11f)
+                arcTo(8f, 8f, 0f, false, false, 6.3f, 6.3f)
+                lineTo(4.5f, 8f)
+                moveTo(4.5f, 4f)
+                lineTo(4.5f, 8f)
+                lineTo(8.5f, 8f)
+                moveTo(4f, 13f)
+                arcTo(8f, 8f, 0f, false, false, 17.7f, 17.7f)
+                lineTo(19.5f, 16f)
+                moveTo(19.5f, 20f)
+                lineTo(19.5f, 16f)
+                lineTo(15.5f, 16f)
+            }
+        }
+    }
+
     private inline fun vector(
         name: String,
         block: ImageVector.Builder.() -> Unit,

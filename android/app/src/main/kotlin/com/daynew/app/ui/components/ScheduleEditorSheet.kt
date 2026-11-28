@@ -72,6 +72,7 @@ import com.daynew.app.data.LaneKind
 import com.daynew.app.data.ScheduleDraft
 import com.daynew.app.ui.theme.LocalNordPalette
 import com.daynew.app.ui.theme.nordClickable
+import com.daynew.app.ui.theme.rememberDayNewHaptics
 import com.daynew.sync.GoalDto
 import com.daynew.sync.LocationDto
 import com.daynew.sync.PersonDto
@@ -117,6 +118,7 @@ fun ScheduleEditorSheet(
     onDelete: () -> Unit,
 ) {
     val palette = LocalNordPalette.current
+    val haptics = rememberDayNewHaptics()
     val density = LocalDensity.current
     val coroutineScope = rememberCoroutineScope()
     val initialDraft = remember(draft.id) { draft }
@@ -142,7 +144,7 @@ fun ScheduleEditorSheet(
                 } else {
                     0f
                 }
-                val thresholdPx = maxOf(with(density) { 180.dp.toPx() }, sheetHeightPx * 0.35f)
+                val thresholdPx = maxOf(with(density) { 96.dp.toPx() }, sheetHeightPx * 0.20f)
                 when {
                     draggedPx > 2f && draggedPx < thresholdPx -> false
                     latestIsDirty -> {
@@ -166,10 +168,21 @@ fun ScheduleEditorSheet(
         }
     }
 
-    val blockDownwardFling = remember {
+    val formScrollState = rememberScrollState()
+    var scrolledDuringGesture by remember { mutableStateOf(false) }
+    val blockDownwardFling = remember(formScrollState) {
         object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (formScrollState.value > 0) {
+                    scrolledDuringGesture = true
+                }
+                return Offset.Zero
+            }
+
             override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
-                return Velocity(0f, available.y.coerceAtLeast(0f))
+                val shouldBlock = scrolledDuringGesture && available.y > 0f
+                scrolledDuringGesture = false
+                return if (shouldBlock) Velocity(0f, available.y) else Velocity.Zero
             }
         }
     }
@@ -204,15 +217,23 @@ fun ScheduleEditorSheet(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                val sheetTitle = when {
+                    draft.id != null -> "编辑日程"
+                    !draft.hasDueDate -> "新建未来事项"
+                    else -> draft.createTitle
+                }
                 Text(
-                    text = if (draft.id == null) "新建日程" else "编辑日程",
+                    text = sheetTitle,
                     color = palette.textPrimary,
                     fontSize = 18.sp,
                     fontWeight = FontWeight.SemiBold,
                 )
                 if (draft.id != null) {
                     IconButton(
-                        onClick = onDelete,
+                        onClick = {
+                            haptics.reject()
+                            onDelete()
+                        },
                         modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp),
                     ) {
                         Icon(
@@ -231,7 +252,7 @@ fun ScheduleEditorSheet(
                     .fillMaxWidth()
                     .weight(1f, fill = false)
                     .nestedScroll(blockDownwardFling)
-                    .verticalScroll(rememberScrollState())
+                    .verticalScroll(formScrollState)
                     .padding(horizontal = 16.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
@@ -621,7 +642,10 @@ fun ScheduleEditorSheet(
                 }
 
                 Button(
-                    onClick = onSave,
+                    onClick = {
+                        haptics.confirm()
+                        onSave()
+                    },
                     modifier = Modifier
                         .weight(1.4f)
                         .defaultMinSize(minHeight = 48.dp),

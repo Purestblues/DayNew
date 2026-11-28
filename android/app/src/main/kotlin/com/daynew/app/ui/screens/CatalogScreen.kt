@@ -2,6 +2,7 @@ package com.daynew.app.ui.screens
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -12,6 +13,8 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,8 +25,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListLayoutInfo
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
@@ -32,21 +39,37 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import com.daynew.app.ui.components.DayNewIcons
 import com.daynew.app.ui.components.ScheduleCard
 import com.daynew.app.ui.components.parseHexColor
@@ -61,6 +84,7 @@ import com.daynew.app.ui.main.TagPageSection
 import com.daynew.app.ui.theme.LocalNordPalette
 import com.daynew.app.ui.theme.NordMotion
 import com.daynew.app.ui.theme.nordClickable
+import com.daynew.app.ui.theme.rememberDayNewHaptics
 import java.time.LocalDate
 
 @Composable
@@ -160,10 +184,41 @@ fun DeadlinesScreen(
                         card = card,
                         onToggleDone = { onToggleDone(card.id) },
                         onClick = { onCardClick(card.id) },
+                        modifier = Modifier.animateItem(
+                            fadeInSpec = tween(150, easing = NordMotion.Enter),
+                            placementSpec = tween(180, easing = NordMotion.Standard),
+                            fadeOutSpec = tween(140, easing = NordMotion.Leave),
+                        ),
                     )
                 }
             }
         }
+    }
+}
+
+@Stable
+private class FutureDragState {
+    var draggingCard by mutableStateOf<ScheduleCardUi?>(null)
+    var sourceIndex by mutableIntStateOf(-1)
+    var pointerInRoot by mutableStateOf(Offset.Zero)
+    var grabOffsetInCard by mutableStateOf(Offset.Zero)
+    var cardSize by mutableStateOf(IntSize.Zero)
+    var targetInsertIndex by mutableIntStateOf(-1)
+    var rootOriginInRoot by mutableStateOf(Offset.Zero)
+
+    val cardBaseRects = HashMap<String, Rect>()
+    var listViewportRect: Rect? = null
+
+    val isDragging: Boolean
+        get() = draggingCard != null
+
+    fun reset() {
+        draggingCard = null
+        sourceIndex = -1
+        pointerInRoot = Offset.Zero
+        grabOffsetInCard = Offset.Zero
+        cardSize = IntSize.Zero
+        targetInsertIndex = -1
     }
 }
 
@@ -173,46 +228,267 @@ fun FutureScreen(
     onToggleDone: (String) -> Unit,
     onCardClick: (String) -> Unit,
     onMoveToDate: (String, LocalDate?) -> Unit,
+    onReorderSchedule: (String, Int) -> Unit = { _, _ -> },
 ) {
     val today = remember { LocalDate.now() }
     val tomorrow = remember(today) { today.plusDays(1) }
+    val density = LocalDensity.current
+    val haptics = rememberDayNewHaptics()
+    val dragState = remember { FutureDragState() }
+    val listState = rememberLazyListState()
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        if (schedules.isEmpty()) {
-            item { EmptyPlaceholder("暂无不定日期事项，点右下角「+」可先收进未来事项稍后再排期。") }
-        } else {
-            items(schedules, key = { it.id }) { card ->
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    ScheduleCard(
-                        card = card,
-                        onToggleDone = { onToggleDone(card.id) },
-                        onClick = { onCardClick(card.id) },
+    val latestSchedules by rememberUpdatedState(schedules)
+    val latestOnReorder by rememberUpdatedState(onReorderSchedule)
+
+    val itemSpacingPx = with(density) { 10.dp.toPx() }
+    val edgeZonePx = with(density) { 64.dp.toPx() }
+    val maxAutoScrollStepPx = with(density) { 14.dp.toPx() }
+
+    LaunchedEffect(dragState.isDragging) {
+        if (!dragState.isDragging) return@LaunchedEffect
+        while (dragState.isDragging) {
+            withFrameNanos { }
+            val viewport = dragState.listViewportRect ?: continue
+            val pointerY = dragState.pointerInRoot.y
+            val delta = when {
+                pointerY < viewport.top + edgeZonePx -> {
+                    val ratio = ((viewport.top + edgeZonePx - pointerY) / edgeZonePx).coerceIn(0.2f, 1.5f)
+                    -maxAutoScrollStepPx * ratio
+                }
+                pointerY > viewport.bottom - edgeZonePx -> {
+                    val ratio = ((pointerY - (viewport.bottom - edgeZonePx)) / edgeZonePx).coerceIn(0.2f, 1.5f)
+                    maxAutoScrollStepPx * ratio
+                }
+                else -> 0f
+            }
+            if (delta != 0f) {
+                val scrolled = listState.scrollBy(delta)
+                if (scrolled != 0f) {
+                    dragState.targetInsertIndex = computeFutureInsertIndexFromLayout(
+                        pointerY = dragState.pointerInRoot.y,
+                        cards = latestSchedules,
+                        sourceIndex = dragState.sourceIndex,
+                        layoutInfo = listState.layoutInfo,
+                        cardBaseRects = dragState.cardBaseRects,
                     )
-                    if (!card.dto.done) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                }
+            }
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .onGloballyPositioned { coords ->
+                dragState.rootOriginInRoot = coords.positionInRoot()
+            }
+            .pointerInput(Unit) {
+                detectDragGesturesAfterLongPress(
+                    onDragStart = { localOffset ->
+                        val list = latestSchedules
+                        val pointer = dragState.rootOriginInRoot + localOffset
+                        val hit = listState.layoutInfo.visibleItemsInfo.firstNotNullOfOrNull { vis ->
+                            val candidate = list.getOrNull(vis.index) ?: return@firstNotNullOfOrNull null
+                            val rect = dragState.cardBaseRects[candidate.id] ?: return@firstNotNullOfOrNull null
+                            if (rect.contains(pointer)) Triple(vis.index, candidate, rect) else null
+                        } ?: return@detectDragGesturesAfterLongPress
+
+                        val (startIdx, card, baseRect) = hit
+                        haptics.longPress()
+                        dragState.draggingCard = card
+                        dragState.sourceIndex = startIdx
+                        dragState.grabOffsetInCard = pointer - baseRect.topLeft
+                        dragState.cardSize = IntSize(
+                            baseRect.width.toInt(),
+                            baseRect.height.toInt(),
+                        )
+                        dragState.pointerInRoot = pointer
+                        dragState.targetInsertIndex = startIdx
+                    },
+                    onDrag = { change, dragAmount ->
+                        change.consume()
+                        if (!dragState.isDragging) return@detectDragGesturesAfterLongPress
+                        dragState.pointerInRoot += dragAmount
+                        val nextIdx = computeFutureInsertIndexFromLayout(
+                            pointerY = dragState.pointerInRoot.y,
+                            cards = latestSchedules,
+                            sourceIndex = dragState.sourceIndex,
+                            layoutInfo = listState.layoutInfo,
+                            cardBaseRects = dragState.cardBaseRects,
+                        )
+                        if (nextIdx != dragState.targetInsertIndex) {
+                            haptics.tick()
+                            dragState.targetInsertIndex = nextIdx
+                        }
+                    },
+                    onDragEnd = {
+                        val dragged = dragState.draggingCard
+                        val fromIdx = dragState.sourceIndex
+                        val insertIdx = dragState.targetInsertIndex
+                        dragState.reset()
+                        if (dragged != null && insertIdx >= 0 && insertIdx != fromIdx) {
+                            latestOnReorder(dragged.id, insertIdx)
+                        }
+                    },
+                    onDragCancel = {
+                        dragState.reset()
+                    },
+                )
+            },
+    ) {
+        LazyColumn(
+            state = listState,
+            modifier = Modifier
+                .fillMaxSize()
+                .onGloballyPositioned { coords ->
+                    dragState.listViewportRect = coords.boundsInRoot()
+                },
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            userScrollEnabled = !dragState.isDragging,
+        ) {
+            if (schedules.isEmpty()) {
+                item { EmptyPlaceholder("暂无不定日期事项，点右下角「+」可先收进未来事项稍后再排期。") }
+            } else {
+                itemsIndexed(schedules, key = { _, item -> item.id }) { index, card ->
+                    val isDraggedSource = dragState.isDragging && dragState.draggingCard?.id == card.id
+                    val shiftTargetPx = computeFutureGapShiftPx(
+                        dragState = dragState,
+                        itemIndex = index,
+                        totalCount = schedules.size,
+                        itemSpacingPx = itemSpacingPx,
+                    )
+                    val animatedShiftPx by animateFloatAsState(
+                        targetValue = shiftTargetPx,
+                        animationSpec = tween(durationMillis = 120, easing = NordMotion.Standard),
+                        label = "futureGapShift_${card.id}",
+                    )
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .animateItem(
+                                fadeInSpec = tween(150, easing = NordMotion.Enter),
+                                placementSpec = if (dragState.isDragging) null else tween(180, easing = NordMotion.Standard),
+                                fadeOutSpec = tween(140, easing = NordMotion.Leave),
+                            )
+                            .onGloballyPositioned { coords ->
+                                dragState.cardBaseRects[card.id] = coords.boundsInRoot()
+                            },
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .graphicsLayer {
+                                    translationY = if (isDraggedSource) 0f else animatedShiftPx
+                                    alpha = if (isDraggedSource) 0f else 1f
+                                },
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
-                            QuickMoveButton(
-                                label = "移到今天",
-                                modifier = Modifier.weight(1f),
-                                onClick = { onMoveToDate(card.id, today) },
+                            ScheduleCard(
+                                card = card,
+                                onToggleDone = { onToggleDone(card.id) },
+                                onClick = { onCardClick(card.id) },
                             )
-                            QuickMoveButton(
-                                label = "移到明天",
-                                modifier = Modifier.weight(1f),
-                                onClick = { onMoveToDate(card.id, tomorrow) },
-                            )
+                            if (!card.dto.done) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    QuickMoveButton(
+                                        label = "移到今天",
+                                        modifier = Modifier.weight(1f),
+                                        onClick = {
+                                            haptics.tap()
+                                            onMoveToDate(card.id, today)
+                                        },
+                                    )
+                                    QuickMoveButton(
+                                        label = "移到明天",
+                                        modifier = Modifier.weight(1f),
+                                        onClick = {
+                                            haptics.tap()
+                                            onMoveToDate(card.id, tomorrow)
+                                        },
+                                    )
+                                }
+                            }
                         }
                     }
                 }
             }
         }
+
+        val ghost = dragState.draggingCard
+        if (ghost != null) {
+            val ghostWidthDp = with(density) { dragState.cardSize.width.toDp() }
+            val tx = dragState.pointerInRoot.x - dragState.rootOriginInRoot.x - dragState.grabOffsetInCard.x
+            val ty = dragState.pointerInRoot.y - dragState.rootOriginInRoot.y - dragState.grabOffsetInCard.y
+
+            Box(
+                modifier = Modifier
+                    .zIndex(20f)
+                    .width(ghostWidthDp)
+                    .graphicsLayer {
+                        translationX = tx
+                        translationY = ty
+                        scaleX = 1.02f
+                        scaleY = 1.02f
+                        alpha = 0.96f
+                    },
+            ) {
+                ScheduleCard(
+                    card = ghost,
+                    onToggleDone = {},
+                    onClick = {},
+                    isDraggingGhost = true,
+                )
+            }
+        }
     }
+}
+
+private fun computeFutureInsertIndexFromLayout(
+    pointerY: Float,
+    cards: List<ScheduleCardUi>,
+    sourceIndex: Int,
+    layoutInfo: LazyListLayoutInfo,
+    cardBaseRects: Map<String, Rect>,
+): Int {
+    val maxSlot = (cards.size - 1).coerceAtLeast(0)
+    if (sourceIndex !in cards.indices) return -1
+    val visible = layoutInfo.visibleItemsInfo.filter { it.index in cards.indices && it.index != sourceIndex }
+    if (visible.isEmpty()) return sourceIndex.coerceIn(0, maxSlot)
+
+    for (vis in visible) {
+        val rect = cardBaseRects[cards[vis.index].id] ?: continue
+        if (pointerY <= rect.center.y) {
+            val slot = if (vis.index < sourceIndex) vis.index else vis.index - 1
+            return slot.coerceIn(0, maxSlot)
+        }
+    }
+    val lastIdx = visible.last().index
+    val afterLast = if (lastIdx < sourceIndex) lastIdx + 1 else lastIdx
+    return afterLast.coerceIn(0, maxSlot)
+}
+
+private fun computeFutureGapShiftPx(
+    dragState: FutureDragState,
+    itemIndex: Int,
+    totalCount: Int,
+    itemSpacingPx: Float,
+): Float {
+    if (!dragState.isDragging) return 0f
+    val sourceIdx = dragState.sourceIndex
+    val insertIdx = dragState.targetInsertIndex
+    if (sourceIdx !in 0 until totalCount) return 0f
+    if (insertIdx !in 0 until totalCount) return 0f
+    if (itemIndex == sourceIdx) return 0f
+
+    val slotDelta = dragState.cardSize.height.toFloat() + itemSpacingPx
+    val logicalIdx = if (itemIndex < sourceIdx) itemIndex else itemIndex - 1
+    val targetVisualIdx = if (logicalIdx < insertIdx) logicalIdx else logicalIdx + 1
+    return (targetVisualIdx - itemIndex) * slotDelta
 }
 
 @Composable
@@ -250,6 +526,7 @@ fun EisenhowerScreen(
     onCardClick: (String) -> Unit,
 ) {
     val palette = LocalNordPalette.current
+    val haptics = rememberDayNewHaptics()
     var collapsedKinds by remember { mutableStateOf(setOf(EisenhowerKind.UNMARKED)) }
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -288,7 +565,10 @@ fun EisenhowerScreen(
                                         color = if (selected) palette.borderStrong else Color.Transparent,
                                         shape = RoundedCornerShape(10.dp),
                                     )
-                                    .clickable { onToggleNextThreeDaysOnly(onlyThreeDays) }
+                                    .clickable {
+                                        haptics.tap()
+                                        onToggleNextThreeDaysOnly(onlyThreeDays)
+                                    }
                                     .padding(horizontal = 8.dp, vertical = 7.dp),
                                 contentAlignment = Alignment.Center,
                             ) {
@@ -430,6 +710,7 @@ fun TagsHubScreen(
     onCreateLocation: () -> Unit,
 ) {
     val palette = LocalNordPalette.current
+    val haptics = rememberDayNewHaptics()
 
     Column(modifier = Modifier.fillMaxSize()) {
         // 顶部三段圆润胶囊切换条：标签 | 人物 | 地点
@@ -468,7 +749,10 @@ fun TagsHubScreen(
                                         color = if (selected) palette.borderStrong else Color.Transparent,
                                         shape = RoundedCornerShape(10.dp),
                                     )
-                                    .clickable { onSelectSection(section) }
+                                    .clickable {
+                                        haptics.tap()
+                                        onSelectSection(section)
+                                    }
                                     .padding(horizontal = 6.dp, vertical = 7.dp),
                                 contentAlignment = Alignment.Center,
                             ) {
@@ -489,17 +773,17 @@ fun TagsHubScreen(
 
         HorizontalDivider(thickness = 1.dp, color = palette.borderSubtle)
 
-        val sectionSlidePx = with(LocalDensity.current) { 16.dp.roundToPx() }
+        val sectionSlidePx = with(LocalDensity.current) { 8.dp.roundToPx() }
         AnimatedContent(
             targetState = selectedSection,
             transitionSpec = {
                 val forward = targetState.ordinal >= initialState.ordinal
                 val enterOffset = if (forward) sectionSlidePx else -sectionSlidePx
                 val exitOffset = if (forward) -sectionSlidePx else sectionSlidePx
-                (fadeIn(tween(140, easing = NordMotion.Enter)) +
-                    slideInHorizontally(tween(140, easing = NordMotion.Enter)) { enterOffset }) togetherWith
-                    (fadeOut(tween(90, easing = NordMotion.Leave)) +
-                        slideOutHorizontally(tween(90, easing = NordMotion.Leave)) { exitOffset })
+                (fadeIn(tween(90, easing = NordMotion.Enter)) +
+                    slideInHorizontally(tween(90, easing = NordMotion.Enter)) { enterOffset }) togetherWith
+                    (fadeOut(tween(60, easing = NordMotion.Leave)) +
+                        slideOutHorizontally(tween(60, easing = NordMotion.Leave)) { exitOffset })
             },
             label = "tagSectionTransition",
         ) { section ->

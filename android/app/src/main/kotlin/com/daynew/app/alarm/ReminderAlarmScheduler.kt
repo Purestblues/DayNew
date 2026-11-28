@@ -6,6 +6,8 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.PowerManager
+import android.util.Log
+import com.daynew.app.MainActivity
 import com.daynew.sync.DayNewJson
 import com.daynew.sync.StoreDto
 import kotlinx.serialization.builtins.ListSerializer
@@ -84,19 +86,61 @@ class ReminderAlarmScheduler(
         }
     }
 
+    fun scheduleTestBackgroundAlarm(delaySeconds: Long = 10L) {
+        synchronized(lock) {
+            val am = context.getSystemService(AlarmManager::class.java) ?: return
+            val triggerAt = nowProvider().plusSeconds(delaySeconds.coerceAtLeast(1L))
+            val triggerMillis = triggerAt.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+            val requestCode = ReminderTriggerPlanner.stableRequestCode("bgtest|$TEST_ALARM_SCHEDULE_ID")
+            val pending = buildAlarmPendingIntent(
+                requestCode = requestCode,
+                scheduleId = TEST_ALARM_SCHEDULE_ID,
+                title = "日新后台提醒测试",
+                content = "闹钟级唤醒正常：已于后台/息屏状态下准时触发",
+            )
+            schedulePlatformAlarm(am, triggerMillis, pending, canScheduleExactAlarms())
+        }
+    }
+
     private fun schedulePlatformAlarm(
         am: AlarmManager,
         triggerMillis: Long,
         pending: PendingIntent,
         exactAllowed: Boolean,
     ) {
-        runCatching {
-            if (exactAllowed) {
-                am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerMillis, pending)
-            } else {
-                am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerMillis, pending)
+        if (exactAllowed) {
+            try {
+                val info = AlarmManager.AlarmClockInfo(triggerMillis, buildShowActivityPendingIntent())
+                am.setAlarmClock(info, pending)
+                return
+            } catch (e: SecurityException) {
+                Log.w("DayNewAlarm", "setAlarmClock denied, falling back to setAndAllowWhileIdle", e)
+            } catch (t: Throwable) {
+                Log.w("DayNewAlarm", "setAlarmClock failed, falling back to setAndAllowWhileIdle", t)
             }
         }
+        try {
+            am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerMillis, pending)
+        } catch (t: Throwable) {
+            Log.e("DayNewAlarm", "Failed to schedule fallback alarm", t)
+        }
+    }
+
+    private fun buildShowActivityPendingIntent(): PendingIntent {
+        val intent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        return PendingIntent.getActivity(
+            context,
+            SHOW_ACTIVITY_REQUEST_CODE,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+    }
+
+    companion object {
+        const val TEST_ALARM_SCHEDULE_ID = "__bg_test__"
+        private const val SHOW_ACTIVITY_REQUEST_CODE = 0x5A10
     }
 
     private fun cancelPreviousAlarms(am: AlarmManager) {

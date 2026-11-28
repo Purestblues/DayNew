@@ -11,8 +11,8 @@ android {
     applicationId = "com.daynew.app"
     minSdk = 29
     targetSdk = 35
-    versionCode = 3
-    versionName = "0.14.0"
+    versionCode = 4
+    versionName = "1.0.0"
   }
 
   buildTypes {

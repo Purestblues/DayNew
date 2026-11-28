@@ -11,6 +11,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -41,8 +42,10 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -59,6 +62,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -73,7 +77,9 @@ import com.daynew.app.ui.components.DayNewIcons
 import com.daynew.app.ui.components.ScheduleCard
 import com.daynew.app.ui.components.parseHexColor
 import com.daynew.app.ui.main.DayTimelineUi
+import com.daynew.app.ui.main.TimelineBlockUi
 import com.daynew.app.ui.theme.LocalNordPalette
+import com.daynew.app.ui.theme.rememberDayNewHaptics
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -86,6 +92,7 @@ import java.time.LocalTime
 import java.time.temporal.ChronoUnit
 import java.util.Locale
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 private val HourRowHeight = 56.dp
 private val TimeAxisWidth = 44.dp
@@ -94,6 +101,33 @@ private val DayHeaderHeight = 54.dp
 private const val DefaultStartHour = 8
 private const val TimelineTotalDays = 20001
 private const val TimelineCenterIndex = 10000
+
+@Stable
+private class TimelineBlockDragState {
+    var draggingBlock by mutableStateOf<TimelineBlockUi?>(null)
+    var sourceDate by mutableStateOf<LocalDate?>(null)
+    var targetDate by mutableStateOf<LocalDate?>(null)
+    var durationMinutes by mutableIntStateOf(60)
+    var previewStartMinutes by mutableIntStateOf(0)
+    var accumulatedDrag by mutableStateOf(Offset.Zero)
+
+    val isDragging: Boolean
+        get() = draggingBlock != null
+
+    fun reset() {
+        draggingBlock = null
+        sourceDate = null
+        targetDate = null
+        durationMinutes = 60
+        previewStartMinutes = 0
+        accumulatedDrag = Offset.Zero
+    }
+}
+
+private fun formatMinutesClock(minutes: Int): String {
+    val clamped = minutes.coerceIn(0, 24 * 60 - 1)
+    return "%02d:%02d".format(Locale.ROOT, clamped / 60, clamped % 60)
+}
 
 private fun shortWeekdayName(dayOfWeek: DayOfWeek): String = when (dayOfWeek) {
     DayOfWeek.MONDAY -> "周一"
@@ -112,6 +146,7 @@ fun TimelineScreen(
     datesWithItems: Set<LocalDate>,
     onSelectDate: (LocalDate) -> Unit,
     onCreateAtHour: (LocalDate, Int) -> Unit,
+    onRescheduleBlock: (String, LocalDate, Int) -> Unit = { _, _, _ -> },
     onToggleDone: (String) -> Unit,
     onCardClick: (String) -> Unit,
     onVerticalScrollDelta: (Float) -> Unit = {},
@@ -120,12 +155,17 @@ fun TimelineScreen(
     bottomChromeMaxHeightDp: Dp = 0.dp,
 ) {
     val palette = LocalNordPalette.current
+    val haptics = rememberDayNewHaptics()
     val today = remember { LocalDate.now() }
     val nowMinutes = remember {
         val t = LocalTime.now()
         t.hour * 60 + t.minute
     }
     val density = LocalDensity.current
+    val context = LocalContext.current
+    val viewConfig = remember(context) { android.view.ViewConfiguration.get(context) }
+    val minFlingVelocityPx = viewConfig.scaledMinimumFlingVelocity.toFloat().coerceAtLeast(50f)
+    val maxFlingVelocityPx = viewConfig.scaledMaximumFlingVelocity.toFloat().coerceAtLeast(4000f)
     val coroutineScope = rememberCoroutineScope()
     val flingDecay = rememberSplineBasedDecay<Float>()
 
@@ -146,10 +186,12 @@ fun TimelineScreen(
     var expandedAllDayDate by remember { mutableStateOf<LocalDate?>(null) }
     var isPanningOrFlinging by remember { mutableStateOf(false) }
     var activeFlingJob by remember { mutableStateOf<Job?>(null) }
+    val blockDragState = remember { TimelineBlockDragState() }
 
     val currentOnSelectDate by rememberUpdatedState(onSelectDate)
     val currentSelectedDate by rememberUpdatedState(selectedDate)
     val currentOnVerticalScrollDelta by rememberUpdatedState(onVerticalScrollDelta)
+    val currentOnRescheduleBlock by rememberUpdatedState(onRescheduleBlock)
 
     // 仅在全向滑动/惯性彻底停稳后同步首列日期给 ViewModel，避免滑动期间触发全局重组
     LaunchedEffect(daysListState, anchorDate) {
@@ -186,7 +228,7 @@ fun TimelineScreen(
                         .background(palette.surface0),
                 )
 
-                // 右侧全向自由滑动多日时间表：外层静止视口承载二维手势，内层承载纵向滚动内容，避免坐标系随滚动平移导致垂直抖动
+                // 右侧全向自由滑动多日时间表：过 touchSlop 即支持任意斜向拖动 + 双轴独立惯性，同时给长按时间块让位
                 Box(
                     modifier = Modifier
                         .weight(1f)
@@ -207,6 +249,9 @@ fun TimelineScreen(
                                 while (true) {
                                     val event = awaitPointerEvent()
                                     val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                    if (blockDragState.isDragging || change.isConsumed) {
+                                        break
+                                    }
                                     if (!change.pressed) {
                                         velocityTracker.addPosition(change.uptimeMillis, change.position)
                                         break
@@ -215,7 +260,7 @@ fun TimelineScreen(
                                     val delta = change.positionChange()
                                     if (!passedSlop) {
                                         totalDrag += delta
-                                        if (totalDrag.getDistance() > touchSlop) {
+                                        if (totalDrag.getDistance() > touchSlop && !blockDragState.isDragging) {
                                             passedSlop = true
                                             isPanningOrFlinging = true
                                             change.consume()
@@ -242,16 +287,18 @@ fun TimelineScreen(
                                 }
 
                                 if (passedSlop) {
-                                    val velocity = velocityTracker.calculateVelocity()
+                                    val rawVelocity = velocityTracker.calculateVelocity()
+                                    val vx = rawVelocity.x.coerceIn(-maxFlingVelocityPx, maxFlingVelocityPx)
+                                    val vy = rawVelocity.y.coerceIn(-maxFlingVelocityPx, maxFlingVelocityPx)
                                     activeFlingJob = coroutineScope.launch {
                                         try {
                                             coroutineScope {
-                                                if (abs(velocity.x) > 50f) {
+                                                if (abs(vx) > minFlingVelocityPx) {
                                                     launch {
                                                         var prev = 0f
                                                         AnimationState(
                                                             initialValue = 0f,
-                                                            initialVelocity = -velocity.x,
+                                                            initialVelocity = -vx,
                                                         ).animateDecay(flingDecay) {
                                                             val step = value - prev
                                                             prev = value
@@ -262,12 +309,12 @@ fun TimelineScreen(
                                                         }
                                                     }
                                                 }
-                                                if (abs(velocity.y) > 50f) {
+                                                if (abs(vy) > minFlingVelocityPx) {
                                                     launch {
                                                         var prev = 0f
                                                         AnimationState(
                                                             initialValue = 0f,
-                                                            initialVelocity = -velocity.y,
+                                                            initialVelocity = -vy,
                                                         ).animateDecay(flingDecay) {
                                                             val step = value - prev
                                                             prev = value
@@ -328,6 +375,17 @@ fun TimelineScreen(
                                     },
                                     onCreateAtHour = onCreateAtHour,
                                     onCardClick = onCardClick,
+                                    blockDragState = blockDragState,
+                                    onCancelPanFling = {
+                                        activeFlingJob?.cancel()
+                                        activeFlingJob = null
+                                        isPanningOrFlinging = false
+                                    },
+                                    onCommitBlockDrag = { id, destDate, startMin ->
+                                        currentOnRescheduleBlock(id, destDate, startMin)
+                                    },
+                                    onDragStartHaptic = { haptics.longPress() },
+                                    onDragSnapHaptic = { haptics.tick() },
                                 )
                             }
                         }
@@ -371,10 +429,19 @@ fun TimelineScreen(
                         coroutineScope.launch { daysListState.animateScrollToItem(target) }
                     },
                     onToday = {
+                        haptics.tap()
                         activeFlingJob?.cancel()
                         activeFlingJob = null
                         isPanningOrFlinging = false
-                        coroutineScope.launch { daysListState.animateScrollToItem(TimelineCenterIndex) }
+                        val nowTime = LocalTime.now()
+                        val targetMin = (nowTime.hour * 60 + nowTime.minute - 90).coerceAtLeast(0)
+                        val targetScrollPx = ((targetMin / 60f) * hourRowHeightPx)
+                            .roundToInt()
+                            .coerceIn(0, verticalScrollState.maxValue)
+                        coroutineScope.launch {
+                            launch { daysListState.animateScrollToItem(TimelineCenterIndex) }
+                            launch { verticalScrollState.animateScrollTo(targetScrollPx) }
+                        }
                     },
                     onNextDay = {
                         activeFlingJob?.cancel()
@@ -508,7 +575,7 @@ private fun TimelineTopNavBar(
                     .padding(horizontal = 7.dp, vertical = 2.dp),
             ) {
                 Text(
-                    text = if (isAtToday) "今天起" else "回今天",
+                    text = if (isAtToday) "今日今时" else "回到今日今时",
                     color = palette.accent,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.SemiBold,
@@ -625,8 +692,15 @@ private fun TimelineDayColumn(
     onToggleAllDay: () -> Unit,
     onCreateAtHour: (LocalDate, Int) -> Unit,
     onCardClick: (String) -> Unit,
+    blockDragState: TimelineBlockDragState,
+    onCancelPanFling: () -> Unit,
+    onCommitBlockDrag: (String, LocalDate, Int) -> Unit,
+    onDragStartHaptic: () -> Unit,
+    onDragSnapHaptic: () -> Unit,
 ) {
     val palette = LocalNordPalette.current
+    val density = LocalDensity.current
+    val dayColumnWidthPx = with(density) { dayColumnWidth.toPx() }.coerceAtLeast(1f)
     val allDayCount = dayData.allDaySchedules.size
     val dow = shortWeekdayName(date.dayOfWeek)
     val currentOnCreateAtHour by rememberUpdatedState(onCreateAtHour)
@@ -674,9 +748,12 @@ private fun TimelineDayColumn(
                     },
             )
 
-            // 日程时间块（支持重叠并排分列）
+            // 日程时间块（支持重叠并排分列 + 长按拖动调整时段/跨天）
             val blockUsableWidth = (dayColumnWidth - 4.dp).coerceAtLeast(36.dp)
             dayData.blocks.forEach { block ->
+                val isDraggedSource = blockDragState.isDragging &&
+                    blockDragState.draggingBlock?.card?.id == block.card.id &&
+                    blockDragState.sourceDate == date
                 val startY = (block.startMinutes / 60f) * HourRowHeight
                 val durationMin = (block.endMinutes - block.startMinutes).coerceAtLeast(24)
                 val blockHeight = ((durationMin / 60f) * HourRowHeight).coerceAtLeast(26.dp)
@@ -701,6 +778,57 @@ private fun TimelineDayColumn(
                             width = (colWidth - 2.dp).coerceAtLeast(22.dp),
                             height = blockHeight - 2.dp,
                         )
+                        .graphicsLayer { alpha = if (isDraggedSource) 0.25f else 1f }
+                        .pointerInput(block.card.id, date, hourRowHeightPx, dayColumnWidthPx) {
+                            detectDragGesturesAfterLongPress(
+                                onDragStart = {
+                                    onCancelPanFling()
+                                    onDragStartHaptic()
+                                    val duration = (block.endMinutes - block.startMinutes).coerceAtLeast(15)
+                                    blockDragState.draggingBlock = block
+                                    blockDragState.sourceDate = date
+                                    blockDragState.targetDate = date
+                                    blockDragState.durationMinutes = duration
+                                    blockDragState.previewStartMinutes = block.startMinutes
+                                    blockDragState.accumulatedDrag = Offset.Zero
+                                },
+                                onDrag = { change, dragAmount ->
+                                    change.consume()
+                                    if (!blockDragState.isDragging) return@detectDragGesturesAfterLongPress
+                                    val nextDrag = blockDragState.accumulatedDrag + dragAmount
+                                    blockDragState.accumulatedDrag = nextDrag
+                                    val deltaMin = (nextDrag.y / hourRowHeightPx * 60f).roundToInt()
+                                    val rawStart = block.startMinutes + deltaMin
+                                    val maxStart = (24 * 60 - blockDragState.durationMinutes).coerceAtLeast(0)
+                                    val snapped = (((rawStart + 7) / 15) * 15).coerceIn(0, maxStart)
+                                    val dayOffset = (nextDrag.x / dayColumnWidthPx).roundToInt()
+                                    val nextDate = date.plusDays(dayOffset.toLong())
+                                    if (snapped != blockDragState.previewStartMinutes ||
+                                        nextDate != blockDragState.targetDate
+                                    ) {
+                                        onDragSnapHaptic()
+                                        blockDragState.previewStartMinutes = snapped
+                                        blockDragState.targetDate = nextDate
+                                    }
+                                },
+                                onDragEnd = {
+                                    val id = blockDragState.draggingBlock?.card?.id
+                                    val destDate = blockDragState.targetDate
+                                    val startMin = blockDragState.previewStartMinutes
+                                    val origDate = blockDragState.sourceDate
+                                    val origStart = blockDragState.draggingBlock?.startMinutes
+                                    blockDragState.reset()
+                                    if (id != null && destDate != null &&
+                                        (destDate != origDate || startMin != origStart)
+                                    ) {
+                                        onCommitBlockDrag(id, destDate, startMin)
+                                    }
+                                },
+                                onDragCancel = {
+                                    blockDragState.reset()
+                                },
+                            )
+                        }
                         .clickable { onCardClick(block.card.id) },
                     shape = RoundedCornerShape(8.dp),
                     color = bgTint,
@@ -742,6 +870,59 @@ private fun TimelineDayColumn(
                                     overflow = TextOverflow.Ellipsis,
                                 )
                             }
+                        }
+                    }
+                }
+            }
+
+            val ghostBlock = blockDragState.draggingBlock
+            if (ghostBlock != null && blockDragState.targetDate == date) {
+                val previewStart = blockDragState.previewStartMinutes
+                val previewDuration = blockDragState.durationMinutes.coerceAtLeast(24)
+                val previewEnd = (previewStart + blockDragState.durationMinutes).coerceAtMost(24 * 60 - 1)
+                val ghostY = (previewStart / 60f) * HourRowHeight
+                val ghostHeight = ((previewDuration / 60f) * HourRowHeight).coerceAtLeast(26.dp)
+                val ghostTimeLabel = "${formatMinutesClock(previewStart)} - ${formatMinutesClock(previewEnd)}"
+
+                Surface(
+                    modifier = Modifier
+                        .offset(x = 2.dp, y = ghostY + 1.dp)
+                        .size(
+                            width = (blockUsableWidth - 2.dp).coerceAtLeast(22.dp),
+                            height = ghostHeight - 2.dp,
+                        )
+                        .zIndex(3f),
+                    shape = RoundedCornerShape(8.dp),
+                    color = palette.accent.copy(alpha = 0.24f),
+                    border = BorderStroke(1.5.dp, palette.accent),
+                    shadowElevation = 0.dp,
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 6.dp, vertical = 3.dp),
+                        verticalArrangement = Arrangement.spacedBy(1.dp),
+                    ) {
+                        Text(
+                            text = ghostBlock.card.dto.title,
+                            color = palette.textPrimary,
+                            fontSize = 11.5.sp,
+                            lineHeight = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        if (ghostHeight >= 38.dp) {
+                            Text(
+                                text = ghostTimeLabel,
+                                color = palette.accent,
+                                style = TextStyle(
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontFeatureSettings = "tnum",
+                                ),
+                                maxLines = 1,
+                            )
                         }
                     }
                 }

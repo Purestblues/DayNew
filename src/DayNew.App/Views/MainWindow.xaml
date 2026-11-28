@@ -5186,10 +5186,6 @@
                 </Border>
                 <TextBlock Text="日新" FontSize="13" FontWeight="SemiBold" Margin="9,0,0,0"
                            VerticalAlignment="Center" Foreground="{DynamicResource TextPrimary}"/>
-                <Border Background="{DynamicResource Surface3}" CornerRadius="4" Padding="6,1"
-                        Margin="8,0,0,0" VerticalAlignment="Center">
-                    <TextBlock Text="原型" FontSize="11" FontWeight="Medium" Foreground="{DynamicResource TextTertiary}"/>
-                </Border>
             </StackPanel>
 
             <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top">
@@ -5297,7 +5293,7 @@
                                            Visibility="{Binding IsDockExpanded, Converter={StaticResource BoolToVisible}}"/>
                             </Grid>
                         </Button>
-                        <TextBlock Text="{Binding AppVersion, StringFormat={}{0} 原型}"
+                        <TextBlock Text="{Binding AppVersion}"
                                    Style="{StaticResource Caption}" Margin="10,0,0,2"
                                    Foreground="{DynamicResource TextDisabled}"
                                    Visibility="{Binding IsDockExpanded, Converter={StaticResource BoolToVisible}}"/>

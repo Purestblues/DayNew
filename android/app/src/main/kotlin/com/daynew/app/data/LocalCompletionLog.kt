@@ -76,6 +76,22 @@ class LocalCompletionLog(private val dataDir: File) {
         merged.addedCount
     }
 
+    fun replaceAll(entries: List<CompletionEntry>) = synchronized(ioLock) {
+        dataDir.mkdirs()
+        val tmp = File(dataDir, "completions.ndjson.tmp")
+        val formatted = CompletionLogCodec.formatLines(entries)
+        FileOutputStream(tmp).use { out ->
+            out.write(formatted.toByteArray(StandardCharsets.UTF_8))
+            out.flush()
+            runCatching { out.fd.sync() }
+        }
+        java.nio.file.Files.move(
+            tmp.toPath(),
+            logFile.toPath(),
+            java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+        )
+    }
+
     companion object {
         private val AT_FORMATTER: DateTimeFormatter =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")

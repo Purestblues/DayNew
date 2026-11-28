@@ -11,7 +11,7 @@ using DayNew.Services;
 namespace DayNew.ViewModels;
 
 /// <summary>
-/// 主视图模型。原型阶段数据只存在内存里，但档位推导规则与正式版一致：
+/// 主视图模型。负责全库档位推导、时间轴与各视图投影：
 /// 档位不是字段，是 due 和今天的关系算出来的。
 /// </summary>
 public sealed class MainViewModel : ObservableObject

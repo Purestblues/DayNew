@@ -1,6 +1,7 @@
 package com.daynew.app.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -44,7 +45,9 @@ import com.daynew.app.ui.components.ScheduleCard
 import com.daynew.app.ui.components.parseHexColor
 import com.daynew.app.ui.main.GoalProgressUi
 import com.daynew.app.ui.theme.LocalNordPalette
+import com.daynew.app.ui.theme.NordMotion
 import com.daynew.app.ui.theme.nordClickable
+import com.daynew.app.ui.theme.rememberDayNewHaptics
 import com.daynew.sync.DeadlineRules
 import java.time.LocalDate
 
@@ -57,6 +60,7 @@ fun GoalsScreen(
     onScheduleClick: (String) -> Unit,
 ) {
     val palette = LocalNordPalette.current
+    val haptics = rememberDayNewHaptics()
     val today = remember { LocalDate.now() }
     var expandedGoalIds by remember { mutableStateOf<Set<String>>(emptySet()) }
 
@@ -94,6 +98,11 @@ fun GoalsScreen(
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .animateItem(
+                            fadeInSpec = tween(150, easing = NordMotion.Enter),
+                            placementSpec = tween(180, easing = NordMotion.Standard),
+                            fadeOutSpec = tween(140, easing = NordMotion.Leave),
+                        )
                         .clip(RoundedCornerShape(14.dp))
                         .nordClickable(pressedScale = 0.985f) {
                             expandedGoalIds = if (isExpanded) {
@@ -122,7 +131,10 @@ fun GoalsScreen(
                                 modifier = Modifier
                                     .size(48.dp)
                                     .clip(RoundedCornerShape(6.dp))
-                                    .nordClickable(pressedScale = 0.92f) { onToggleGoalCompleted(item.goal.id) },
+                                    .nordClickable(pressedScale = 0.92f) {
+                                        haptics.confirm()
+                                        onToggleGoalCompleted(item.goal.id)
+                                    },
                                 contentAlignment = Alignment.Center,
                             ) {
                                 Box(

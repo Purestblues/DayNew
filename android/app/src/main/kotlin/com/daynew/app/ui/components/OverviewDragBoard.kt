@@ -5,6 +5,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,6 +15,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListLayoutInfo
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -26,23 +29,21 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -52,6 +53,7 @@ import com.daynew.app.data.LaneKind
 import com.daynew.app.ui.main.ScheduleCardUi
 import com.daynew.app.ui.theme.LocalNordPalette
 import com.daynew.app.ui.theme.NordMotion
+import com.daynew.app.ui.theme.rememberDayNewHaptics
 
 @Stable
 private class OverviewDragState {
@@ -64,9 +66,11 @@ private class OverviewDragState {
     var hoveredLane by mutableStateOf<LaneKind?>(null)
     var targetInsertIndex by mutableIntStateOf(-1)
     var rootOriginInRoot by mutableStateOf(Offset.Zero)
+    var pagerOriginInRoot by mutableStateOf(Offset.Zero)
 
-    val laneRects = mutableStateMapOf<LaneKind, Rect>()
-    val cardBaseRects = mutableStateMapOf<String, Rect>()
+    val laneRects = HashMap<LaneKind, Rect>()
+    val cardBaseRects = HashMap<String, Rect>()
+    val listViewportRects = HashMap<LaneKind, Rect>()
 
     val isDragging: Boolean
         get() = draggingCard != null
@@ -101,7 +105,7 @@ fun OverviewDragBoard(
     modifier: Modifier = Modifier,
 ) {
     val palette = LocalNordPalette.current
-    val haptic = LocalHapticFeedback.current
+    val haptics = rememberDayNewHaptics()
     val density = LocalDensity.current
     val dragState = remember { OverviewDragState() }
 
@@ -109,11 +113,51 @@ fun OverviewDragBoard(
         initialPage = LaneKind.entries.indexOf(selectedLane).coerceAtLeast(0),
         pageCount = { LaneKind.entries.size },
     )
+    val listStates = remember { LaneKind.entries.associateWith { LazyListState() } }
 
     val latestSelectedLane by rememberUpdatedState(selectedLane)
     val latestLanes by rememberUpdatedState(lanes)
     val latestOnSelectLane by rememberUpdatedState(onSelectLane)
     val latestOnMoveSchedule by rememberUpdatedState(onMoveSchedule)
+
+    val edgeZonePx = with(density) { 64.dp.toPx() }
+    val maxAutoScrollStepPx = with(density) { 14.dp.toPx() }
+
+    LaunchedEffect(dragState.isDragging, dragState.sourceLane) {
+        if (!dragState.isDragging) return@LaunchedEffect
+        while (dragState.isDragging) {
+            withFrameNanos { }
+            if (dragState.hoveredLane != null) continue
+            val lane = dragState.sourceLane ?: continue
+            val viewport = dragState.listViewportRects[lane] ?: continue
+            val listState = listStates[lane] ?: continue
+            val pointerY = dragState.pointerInRoot.y
+            val delta = when {
+                pointerY < viewport.top + edgeZonePx -> {
+                    val ratio = ((viewport.top + edgeZonePx - pointerY) / edgeZonePx).coerceIn(0.2f, 1.5f)
+                    -maxAutoScrollStepPx * ratio
+                }
+                pointerY > viewport.bottom - edgeZonePx -> {
+                    val ratio = ((pointerY - (viewport.bottom - edgeZonePx)) / edgeZonePx).coerceIn(0.2f, 1.5f)
+                    maxAutoScrollStepPx * ratio
+                }
+                else -> 0f
+            }
+            if (delta != 0f) {
+                val scrolled = listState.scrollBy(delta)
+                if (scrolled != 0f) {
+                    val laneCards = latestLanes[lane].orEmpty()
+                    dragState.targetInsertIndex = computeTargetInsertIndexFromLayout(
+                        pointerY = dragState.pointerInRoot.y,
+                        cards = laneCards,
+                        sourceIndex = dragState.sourceIndex,
+                        layoutInfo = listState.layoutInfo,
+                        cardBaseRects = dragState.cardBaseRects,
+                    )
+                }
+            }
+        }
+    }
 
     LaunchedEffect(selectedLane) {
         val targetPage = LaneKind.entries.indexOf(selectedLane)
@@ -156,144 +200,174 @@ fun OverviewDragBoard(
             )
             HorizontalDivider(thickness = 1.dp, color = palette.borderSubtle)
 
-            HorizontalPager(
-                state = pagerState,
-                userScrollEnabled = !dragState.isDragging,
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f),
-            ) { page ->
-                val lane = LaneKind.entries[page]
-                val cards = lanes[lane].orEmpty()
+                    .weight(1f)
+                    .onGloballyPositioned { coords ->
+                        dragState.pagerOriginInRoot = coords.positionInRoot()
+                    }
+                    .pointerInput(Unit) {
+                        detectDragGesturesAfterLongPress(
+                            onDragStart = { localOffset ->
+                                val lane = latestSelectedLane
+                                val laneCards = latestLanes[lane].orEmpty()
+                                val listState = listStates[lane] ?: return@detectDragGesturesAfterLongPress
+                                val pointer = dragState.pagerOriginInRoot + localOffset
+                                val hit = listState.layoutInfo.visibleItemsInfo.firstNotNullOfOrNull { vis ->
+                                    val candidate = laneCards.getOrNull(vis.index) ?: return@firstNotNullOfOrNull null
+                                    val rect = dragState.cardBaseRects[candidate.id] ?: return@firstNotNullOfOrNull null
+                                    if (rect.contains(pointer)) Triple(vis.index, candidate, rect) else null
+                                } ?: return@detectDragGesturesAfterLongPress
 
-                if (cards.isEmpty()) {
-                    EmptyLanePlaceholder(lane = lane)
-                } else {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(
-                            start = 16.dp,
-                            end = 16.dp,
-                            top = 12.dp,
-                            bottom = 96.dp,
-                        ),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                        userScrollEnabled = !dragState.isDragging,
-                    ) {
-                        itemsIndexed(
-                            items = cards,
-                            key = { _, item -> item.id },
-                        ) { index, card ->
-                            val isDraggedSource =
-                                dragState.isDragging &&
-                                    dragState.draggingCard?.id == card.id &&
-                                    dragState.sourceLane == lane
-
-                            val shiftTargetPx = computeGapShiftPx(
-                                dragState = dragState,
-                                currentLane = lane,
-                                itemIndex = index,
-                                totalCount = cards.size,
-                                itemSpacingPx = itemSpacingPx,
-                            )
-
-                            val animatedShiftPx by animateFloatAsState(
-                                targetValue = shiftTargetPx,
-                                animationSpec = tween(durationMillis = 120, easing = NordMotion.Standard),
-                                label = "gapShift_${card.id}",
-                            )
-
-                            // 外层 Box 不做 translationY，专门用于测量稳定基准布局坐标，彻底杜绝开缝闪烁
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .onGloballyPositioned { coords ->
-                                        dragState.cardBaseRects[card.id] = coords.boundsInRoot()
-                                    }
-                                    .pointerInput(card.id, lane) {
-                                        detectDragGesturesAfterLongPress(
-                                            onDragStart = { localOffset ->
-                                                val laneCards = latestLanes[lane].orEmpty()
-                                                val startIndex = laneCards.indexOfFirst { it.id == card.id }
-                                                val baseRect = dragState.cardBaseRects[card.id]
-                                                if (startIndex >= 0 && baseRect != null) {
-                                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                    dragState.draggingCard = card
-                                                    dragState.sourceLane = lane
-                                                    dragState.sourceIndex = startIndex
-                                                    dragState.grabOffsetInCard = localOffset
-                                                    dragState.cardSize = IntSize(
-                                                        baseRect.width.toInt(),
-                                                        baseRect.height.toInt(),
-                                                    )
-                                                    dragState.pointerInRoot = baseRect.topLeft + localOffset
-                                                    dragState.hoveredLane = null
-                                                    dragState.targetInsertIndex = startIndex
-                                                }
-                                            },
-                                            onDrag = { change, dragAmount ->
-                                                change.consume()
-                                                if (!dragState.isDragging) return@detectDragGesturesAfterLongPress
-                                                dragState.pointerInRoot += dragAmount
-
-                                                val hitLane = findHitLane(
-                                                    pointerInRoot = dragState.pointerInRoot,
-                                                    laneRects = dragState.laneRects,
-                                                    marginPx = hitMarginPx,
-                                                )
-                                                if (hitLane != dragState.hoveredLane) {
-                                                    if (hitLane != null) {
-                                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                                    }
-                                                    dragState.hoveredLane = hitLane
-                                                }
-
-                                                if (hitLane != null) {
-                                                    dragState.targetInsertIndex = -1
-                                                } else {
-                                                    val laneCards = latestLanes[lane].orEmpty()
-                                                    dragState.targetInsertIndex = computeTargetInsertIndex(
-                                                        pointerY = dragState.pointerInRoot.y,
-                                                        cards = laneCards,
-                                                        sourceIndex = dragState.sourceIndex,
-                                                        cardBaseRects = dragState.cardBaseRects,
-                                                    )
-                                                }
-                                            },
-                                            onDragEnd = {
-                                                val dragged = dragState.draggingCard
-                                                val fromLane = dragState.sourceLane
-                                                val fromIdx = dragState.sourceIndex
-                                                val dropLane = dragState.hoveredLane
-                                                val insertIdx = dragState.targetInsertIndex
-                                                dragState.reset()
-
-                                                if (dragged != null && fromLane != null) {
-                                                    when {
-                                                        dropLane != null && dropLane != fromLane -> {
-                                                            latestOnMoveSchedule(dragged.id, dropLane, 0)
-                                                        }
-                                                        dropLane == null && insertIdx >= 0 && insertIdx != fromIdx -> {
-                                                            latestOnMoveSchedule(dragged.id, fromLane, insertIdx)
-                                                        }
-                                                    }
-                                                }
-                                            },
-                                            onDragCancel = {
-                                                dragState.reset()
-                                            },
-                                        )
-                                    },
-                            ) {
-                                ScheduleCard(
-                                    card = card,
-                                    onToggleDone = { onToggleDone(card.id) },
-                                    onClick = { onCardClick(card.id) },
-                                    modifier = Modifier.graphicsLayer {
-                                        translationY = if (isDraggedSource) 0f else animatedShiftPx
-                                        alpha = if (isDraggedSource) 0f else 1f
-                                    },
+                                val (startIndex, card, baseRect) = hit
+                                haptics.longPress()
+                                dragState.draggingCard = card
+                                dragState.sourceLane = lane
+                                dragState.sourceIndex = startIndex
+                                dragState.grabOffsetInCard = pointer - baseRect.topLeft
+                                dragState.cardSize = IntSize(
+                                    baseRect.width.toInt(),
+                                    baseRect.height.toInt(),
                                 )
+                                dragState.pointerInRoot = pointer
+                                dragState.hoveredLane = null
+                                dragState.targetInsertIndex = startIndex
+                            },
+                            onDrag = { change, dragAmount ->
+                                change.consume()
+                                if (!dragState.isDragging) return@detectDragGesturesAfterLongPress
+                                val lane = dragState.sourceLane ?: return@detectDragGesturesAfterLongPress
+                                dragState.pointerInRoot += dragAmount
+
+                                val hitLane = findHitLane(
+                                    pointerInRoot = dragState.pointerInRoot,
+                                    laneRects = dragState.laneRects,
+                                    marginPx = hitMarginPx,
+                                )
+                                if (hitLane != dragState.hoveredLane) {
+                                    if (hitLane != null) {
+                                        haptics.tick()
+                                    }
+                                    dragState.hoveredLane = hitLane
+                                }
+
+                                if (hitLane != null) {
+                                    dragState.targetInsertIndex = -1
+                                } else {
+                                    val laneCards = latestLanes[lane].orEmpty()
+                                    val listState = listStates[lane] ?: return@detectDragGesturesAfterLongPress
+                                    val nextInsert = computeTargetInsertIndexFromLayout(
+                                        pointerY = dragState.pointerInRoot.y,
+                                        cards = laneCards,
+                                        sourceIndex = dragState.sourceIndex,
+                                        layoutInfo = listState.layoutInfo,
+                                        cardBaseRects = dragState.cardBaseRects,
+                                    )
+                                    if (nextInsert != dragState.targetInsertIndex) {
+                                        haptics.tick()
+                                        dragState.targetInsertIndex = nextInsert
+                                    }
+                                }
+                            },
+                            onDragEnd = {
+                                val dragged = dragState.draggingCard
+                                val fromLane = dragState.sourceLane
+                                val fromIdx = dragState.sourceIndex
+                                val dropLane = dragState.hoveredLane
+                                val insertIdx = dragState.targetInsertIndex
+                                dragState.reset()
+
+                                if (dragged != null && fromLane != null) {
+                                    when {
+                                        dropLane != null && dropLane != fromLane -> {
+                                            latestOnMoveSchedule(dragged.id, dropLane, 0)
+                                        }
+                                        dropLane == null && insertIdx >= 0 && insertIdx != fromIdx -> {
+                                            latestOnMoveSchedule(dragged.id, fromLane, insertIdx)
+                                        }
+                                    }
+                                }
+                            },
+                            onDragCancel = {
+                                dragState.reset()
+                            },
+                        )
+                    },
+            ) {
+                HorizontalPager(
+                    state = pagerState,
+                    userScrollEnabled = !dragState.isDragging,
+                    modifier = Modifier.fillMaxSize(),
+                ) { page ->
+                    val lane = LaneKind.entries[page]
+                    val cards = lanes[lane].orEmpty()
+
+                    if (cards.isEmpty()) {
+                        EmptyLanePlaceholder(lane = lane)
+                    } else {
+                        LazyColumn(
+                            state = listStates.getValue(lane),
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .onGloballyPositioned { coords ->
+                                    dragState.listViewportRects[lane] = coords.boundsInRoot()
+                                },
+                            contentPadding = PaddingValues(
+                                start = 16.dp,
+                                end = 16.dp,
+                                top = 12.dp,
+                                bottom = 96.dp,
+                            ),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            userScrollEnabled = !dragState.isDragging,
+                        ) {
+                            itemsIndexed(
+                                items = cards,
+                                key = { _, item -> item.id },
+                            ) { index, card ->
+                                val isDraggedSource =
+                                    dragState.isDragging &&
+                                        dragState.draggingCard?.id == card.id &&
+                                        dragState.sourceLane == lane
+
+                                val shiftTargetPx = computeGapShiftPx(
+                                    dragState = dragState,
+                                    currentLane = lane,
+                                    itemIndex = index,
+                                    totalCount = cards.size,
+                                    itemSpacingPx = itemSpacingPx,
+                                )
+
+                                val animatedShiftPx by animateFloatAsState(
+                                    targetValue = shiftTargetPx,
+                                    animationSpec = tween(durationMillis = 120, easing = NordMotion.Standard),
+                                    label = "gapShift_${card.id}",
+                                )
+
+                                // 外层 Box 不做 translationY，专门用于测量稳定基准布局坐标，彻底杜绝开缝闪烁
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .animateItem(
+                                            fadeInSpec = tween(150, easing = NordMotion.Enter),
+                                            placementSpec = if (dragState.isDragging) null else tween(180, easing = NordMotion.Standard),
+                                            fadeOutSpec = tween(140, easing = NordMotion.Leave),
+                                        )
+                                        .onGloballyPositioned { coords ->
+                                            dragState.cardBaseRects[card.id] = coords.boundsInRoot()
+                                        },
+                                ) {
+                                    ScheduleCard(
+                                        card = card,
+                                        onToggleDone = { onToggleDone(card.id) },
+                                        onClick = { onCardClick(card.id) },
+                                        modifier = Modifier.graphicsLayer {
+                                            translationY = if (isDraggedSource) 0f else animatedShiftPx
+                                            alpha = if (isDraggedSource) 0f else 1f
+                                        },
+                                    )
+                                }
                             }
                         }
                     }
@@ -385,22 +459,28 @@ private fun findHitLane(
     return null
 }
 
-private fun computeTargetInsertIndex(
+private fun computeTargetInsertIndexFromLayout(
     pointerY: Float,
     cards: List<ScheduleCardUi>,
     sourceIndex: Int,
+    layoutInfo: LazyListLayoutInfo,
     cardBaseRects: Map<String, Rect>,
 ): Int {
+    val maxSlot = (cards.size - 1).coerceAtLeast(0)
     if (sourceIndex !in cards.indices) return -1
-    var insertPos = 0
-    for (i in cards.indices) {
-        if (i == sourceIndex) continue
-        val rect = cardBaseRects[cards[i].id] ?: continue
-        if (pointerY > rect.center.y) {
-            insertPos++
+    val visible = layoutInfo.visibleItemsInfo.filter { it.index in cards.indices && it.index != sourceIndex }
+    if (visible.isEmpty()) return sourceIndex.coerceIn(0, maxSlot)
+
+    for (vis in visible) {
+        val rect = cardBaseRects[cards[vis.index].id] ?: continue
+        if (pointerY <= rect.center.y) {
+            val slot = if (vis.index < sourceIndex) vis.index else vis.index - 1
+            return slot.coerceIn(0, maxSlot)
         }
     }
-    return insertPos.coerceIn(0, (cards.size - 1).coerceAtLeast(0))
+    val lastIdx = visible.last().index
+    val afterLast = if (lastIdx < sourceIndex) lastIdx + 1 else lastIdx
+    return afterLast.coerceIn(0, maxSlot)
 }
 
 private fun computeGapShiftPx(

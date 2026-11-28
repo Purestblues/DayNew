@@ -1,5 +1,13 @@
 package com.daynew.app.ui.components
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -22,6 +30,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -37,7 +46,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.daynew.app.ui.main.ScheduleCardUi
 import com.daynew.app.ui.theme.LocalNordPalette
+import com.daynew.app.ui.theme.NordMotion
 import com.daynew.app.ui.theme.nordClickable
+import com.daynew.app.ui.theme.rememberDayNewHaptics
 
 fun parseHexColor(hex: String?, fallback: Color): Color {
     if (hex.isNullOrBlank()) return fallback
@@ -62,6 +73,7 @@ fun ScheduleCard(
     isDraggingGhost: Boolean = false,
 ) {
     val palette = LocalNordPalette.current
+    val haptics = rememberDayNewHaptics()
     val borderColor = when {
         isDraggingGhost -> palette.accent
         card.isOverdue && !card.dto.done -> palette.danger.copy(alpha = 0.55f)
@@ -94,15 +106,26 @@ fun ScheduleCard(
                     .nordClickable(
                         pressedScale = 0.92f,
                         role = Role.Checkbox,
-                        onClick = onToggleDone,
+                        onClick = {
+                            haptics.confirm()
+                            onToggleDone()
+                        },
                     )
                     .semantics {
                         contentDescription = if (card.dto.done) "取消完成 ${card.dto.title}" else "完成 ${card.dto.title}"
                     },
                 contentAlignment = Alignment.Center,
             ) {
-                val checkBg = if (card.dto.done) palette.success else Color.Transparent
-                val checkBorder = if (card.dto.done) palette.success else palette.borderStrong
+                val checkBg by animateColorAsState(
+                    targetValue = if (card.dto.done) palette.success else Color.Transparent,
+                    animationSpec = tween(durationMillis = 140, easing = NordMotion.Standard),
+                    label = "cardCheckBg",
+                )
+                val checkBorder by animateColorAsState(
+                    targetValue = if (card.dto.done) palette.success else palette.borderStrong,
+                    animationSpec = tween(durationMillis = 140, easing = NordMotion.Standard),
+                    label = "cardCheckBorder",
+                )
                 Box(
                     modifier = Modifier
                         .size(20.dp)
@@ -111,7 +134,13 @@ fun ScheduleCard(
                         .border(1.5.dp, checkBorder, RoundedCornerShape(6.dp)),
                     contentAlignment = Alignment.Center,
                 ) {
-                    if (card.dto.done) {
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = card.dto.done,
+                        enter = fadeIn(tween(110, easing = NordMotion.Enter)) +
+                            scaleIn(initialScale = 0.65f, animationSpec = tween(110, easing = NordMotion.Enter)),
+                        exit = fadeOut(tween(90, easing = NordMotion.Leave)) +
+                            scaleOut(targetScale = 0.65f, animationSpec = tween(90, easing = NordMotion.Leave)),
+                    ) {
                         Icon(
                             imageVector = DayNewIcons.Check,
                             contentDescription = null,
@@ -125,7 +154,8 @@ fun ScheduleCard(
             Column(
                 modifier = Modifier
                     .weight(1f)
-                    .padding(top = 6.dp),
+                    .padding(top = 6.dp)
+                    .animateContentSize(tween(durationMillis = 150, easing = NordMotion.Standard)),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 Row(

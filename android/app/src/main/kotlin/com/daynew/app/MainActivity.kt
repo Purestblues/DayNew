@@ -12,6 +12,7 @@ import com.daynew.app.sync.SyncWorkScheduler
 import com.daynew.app.ui.main.BottomTab
 import com.daynew.app.ui.main.DayNewAppScreen
 import com.daynew.app.ui.main.MainScreenViewModel
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private val app: DayNewApplication
@@ -28,6 +29,7 @@ class MainActivity : ComponentActivity() {
                 repository = app.repository,
                 syncCoordinator = app.syncCoordinator,
                 alarmScheduler = app.alarmScheduler,
+                uiPreferences = app.uiPreferences,
             ),
         )[MainScreenViewModel::class.java]
 
@@ -40,9 +42,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        viewModel.refreshPermissionsState()
-        if (app.syncPreferences.currentConfig().autoSyncEnabled && app.syncPreferences.isConfigured()) {
-            SyncWorkScheduler.enqueueDebounced(this, delaySeconds = 0L)
+        app.appScope.launch {
+            viewModel.refreshPermissionsState()
+            if (app.syncPreferences.currentConfig().autoSyncEnabled && app.syncPreferences.isConfigured()) {
+                SyncWorkScheduler.enqueueDebounced(this@MainActivity, delaySeconds = 0L)
+            }
         }
     }
 

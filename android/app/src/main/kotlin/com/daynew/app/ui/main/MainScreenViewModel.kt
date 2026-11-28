@@ -4,8 +4,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.daynew.app.alarm.ReminderAlarmScheduler
+import com.daynew.app.data.DataTransferService
 import com.daynew.app.data.DayNewRepository
 import com.daynew.app.data.GoalDraft
+import com.daynew.app.data.ImportPackagePreview
 import com.daynew.app.data.LaneKind
 import com.daynew.app.data.LaneRules
 import com.daynew.app.data.LocationDraft
@@ -13,6 +15,7 @@ import com.daynew.app.data.PersonDraft
 import com.daynew.app.data.ScheduleDraft
 import com.daynew.app.data.TagDraft
 import com.daynew.app.data.TimelineBlockInput
+import com.daynew.app.data.UiPreferencesStore
 import com.daynew.app.data.computeTimelineOverlapLayout
 import com.daynew.app.sync.SyncCoordinator
 import com.daynew.app.sync.SyncExecutionResult
@@ -26,6 +29,7 @@ import com.daynew.sync.RepeatRules
 import com.daynew.sync.ScheduleDto
 import com.daynew.sync.StoreDto
 import com.daynew.sync.TagDto
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -33,6 +37,9 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.InputStream
+import java.io.OutputStream
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.format.TextStyle as JavaTextStyle
@@ -192,6 +199,7 @@ data class DayNewUiState(
     val syncStatus: SyncStatusUi = SyncStatusUi(),
     val exactAlarmAllowed: Boolean = true,
     val batteryOptimizationIgnored: Boolean = true,
+    val pendingImportPreview: ImportPackagePreview? = null,
 ) {
     val selectedBottomTab: BottomTab?
         get() = BottomTab.entries.firstOrNull { it.page == selectedPage }
@@ -201,6 +209,7 @@ class MainScreenViewModel(
     private val repository: DayNewRepository,
     private val syncCoordinator: SyncCoordinator? = null,
     private val alarmScheduler: ReminderAlarmScheduler? = null,
+    private val uiPreferences: UiPreferencesStore? = null,
     private val nowProvider: () -> LocalDateTime = { LocalDateTime.now() },
 ) : ViewModel() {
 
@@ -221,12 +230,14 @@ class MainScreenViewModel(
         val darkOverride: Boolean? = null,
         val exactAlarmAllowed: Boolean = true,
         val batteryOptimizationIgnored: Boolean = true,
+        val pendingImportPreview: ImportPackagePreview? = null,
     )
 
     private val controlsFlow = MutableStateFlow(
         UiControls(
             timelineDate = nowProvider().toLocalDate(),
             toast = repository.loadNotice?.let { ToastNotice(++toastSequence, it) },
+            darkOverride = uiPreferences?.getDarkThemeOverride(),
             exactAlarmAllowed = alarmScheduler?.canScheduleExactAlarms() ?: true,
             batteryOptimizationIgnored = alarmScheduler?.isIgnoringBatteryOptimizations() ?: true,
         )
@@ -290,6 +301,17 @@ class MainScreenViewModel(
         msg?.let(::showToast)
     }
 
+    fun reorderFutureSchedule(scheduleId: String, targetIndex: Int) {
+        repository.reorderFutureSchedule(scheduleId, targetIndex)
+    }
+
+    fun rescheduleTimelineBlock(scheduleId: String, targetDate: LocalDate, startMinutes: Int) {
+        val formatted = repository.rescheduleTimelineBlock(scheduleId, targetDate, startMinutes)
+        if (formatted != null) {
+            showToast("已调整至 $formatted")
+        }
+    }
+
     fun toggleDone(scheduleId: String) {
         val msg = repository.toggleDone(scheduleId, nowProvider())
         msg?.let(::showToast)
@@ -341,6 +363,7 @@ class MainScreenViewModel(
         controlsFlow.update {
             it.copy(
                 draft = ScheduleDraft(
+                    createTitle = "新建截止事项",
                     lane = LaneKind.TODAY,
                     initialLane = LaneKind.TODAY,
                     hasDueDate = true,
@@ -356,6 +379,7 @@ class MainScreenViewModel(
         controlsFlow.update {
             it.copy(
                 draft = ScheduleDraft(
+                    createTitle = "新建未来事项",
                     lane = LaneKind.LATER,
                     initialLane = LaneKind.LATER,
                     hasDueDate = false,
@@ -613,7 +637,14 @@ class MainScreenViewModel(
     }
 
     fun toggleTheme(currentlyDark: Boolean) {
-        controlsFlow.update { it.copy(darkOverride = !currentlyDark) }
+        val next = !currentlyDark
+        uiPreferences?.setDarkThemeOverride(next)
+        controlsFlow.update { it.copy(darkOverride = next) }
+    }
+
+    fun resetThemeToSystem() {
+        uiPreferences?.setDarkThemeOverride(null)
+        controlsFlow.update { it.copy(darkOverride = null) }
     }
 
     fun consumeToast(id: Long) {
@@ -670,6 +701,60 @@ class MainScreenViewModel(
 
     fun showToastMessage(message: String) {
         showToast(message)
+    }
+
+    fun exportDataToStream(openOutput: () -> OutputStream?) {
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val out = openOutput() ?: error("无法打开目标文件")
+                    out.use { DataTransferService.exportToStream(repository, it) }
+                }
+            }
+            result.onSuccess {
+                showToast("已导出全库备份与完成日志")
+            }.onFailure { err ->
+                showToast("导出失败：${err.message ?: err.javaClass.simpleName}")
+            }
+        }
+    }
+
+    fun inspectImportFromStream(fileName: String, openInput: () -> InputStream?) {
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val input = openInput() ?: error("无法读取所选文件")
+                    input.use { DataTransferService.inspectStream(fileName, it) }
+                }
+            }
+            result.onSuccess { preview ->
+                controlsFlow.update { it.copy(pendingImportPreview = preview) }
+            }.onFailure { err ->
+                showToast("解析失败：${err.message ?: err.javaClass.simpleName}")
+            }
+        }
+    }
+
+    fun dismissImportPreview() {
+        controlsFlow.update { it.copy(pendingImportPreview = null) }
+    }
+
+    fun confirmImport(merge: Boolean) {
+        val preview = controlsFlow.value.pendingImportPreview ?: return
+        controlsFlow.update { it.copy(pendingImportPreview = null) }
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    DataTransferService.applyImport(preview, merge = merge, repository = repository)
+                }
+            }
+            result.onSuccess { res ->
+                val modeLabel = if (merge) "按 ID 合并完成" else "覆盖导入完成"
+                showToast("$modeLabel（变更 ${res.mergedUpdatedCount} 项，旧数据已自动备份）")
+            }.onFailure { err ->
+                showToast("导入失败：${err.message ?: err.javaClass.simpleName}")
+            }
+        }
     }
 
     private fun showToast(message: String) {
@@ -833,7 +918,15 @@ class MainScreenViewModel(
         }
 
         val sortedLanes = laneBuckets.mapValues { (_, list) ->
-            list.sortedWith(compareBy<ScheduleCardUi> { it.dto.done }.thenBy { it.dto.order }.thenBy { it.id })
+            list.sortedWith(
+                compareBy<ScheduleCardUi> { it.dto.done }
+                    .thenBy { card ->
+                        DeadlineRules.tryParseClock(card.dto.start)?.let { it.hour * 60 + it.minute }
+                            ?: Int.MAX_VALUE
+                    }
+                    .thenBy { it.dto.order }
+                    .thenBy { it.id }
+            )
         }
         val pendingCounts = sortedLanes.mapValues { (_, list) -> list.count { !it.dto.done } }
 
@@ -942,6 +1035,7 @@ class MainScreenViewModel(
             syncStatus = syncStatus,
             exactAlarmAllowed = controls.exactAlarmAllowed,
             batteryOptimizationIgnored = controls.batteryOptimizationIgnored,
+            pendingImportPreview = controls.pendingImportPreview,
         )
     }
 
@@ -1031,6 +1125,7 @@ class MainScreenViewModel(
             repository: DayNewRepository,
             syncCoordinator: SyncCoordinator? = null,
             alarmScheduler: ReminderAlarmScheduler? = null,
+            uiPreferences: UiPreferencesStore? = null,
         ): ViewModelProvider.Factory =
             object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
@@ -1039,6 +1134,7 @@ class MainScreenViewModel(
                         repository = repository,
                         syncCoordinator = syncCoordinator,
                         alarmScheduler = alarmScheduler,
+                        uiPreferences = uiPreferences,
                     ) as T
                 }
             }

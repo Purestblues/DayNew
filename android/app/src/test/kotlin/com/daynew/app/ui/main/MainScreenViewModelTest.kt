@@ -252,4 +252,62 @@ class MainScreenViewModelTest {
         assertTrue("四天后未完成" in allPendingTitles)
         assertFalse("今天已完成" in allPendingTitles)
     }
+
+    @Test
+    fun overviewLane_sortsTimedSchedulesAscendingBeforeUntimedAndCompletedLast() {
+        val dir = tempFolder.newFolder("vm-overview-sort")
+        val repo = DayNewRepository(dir, nowProvider = { fixedNow }, debounceMs = 10L)
+        val today = fixedNow.toLocalDate()
+
+        val doneTimed = repo.upsertSchedule(
+            com.daynew.app.data.ScheduleDraft(
+                title = "已完成早会",
+                hasDueDate = true,
+                useExactDate = true,
+                dueDate = today,
+                startText = "08:00",
+                endText = "09:00",
+            ),
+            now = fixedNow,
+        )
+        repo.toggleDone(doneTimed.id, fixedNow)
+
+        repo.upsertSchedule(
+            com.daynew.app.data.ScheduleDraft(
+                title = "下午评审",
+                hasDueDate = true,
+                useExactDate = true,
+                dueDate = today,
+                startText = "16:30",
+                endText = "17:30",
+            ),
+            now = fixedNow,
+        )
+        repo.upsertSchedule(
+            com.daynew.app.data.ScheduleDraft(
+                title = "上午联调",
+                hasDueDate = true,
+                useExactDate = true,
+                dueDate = today,
+                startText = "09:30",
+                endText = "10:30",
+            ),
+            now = fixedNow,
+        )
+
+        val vm = MainScreenViewModel(repo, nowProvider = { fixedNow })
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        val titles = vm.uiState.value.lanes[LaneKind.TODAY].orEmpty().map { it.dto.title }
+        val morningIdx = titles.indexOf("上午联调")
+        val seedTimedIdx = titles.indexOf("走查竖屏五档位拖拽与开缝手势") // 14:00
+        val afternoonIdx = titles.indexOf("下午评审")
+        val untimedIdx = titles.indexOf("阅读 Jetpack Compose 手势与合成优化章节")
+        val doneIdx = titles.indexOf("已完成早会")
+
+        assertTrue(morningIdx in 0 until seedTimedIdx)
+        assertTrue(seedTimedIdx < afternoonIdx)
+        assertTrue(afternoonIdx < untimedIdx)
+        assertTrue(untimedIdx < doneIdx)
+    }
 }
